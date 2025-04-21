@@ -21,6 +21,8 @@ const mockImages = mockUrls.map((url, index) => ({
 // Define the post type based on your schema
 type Post = InferSelectModel<typeof posts>;
 
+export const dynamic = 'force-dynamic';
+
 export default async function HomePage() {
   let dbPosts: Post[] = [];
   
