@@ -6,7 +6,10 @@ import { Geist } from "next/font/google";
 import {
   ClerkProvider
 } from '@clerk/nextjs'
+import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
+import { extractRouterConfig } from "uploadthing/server";
 
+import { ourFileRouter } from "~/app/api/uploadthing/core";
 import TopNav from "./_components/topnav";
 
 export const metadata: Metadata = {
@@ -27,6 +30,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en" className={`${geist.variable}`}>
         <body className="flex flex-col min-h-screen gap-4">
+          <NextSSRPlugin routerConfig={extractRouterConfig(ourFileRouter)} />
           <TopNav />
           {children}
         </body>
