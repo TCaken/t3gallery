@@ -16,21 +16,14 @@ export default async function HomePage() {
 
   return (
     <main className="">
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold">Gallery in progress</h2>
-        {dbImages.length > 0 && (
-          <div className="mt-4">
-            <h3 className="text-xl">Images from database:</h3>
-            <ul>
-              {[...dbImages, ...dbImages, ...dbImages].map((image, index) => (
-                <div key={image.id + " " + index} className="flex flex-col w-48">
-                  <img src={image.url} alt={image.name}/>
-                  <div>{image.name}</div>
-                </div>
-              ))}
-            </ul>
+      <h3 className="text-xl">Images from database:</h3>
+      <div className="flex flex-wrap gap-4">
+        {[...dbImages, ...dbImages, ...dbImages].map((image, index) => (
+          <div key={image.id + " " + index} className="flex flex-col w-48">
+            <img src={image.url} alt={image.name}/>
+            <div>{image.name}</div>
           </div>
-        )}
+        ))}
       </div>
     </main>
   );
