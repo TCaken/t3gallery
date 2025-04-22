@@ -3,6 +3,9 @@ import "~/styles/globals.css";
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
 import Link from "next/link";
+import {
+  ClerkProvider
+} from '@clerk/nextjs'
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -15,7 +18,7 @@ const geist = Geist({
   variable: "--font-geist-sans",
 });
 
-function TopNav() {
+function TopNav() { 
   return (
     <nav className="flex justify-between items-center w-full p-4 text-xl font-semibold border-b">
       <div>
@@ -31,11 +34,13 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geist.variable}`}>
-      <body className="flex flex-col min-h-screen gap-4">
-        <TopNav />
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en" className={`${geist.variable}`}>
+        <body className="flex flex-col min-h-screen gap-4">
+          <TopNav />
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
