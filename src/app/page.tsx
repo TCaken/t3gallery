@@ -1,6 +1,7 @@
 import { db } from "~/server/db/index";
 import { images } from "~/server/db/schema";
 import type { InferSelectModel } from "drizzle-orm";
+import { SignedIn, SignedOut } from "@clerk/nextjs";
 
 // Define the post type based on your schema
 type Image = InferSelectModel<typeof images>;
@@ -16,8 +17,14 @@ export default async function HomePage() {
 
   return (
     <main className="">
-      <h3 className="text-xl">Images from database:</h3>
-      <div className="flex flex-wrap gap-4">
+      <SignedOut>
+        <div className="h-full w-full text-2xl flex justify-center items-center">
+          Please sign in above
+        </div>
+      </SignedOut>
+      <SignedIn>
+        <h3 className="text-xl">Images from database:</h3>
+        <div className="flex flex-wrap gap-4">
         {[...dbImages, ...dbImages, ...dbImages].map((image, index) => (
           <div key={image.id + " " + index} className="flex flex-col w-48">
             <img src={image.url} alt={image.name}/>
@@ -25,6 +32,7 @@ export default async function HomePage() {
           </div>
         ))}
       </div>
+      </SignedIn>
     </main>
   );
 }
