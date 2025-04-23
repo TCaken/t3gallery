@@ -1,18 +1,10 @@
-import { db } from "~/server/db/index";
-import { images } from "~/server/db/schema";
-import type { InferSelectModel } from "drizzle-orm";
+import { getMyImages } from "~/server/db/queries";
 import { SignedIn, SignedOut } from "@clerk/nextjs";
-
-// Define the post type based on your schema
-type Image = InferSelectModel<typeof images>;
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
-  const dbImages = await db.query.images.findMany({
-    orderBy: (model, { desc }) => desc(model.id),
-  }) as Image[];  
-  console.log("Database images:", dbImages);
+  const dbImages = await getMyImages();
 
 
   return (
@@ -30,7 +22,7 @@ export default async function HomePage() {
             <img src={image.url} alt={image.name}/>
             <div>{image.name}</div>
           </div>
-        ))}
+        ))} 
       </div>
       </SignedIn>
     </main>

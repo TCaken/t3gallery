@@ -1,14 +1,13 @@
 # T3 Gallery
 
 ## TODO
-
 - [x] Make it deployable
 - [x] Scaffold basic ui with mock data- 
 - [x] Tidy Up Build Process
 - [x] Connect with Database
 - [x] Attach UI to Database
 - [x] Add authentication (w/ clerk)
-- [ ] Add image upload
+- [x] Add image upload
 - [ ] 'taint' server only routes
 - [ ] Use Next/Image component
 - [ ] Error Management (w/ Sentry)
