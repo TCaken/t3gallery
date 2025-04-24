@@ -1,0 +1,437 @@
+'use server';
+
+import { db } from "~/server/db";
+import { leads, leadStatusEnum, leadTypeEnum, lead_notes } from "~/server/db/schema";
+import { auth } from "@clerk/nextjs/server";
+import { desc, eq, or } from "drizzle-orm";
+
+// Populate the database with sample leads
+export async function populateLeads() {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // Sample lead data with updated lead types and statuses
+  const sampleLeads = [
+    {
+      phone_number: "+12345678901",
+      first_name: "John",
+      last_name: "Smith",
+      email: "john.smith@example.com",
+      status: "new", 
+      source: "Website",
+      lead_type: "new",
+      created_by: userId,
+    },
+    {
+      phone_number: "+12345678902",
+      first_name: "Sarah",
+      last_name: "Johnson",
+      email: "sarah.j@example.com",
+      status: "new",
+      source: "Referral",
+      lead_type: "reloan",
+      created_by: userId,
+    },
+    {
+      phone_number: "+12345678903",
+      first_name: "Michael",
+      last_name: "Brown",
+      email: "m.brown@example.com",
+      status: "unqualified",
+      source: "LinkedIn",
+      lead_type: "new",
+      created_by: userId,
+    },
+    {
+      phone_number: "+12345678904",
+      first_name: "Jessica",
+      last_name: "Williams",
+      email: "j.williams@example.com",
+      status: "give_up",
+      source: "Trade Show",
+      lead_type: "reloan",
+      created_by: userId,
+    },
+    {
+      phone_number: "+12345678905",
+      first_name: "David",
+      last_name: "Miller",
+      email: "david.m@example.com",
+      status: "blacklisted",
+      source: "Cold Call",
+      lead_type: "new",
+      created_by: userId,
+    }
+  ];
+  
+  try {
+    // Insert the sample leads
+    const result = await db.insert(leads).values(sampleLeads).returning();
+    return { success: true, count: result.length, message: `${result.length} leads populated` };
+  } catch (error) {
+    console.error("Error populating leads:", error);
+    return { success: false, message: "Failed to populate leads: " + (error as Error).message };
+  }
+}
+
+// Fetch all leads with optional filtering by status
+export async function fetchLeads(statusFilter?: string[]) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    const baseQuery = db.select().from(leads);
+    
+    // Create filtered query
+    const finalQuery = statusFilter?.length 
+      ? baseQuery.where(or(...statusFilter.map(status => eq(leads.status, status))))
+      : baseQuery;
+    
+    // Execute query with ordering
+    const result = await finalQuery.orderBy(desc(leads.created_at));
+    return { success: true, leads: result };
+  } catch (error) {
+    console.error("Error fetching leads:", error);
+    return { success: false, leads: [] };
+  }
+}
+
+// Fetch a single lead by ID
+export async function fetchLeadById(leadId: number) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    const result = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    
+    if (result.length === 0) {
+      return { success: false, message: "Lead not found" };
+    }
+    
+    return { success: true, lead: result[0] };
+  } catch (error) {
+    console.error("Error fetching lead:", error);
+    return { success: false, message: "Failed to fetch lead" };
+  }
+}
+
+// Create a new lead
+export async function createLead(leadData: {
+  phone_number: string; // Required
+  first_name: string;
+  last_name: string;
+  email: string;
+  status: string;
+  source?: string;
+  lead_type: string;
+}) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // Validate status and lead_type
+  const validStatuses = ['new', 'unqualified', 'give_up', 'blacklisted'];
+  const validLeadTypes = ['new', 'reloan'];
+  
+  if (!validStatuses.includes(leadData.status)) {
+    return { 
+      success: false, 
+      message: "Invalid status. Must be one of: new, unqualified, give_up, blacklisted" 
+    };
+  }
+  
+  if (!validLeadTypes.includes(leadData.lead_type)) {
+    return { 
+      success: false, 
+      message: "Invalid lead type. Must be one of: new, reloan" 
+    };
+  }
+  
+  try {
+    const [result] = await db.insert(leads).values({
+      ...leadData,
+      created_by: userId,
+      created_at: new Date(),
+    }).returning();
+    
+    return { 
+      success: true, 
+      lead: result,
+      message: "Lead created successfully" 
+    };
+  } catch (error) {
+    console.error("Error creating lead:", error);
+    return { 
+      success: false, 
+      message: `Failed to create lead: ${(error as Error).message}` 
+    };
+  }
+}
+
+// Import multiple leads from an Excel file
+export async function importLeads(leadsData: any[]) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    // Clean and format the data
+    const formattedLeads = leadsData.map(lead => ({
+      phone_number: lead.phone_number || '', // Required field
+      first_name: lead.first_name || '-',
+      last_name: lead.last_name || '-',
+      email: lead.email || '',
+      // Only allow valid statuses, default to 'new'
+      status: ['new', 'unqualified', 'give_up', 'blacklisted'].includes(lead.status?.toLowerCase()) 
+        ? lead.status?.toLowerCase() 
+        : 'new',
+      source: lead.source || '',
+      // Only allow valid lead types, default to 'new'
+      lead_type: ['new', 'reloan'].includes(lead.lead_type?.toLowerCase())
+        ? lead.lead_type?.toLowerCase()
+        : 'new',
+      created_by: userId,
+      created_at: new Date(),
+    }));
+    
+    // Insert all leads
+    const result = await db.insert(leads).values(formattedLeads).returning();
+    
+    return { 
+      success: true, 
+      count: result.length,
+      leads: result,
+      message: `${result.length} leads imported successfully` 
+    };
+  } catch (error) {
+    console.error("Error importing leads:", error);
+    return { 
+      success: false, 
+      count: 0,
+      message: `Failed to import leads: ${(error as Error).message}` 
+    };
+  }
+}
+
+// Singapore phone number validation and formatting
+const validateSGPhoneNumber = (phone: string) => {
+  if (!phone) return false;
+  
+  // Remove spaces, dashes, and parentheses
+  const cleaned = phone.replace(/\s+|-|\(|\)/g, '');
+  
+  // Check for international format with +65
+  if (cleaned.startsWith('+65')) {
+    return /^\+65[896]\d{7}$/.test(cleaned);
+  }
+  
+  // Check for local format with 65 prefix
+  if (cleaned.startsWith('65')) {
+    return /^65[896]\d{7}$/.test(cleaned);
+  }
+  
+  // Check for local format without country code (8 digits)
+  return /^[896]\d{7}$/.test(cleaned);
+};
+
+const formatSGPhoneNumber = (phone: string) => {
+  if (!phone) return '';
+  
+  // Remove all non-digit characters except the plus sign
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  
+  // If it doesn't have a country code, add +65
+  if (!cleaned.includes('+')) {
+    // If it starts with 65, add a + at the beginning
+    if (cleaned.startsWith('65')) {
+      return `+${cleaned}`;
+    }
+    // Otherwise, add +65 prefix
+    return `+65${cleaned}`;
+  }
+  
+  return cleaned;
+};
+
+// Add a note to a lead
+export async function addLeadNote(leadId: number, content: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    // First verify the lead exists
+    const leadResult = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    
+    if (leadResult.length === 0) {
+      return { success: false, message: "Lead not found" };
+    }
+    
+    // Insert the note
+    const [note] = await db.insert(lead_notes).values({
+      lead_id: leadId,
+      content,
+      created_by: userId,
+      created_at: new Date()
+    }).returning();
+    
+    return { 
+      success: true, 
+      note,
+      message: "Note added successfully" 
+    };
+  } catch (error) {
+    console.error("Error adding lead note:", error);
+    return { 
+      success: false, 
+      message: `Failed to add note: ${(error as Error).message}` 
+    };
+  }
+}
+
+// Fetch notes for a lead
+export async function fetchLeadNotes(leadId: number) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    const result = await db.select()
+      .from(lead_notes)
+      .where(eq(lead_notes.lead_id, leadId))
+      .orderBy(desc(lead_notes.created_at));
+    
+    return { 
+      success: true, 
+      notes: result
+    };
+  } catch (error) {
+    console.error("Error fetching lead notes:", error);
+    return { 
+      success: false, 
+      notes: [],
+      message: `Failed to fetch notes: ${(error as Error).message}` 
+    };
+  }
+}
+
+// Update a lead
+export async function updateLead(
+  leadId: number, 
+  leadData: {
+    phone_number: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    status: string;
+    source?: string;
+    lead_type: string;
+  }
+) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // Validate phone number
+  if (!validateSGPhoneNumber(leadData.phone_number)) {
+    return { 
+      success: false, 
+      message: "Invalid Singapore phone number format" 
+    };
+  }
+  
+  // Format phone number
+  const formattedPhone = formatSGPhoneNumber(leadData.phone_number);
+  
+  // Validate status and lead_type
+  const validStatuses = ['new', 'unqualified', 'give_up', 'blacklisted'];
+  const validLeadTypes = ['new', 'reloan'];
+  
+  if (!validStatuses.includes(leadData.status)) {
+    return { 
+      success: false, 
+      message: "Invalid status. Must be one of: new, unqualified, give_up, blacklisted" 
+    };
+  }
+  
+  if (!validLeadTypes.includes(leadData.lead_type)) {
+    return { 
+      success: false, 
+      message: "Invalid lead type. Must be one of: new, reloan" 
+    };
+  }
+  
+  try {
+    // First check if lead exists
+    const existingLead = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    
+    if (existingLead.length === 0) {
+      return { success: false, message: "Lead not found" };
+    }
+    
+    // Update the lead
+    const [updated] = await db.update(leads)
+      .set({
+        ...leadData,
+        phone_number: formattedPhone,
+        updated_by: userId,
+        updated_at: new Date(),
+      })
+      .where(eq(leads.id, leadId))
+      .returning();
+    
+    return { 
+      success: true, 
+      lead: updated,
+      message: "Lead updated successfully" 
+    };
+  } catch (error) {
+    console.error("Error updating lead:", error);
+    return { 
+      success: false, 
+      message: `Failed to update lead: ${(error as Error).message}` 
+    };
+  }
+}
+
+// Update just the lead status
+export async function updateLeadStatus(leadId: number, status: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // Validate status
+  const validStatuses = ['new', 'unqualified', 'give_up', 'blacklisted'];
+  
+  if (!validStatuses.includes(status)) {
+    return { 
+      success: false, 
+      message: "Invalid status. Must be one of: new, unqualified, give_up, blacklisted" 
+    };
+  }
+  
+  try {
+    // First check if lead exists
+    const existingLead = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    
+    if (existingLead.length === 0) {
+      return { success: false, message: "Lead not found" };
+    }
+    
+    // Update only the status
+    const [updated] = await db.update(leads)
+      .set({
+        status,
+        updated_by: userId,
+        updated_at: new Date(),
+      })
+      .where(eq(leads.id, leadId))
+      .returning();
+    
+    return { 
+      success: true, 
+      lead: updated,
+      message: "Lead status updated successfully" 
+    };
+  } catch (error) {
+    console.error("Error updating lead status:", error);
+    return { 
+      success: false, 
+      message: `Failed to update lead status: ${(error as Error).message}` 
+    };
+  }
+}

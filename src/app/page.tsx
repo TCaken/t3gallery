@@ -16,6 +16,7 @@ export default async function HomePage() {
         </div>
       </SignedOut>
       <SignedIn>
+      
         <h3 className="text-xl">Images from database:</h3>
         <div className="flex flex-wrap justify-center gap-4">
         {dbImages.map((image) => (
