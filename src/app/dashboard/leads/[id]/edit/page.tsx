@@ -22,6 +22,11 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
     first_name: '',
     last_name: '',
     email: '',
+    nationality: '',
+    employment_status: '',
+    loan_purpose: '',
+    existing_loans: '',
+    amount: '',
     status: 'new',
     source: '',
     lead_type: 'new'
@@ -46,17 +51,25 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
         setLoading(true);
         const result = await fetchLeadById(leadId);
         if (result.success) {
-          // Format the phone number to remove +65 prefix for display
-          const phoneNumber = result.lead.phone_number?.replace(/^\+65/, '') || '';
+          if (!result.lead) {
+            throw new Error('Lead not found');
+          }
+
+          const phoneNumber = result.lead.phone_number?.replace(/^\+65/, '') ?? '';
           
           setFormData({
             phone_number: phoneNumber,
-            first_name: result.lead.first_name || '',
-            last_name: result.lead.last_name || '',
-            email: result.lead.email || '',
-            status: result.lead.status || 'new',
-            source: result.lead.source || '',
-            lead_type: result.lead.lead_type || 'new'
+            first_name: result.lead.first_name ?? '',
+            last_name: result.lead.last_name ?? '',
+            email: result.lead.email ?? '',
+            nationality: result.lead.nationality ?? '',
+            employment_status: result.lead.employment_status ?? '',
+            loan_purpose: result.lead.loan_purpose ?? '',
+            existing_loans: result.lead.existing_loans ?? '',
+            amount: result.lead.amount ?? '',
+            status: result.lead.status ?? 'new',
+            source: result.lead.source ?? '',
+            lead_type: result.lead.lead_type ?? 'new'
           });
         } else {
           setError(result.message || "Failed to load lead");
@@ -197,6 +210,76 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
             </div>
             
             <div>
+              <label htmlFor="nationality" className="block text-sm font-medium text-gray-700">
+                Nationality
+              </label>
+              <input
+                type="text"
+                id="nationality"
+                name="nationality"
+                value={formData.nationality}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="amount" className="block text-sm font-medium text-gray-700">
+                Amount
+              </label>
+              <input
+                type="text"
+                id="amount"
+                name="amount"
+                value={formData.amount}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="employment_status" className="block text-sm font-medium text-gray-700">
+                Employment Status
+              </label>
+              <input
+                type="text"
+                id="employment_status"
+                name="employment_status"
+                value={formData.employment_status}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="loan_purpose" className="block text-sm font-medium text-gray-700">
+                Loan Purpose
+              </label>
+              <input
+                type="text"
+                id="loan_purpose"
+                name="loan_purpose"
+                value={formData.loan_purpose}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="existing_loans" className="block text-sm font-medium text-gray-700">
+                Existing Loans
+              </label>
+              <input
+                type="text"
+                id="existing_loans"
+                name="existing_loans"
+                value={formData.existing_loans}
+                onChange={handleChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              />
+            </div>
+            
+            <div>
               <label htmlFor="first_name" className="block text-sm font-medium text-gray-700">
                 First Name
               </label>
@@ -206,7 +289,8 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 name="first_name"
                 value={formData.first_name}
                 onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                required
               />
             </div>
             
@@ -220,7 +304,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 name="last_name"
                 value={formData.last_name}
                 onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
               />
             </div>
             
@@ -234,7 +318,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
               />
             </div>
             
@@ -248,7 +332,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 name="source"
                 value={formData.source}
                 onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
               />
             </div>
             
@@ -261,7 +345,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 name="status"
                 value={formData.status}
                 onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
               >
                 {validStatuses.map(status => (
                   <option key={status} value={status}>
@@ -280,7 +364,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 name="lead_type"
                 value={formData.lead_type}
                 onChange={handleChange}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
               >
                 {validLeadTypes.map(type => (
                   <option key={type} value={type}>

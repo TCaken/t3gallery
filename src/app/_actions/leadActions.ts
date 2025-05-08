@@ -6,6 +6,7 @@ import { auth } from "@clerk/nextjs/server";
 import { desc, eq, or } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import type { InferSelectModel } from "drizzle-orm";
+import { checkLeadEligibility } from "./leadEligibility";
 
 // Populate the database with sample leads
 export async function populateLeads() {
@@ -117,55 +118,50 @@ export async function fetchLeadById(leadId: number) {
   }
 }
 
-// Create a new lead
-export async function createLead(leadData: {
-  phone_number: string; // Required
-  first_name: string;
-  last_name: string;
-  email: string;
-  status: string;
+interface CreateLeadInput {
+  phone_number: string;
+  full_name?: string;
+  email?: string;
+  nationality?: string;
+  employment_status?: string;
+  loan_purpose?: string;
+  existing_loans?: string;
+  amount?: string;
   source?: string;
-  lead_type: string;
-}) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
-  
-  // Validate status and lead_type
-  const validStatuses = ['new', 'unqualified', 'give_up', 'blacklisted'];
-  const validLeadTypes = ['new', 'reloan'];
-  
-  if (!validStatuses.includes(leadData.status)) {
-    return { 
-      success: false, 
-      message: "Invalid status. Must be one of: new, unqualified, give_up, blacklisted" 
-    };
-  }
-  
-  if (!validLeadTypes.includes(leadData.lead_type)) {
-    return { 
-      success: false, 
-      message: "Invalid lead type. Must be one of: new, reloan" 
-    };
-  }
-  
+  created_by?: string;
+}
+
+export async function createLead(input: CreateLeadInput) {
   try {
-    const [result] = await db.insert(leads).values({
-      ...leadData,
-      created_by: userId,
-      created_at: new Date(),
-    }).returning();
-    
-    return { 
-      success: true, 
-      lead: result,
-      message: "Lead created successfully" 
-    };
+    // Check eligibility first
+    const eligibilityResult = await checkLeadEligibility(input.phone_number);
+
+    // Create the lead with initial eligibility status
+    const [newLead] = await db
+      .insert(leads)
+      .values({
+        phone_number: input.phone_number,
+        full_name: input.full_name,
+        email: input.email,
+        nationality: input.nationality,
+        employment_status: input.employment_status,
+        loan_purpose: input.loan_purpose,
+        existing_loans: input.existing_loans,
+        amount: input.amount,
+        source: input.source,
+        lead_type: 'new',
+        status: 'new',
+        eligibility_checked: eligibilityResult.isEligible,
+        eligibility_status: eligibilityResult.status,
+        eligibility_notes: eligibilityResult.notes,
+        created_by: input.created_by,
+      })
+      .returning();
+
+    return { success: true, lead: newLead };
   } catch (error) {
-    console.error("Error creating lead:", error);
-    return { 
-      success: false, 
-      message: `Failed to create lead: ${(error as Error).message}` 
-    };
+    console.error('Error creating lead:', error);
+    return { success: false, error: 'Failed to create lead' };
   }
 }
 

@@ -36,8 +36,15 @@ import { updateLeadTag, getLeadTag, removeLeadTag } from '~/app/_actions/tagActi
 // Infer Lead type from the schema
 type Lead = InferSelectModel<typeof leads>;
 
-// Status columns for the Kanban board (updated to match your enum)
-const LEAD_STATUSES = [
+// Update the StatusInfo type definition
+type StatusInfo = {
+  id: string;
+  name: string;
+  color: string;
+};
+
+// Update the LEAD_STATUSES constant
+const LEAD_STATUSES: StatusInfo[] = [
   { id: 'new', name: 'New', color: 'bg-blue-100 text-blue-800' },
   { id: 'assigned', name: 'Assigned', color: 'bg-cyan-100 text-cyan-800' },
   { id: 'follow_up', name: 'Follow Up', color: 'bg-indigo-100 text-indigo-800' },
@@ -701,47 +708,24 @@ export default function LeadsPage() {
               {pinnedLeads.length === 0 ? (
                 <p className="text-sm text-gray-500 italic">No pinned leads</p>
               ) : (
-                pinnedLeads.map((lead) => (
-                  <div
-                    key={`pinned-${lead.id}`}
-                    className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition border-l-2 border-blue-400"
-                    onClick={() => handleViewLead(lead)}
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h4 className="font-medium">
-                          {lead.first_name} {lead.last_name}
-                        </h4>
-                        <p className="text-sm text-gray-600">{lead.phone_number}</p>
-                        <span className={`text-xs px-2 py-0.5 rounded-full mt-1 inline-block ${getStatusColor(lead.status)}`}>
-                          {lead.status}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="space-y-2 mb-3">
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Agent:</span> {lead.assigned_to ?? 'N/A'}
-                        </p>
-                        <p className="text-gray-600">
-                          <span className="font-medium">Created:</span>{' '}
-                          {new Date(lead.created_at).toLocaleDateString()}
-                        </p>
-                    </div>
-                    <div onClick={(e) => e.stopPropagation()} className="mb-3">
-                      <LeadActionButtons
-                        leadId={lead.id}
-                        onAction={handleLeadAction}
-                        isPinned={true}
-                        currentStatus={lead.status}
-                        phoneNumber={lead.phone_number}
-                        userRole={userRole}
-                      />
-                    </div>
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <LazyComment leadId={lead.id} />
-                    </div>
-                  </div>
-                ))
+                pinnedLeads.map((lead) => {
+                  const statusInfo = visibleStatuses.find(s => s.id === lead.status) ?? {
+                    id: 'new',
+                    name: 'New',
+                    color: 'bg-blue-100 text-blue-800'
+                  };
+                  return (
+                    <LeadCard
+                      key={`pinned-${lead.id}`}
+                      lead={lead}
+                      statusInfo={statusInfo}
+                      onAction={handleLeadAction}
+                      isPinned={true}
+                      onView={handleViewLead}
+                      tag={leadTags[lead.id]}
+                    />
+                  );
+                })
               )}
             </div>
           </div>
@@ -756,97 +740,48 @@ export default function LeadsPage() {
               <div className="space-y-4">
                 {visibleLeads
                   .filter((lead) => lead.status === status.id)
-                  .map((lead) => (
-                    <div
-                      key={lead.id}
-                      className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition"
-                      onClick={() => handleViewLead(lead)}
-                    >
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h4 className="font-medium">
-                            {lead.first_name} {lead.last_name}
-                          </h4>
-                          <p className="text-sm text-gray-600">{lead.phone_number}</p>
-                        </div>
-                      </div>
-                      <div className="space-y-2 mb-3">
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Agent:</span> {lead.assigned_to ?? 'N/A'}
-                        </p>
-                        <p className="text-gray-600">
-                          <span className="font-medium">Created:</span>{' '}
-                          {new Date(lead.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div onClick={(e) => e.stopPropagation()} className="mb-3">
-                        <LeadActionButtons
-                          leadId={lead.id}
-                          onAction={handleLeadAction}
-                          isPinned={pinnedLeads.some(p => p.id === lead.id)}
-                          currentStatus={lead.status}
-                          phoneNumber={lead.phone_number}
-                          userRole={userRole}
-                        />
-                      </div>
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <LazyComment leadId={lead.id} />
-                      </div>
-                    </div>
-                  ))}
+                  .map((lead) => {
+                    const statusInfo: StatusInfo = {
+                      id: status.id,
+                      name: status.name,
+                      color: status.color
+                    };
+                    return (
+                      <LeadCard
+                        key={lead.id}
+                        lead={lead}
+                        statusInfo={statusInfo}
+                        onAction={handleLeadAction}
+                        isPinned={pinnedLeads.some(p => p.id === lead.id)}
+                        onView={handleViewLead}
+                        tag={leadTags[lead.id]}
+                      />
+                    );
+                  })}
               </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {getCurrentLeads().map((lead) => (
-            <div
-              key={lead.id}
-              className="bg-white rounded-lg shadow-lg p-6 cursor-pointer hover:shadow-xl transition"
-              onClick={() => handleViewLead(lead)}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h2 className="text-xl font-semibold">
-                    {lead.first_name} {lead.last_name}
-                    {pinnedLeads.some(p => p.id === lead.id) && (
-                      <BookmarkIcon className="h-4 w-4 ml-1 inline-block text-blue-500" />
-                    )}
-                  </h2>
-                  <p className="text-gray-600">{lead.phone_number}</p>
-                </div>
-              </div>
-              <div className="space-y-2 mb-4">
-                <p className="text-gray-600">
-                  <span className="font-medium">Agent:</span> {lead.assigned_to ?? 'N/A'}
-                </p>
-                <p className="text-gray-600">
-                  <span className="font-medium">Status:</span>{' '}
-                  <span className={`px-2 py-1 rounded-full ${getStatusColor(lead.status)}`}>
-                    {lead.status}
-                  </span>
-                </p>
-                <p className="text-gray-600">
-                  <span className="font-medium">Created:</span>{' '}
-                  {new Date(lead.created_at).toLocaleDateString()}
-                </p>
-              </div>
-              <div onClick={(e) => e.stopPropagation()} className="mb-3">
-                <LeadActionButtons
-                  leadId={lead.id}
-                  onAction={handleLeadAction}
-                  isPinned={pinnedLeads.some(p => p.id === lead.id)}
-                  currentStatus={lead.status}
-                  phoneNumber={lead.phone_number}
-                  userRole={userRole}
-                />
-              </div>
-              <div onClick={(e) => e.stopPropagation()}>
-                <LazyComment leadId={lead.id} />
-              </div>
-            </div>
-          ))}
+          {getCurrentLeads().map((lead) => {
+            const statusInfo = visibleStatuses.find(s => s.id === lead.status) ?? {
+              id: 'new',
+              name: 'New',
+              color: 'bg-blue-100 text-blue-800'
+            };
+            return (
+              <LeadCard
+                key={lead.id}
+                lead={lead}
+                statusInfo={statusInfo}
+                onAction={handleLeadAction}
+                isPinned={pinnedLeads.some(p => p.id === lead.id)}
+                onView={handleViewLead}
+                tag={leadTags[lead.id]}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -869,7 +804,7 @@ export default function LeadsPage() {
                   <h3 className="text-lg font-semibold mb-4">Personal Information</h3>
                   <div className="space-y-3">
                     <p className="text-gray-700">
-                      <span className="font-medium">Name:</span> {selectedLead.first_name} {selectedLead.last_name}
+                      <span className="font-medium">Name:</span> {selectedLead.full_name}
                     </p>
                     <p className="text-gray-700">
                       <span className="font-medium">Phone:</span> {selectedLead.phone_number}
@@ -951,7 +886,7 @@ export default function LeadsPage() {
         isOpen={isAssignModalOpen}
         onClose={() => setIsAssignModalOpen(false)}
         leadId={selectedLead?.id ?? 0}
-        leadName={selectedLead ? `${selectedLead.first_name} ${selectedLead.last_name}` : ''}
+        leadName={selectedLead?.full_name ?? ''}
         onAssignComplete={() => {
           setSelectedLead(null);
           setIsAssignModalOpen(false);

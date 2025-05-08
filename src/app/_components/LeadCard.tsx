@@ -8,7 +8,8 @@ import {
   CalendarIcon,
   ChatBubbleLeftRightIcon,
   BookmarkIcon,
-  XMarkIcon
+  XMarkIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads } from "~/server/db/schema";
@@ -122,6 +123,27 @@ export default function LeadCard({
     return tagColorMap[status] ?? "bg-gray-50 text-gray-700 border-gray-200";
   };
 
+  const getEligibilityColor = (status: string) => {
+    const colorMap: Record<string, string> = {
+      eligible: "bg-green-100 text-green-800",
+      ineligible: "bg-red-100 text-red-800",
+      pending: "bg-yellow-100 text-yellow-800",
+      duplicate: "bg-gray-100 text-gray-800",
+      error: "bg-red-100 text-red-800"
+    };
+    return colorMap[status] ?? "bg-gray-100 text-gray-800";
+  };
+
+  const formatDate = (date: Date) => {
+    return new Date(date).toLocaleDateString('en-SG', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   return (
     <div
       className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
@@ -132,18 +154,32 @@ export default function LeadCard({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="flex justify-between items-start mb-4">
-        <div>
-          <h4 className="font-medium">
-            {lead.first_name} {lead.last_name}
-            {isPinned && (
-              <BookmarkIcon className="h-4 w-4 ml-1 inline-block text-blue-500" />
-            )}
-          </h4>
-          <p className="text-sm text-gray-600">{lead.phone_number}</p>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h4 className="font-medium text-lg">
+              {lead.full_name}
+              {isPinned && (
+                <BookmarkIcon className="h-4 w-4 ml-1 inline-block text-blue-500" />
+              )}
+            </h4>
+            <div className="flex items-center text-sm text-gray-500">
+              <ClockIcon className="h-4 w-4 mr-1" />
+              {formatDate(lead.created_at)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <PhoneIcon className="h-4 w-4 text-gray-500" />
+            <p className="text-sm text-gray-600">{lead.phone_number}</p>
+          </div>
           <div className="flex flex-wrap gap-2 mt-2">
             <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(lead.status)}`}>
               {lead.status}
             </span>
+            {lead.eligibility_status && (
+              <span className={`text-xs px-2 py-0.5 rounded-full ${getEligibilityColor(lead.eligibility_status)}`}>
+                {lead.eligibility_status}
+              </span>
+            )}
             {tag && (
               <span className={`text-xs px-2 py-0.5 rounded-full border ${getTagColor(lead.status)}`}>
                 {tag.name}
@@ -153,20 +189,17 @@ export default function LeadCard({
         </div>
       </div>
 
-      <div className="space-y-2 mb-3">
-        <p className="text-sm text-gray-600">
-          <span className="font-medium">Email:</span> {lead.email ?? 'N/A'}
-        </p>
-        <p className="text-sm text-gray-600">
-          <span className="font-medium">Source:</span> {lead.source ?? 'N/A'}
-        </p>
-        <p className="text-sm text-gray-600">
-          <span className="font-medium">Created:</span>{' '}
-          {new Date(lead.created_at).toLocaleDateString()}
-        </p>
+      <div className="flex justify-between items-center text-sm text-gray-500 mt-2">
+        <div className="flex items-center">
+          <span className="font-medium">ID:</span>
+          <span className="ml-1">{lead.id}</span>
+        </div>
+        <div className="text-blue-500 hover:text-blue-600">
+          Click to view details →
+        </div>
       </div>
 
-      <div onClick={(e) => e.stopPropagation()} className="mb-3">
+      <div onClick={(e) => e.stopPropagation()} className="mb-3 mt-3">
         <LeadActionButtons
           leadId={lead.id}
           onAction={handleAction}

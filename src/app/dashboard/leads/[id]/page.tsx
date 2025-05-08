@@ -200,7 +200,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
       if (result.success && lead) {
         setLead({...lead, status: newStatus} as Lead);
       } else {
-        throw new Error(result.message ?? 'Failed to update status');
+        throw new Error(result.error ?? 'Failed to update status');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while updating the status');
@@ -276,6 +276,17 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
     return statusMap[status] ?? "bg-gray-100 text-gray-800";
   };
 
+  const getEligibilityColor = (status: string) => {
+    const colorMap: Record<string, string> = {
+      eligible: "bg-green-100 text-green-800",
+      ineligible: "bg-red-100 text-red-800",
+      pending: "bg-yellow-100 text-yellow-800",
+      duplicate: "bg-gray-100 text-gray-800",
+      error: "bg-red-100 text-red-800"
+    };
+    return colorMap[status] ?? "bg-gray-100 text-gray-800";
+  };
+
   const isAdmin = userRole === 'admin';
   const isAgent = userRole === 'agent';
 
@@ -334,12 +345,17 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
           <>
             <div className="flex justify-between items-center mb-4">
               <h1 className="text-2xl font-bold">
-                {lead.first_name} {lead.last_name}
+                {lead.full_name}
               </h1>
-              <div className="flex items-center">
+              <div className="flex items-center space-x-2">
                 <span className={`px-3 py-1 rounded-full text-sm ${getStatusColor(lead.status)}`}>
                   {lead.status}
                 </span>
+                {lead.eligibility_status && (
+                  <span className={`px-3 py-1 rounded-full text-sm ${getEligibilityColor(lead.eligibility_status)}`}>
+                    {lead.eligibility_status}
+                  </span>
+                )}
                 {(isAdmin || isAgent) && (
                   <div className="relative ml-3">
                     <select
@@ -359,6 +375,17 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
               <div>
                 <p className="text-gray-600">Phone: {lead.phone_number}</p>
                 <p className="text-gray-600">Email: {lead.email ?? 'N/A'}</p>
+                <p className="text-gray-600">Nationality: {lead.nationality ?? 'N/A'}</p>
+                <p className="text-gray-600">Amount: {lead.amount ?? 'N/A'}</p>
+                {lead.employment_status && (
+                  <p className="text-gray-600">Employment: {lead.employment_status}</p>
+                )}
+                {lead.loan_purpose && (
+                  <p className="text-gray-600">Purpose: {lead.loan_purpose}</p>
+                )}
+                {lead.existing_loans && (
+                  <p className="text-gray-600">Existing Loans: {lead.existing_loans}</p>
+                )}
                 <p className="text-gray-600">Assigned To: {lead.assigned_to ?? 'Unassigned'}</p>
               </div>
               <div>
@@ -367,6 +394,11 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 <p className="text-gray-600">
                   Created: {new Date(lead.created_at).toLocaleDateString()}
                 </p>
+                {lead.eligibility_notes && (
+                  <p className="text-gray-600">
+                    Eligibility Notes: {lead.eligibility_notes}
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-4 flex space-x-3">
@@ -386,21 +418,11 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <div className="mb-4">
-                  <label className="block text-gray-700 mb-1">First Name</label>
+                  <label className="block text-gray-700 mb-1">Full Name</label>
                   <input
                     type="text"
-                    name="first_name"
-                    value={editedLead?.first_name ?? ''}
-                    onChange={handleInputChange}
-                    className="w-full p-2 border rounded"
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-gray-700 mb-1">Last Name</label>
-                  <input
-                    type="text"
-                    name="last_name"
-                    value={editedLead?.last_name ?? ''}
+                    name="full_name"
+                    value={editedLead?.full_name ?? ''}
                     onChange={handleInputChange}
                     className="w-full p-2 border rounded"
                   />
@@ -425,8 +447,58 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                     className="w-full p-2 border rounded"
                   />
                 </div>
+                <div className="mb-4">
+                  <label className="block text-gray-700 mb-1">Nationality</label>
+                  <input
+                    type="text"
+                    name="nationality"
+                    value={editedLead?.nationality ?? ''}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-gray-700 mb-1">Amount</label>
+                  <input
+                    type="text"
+                    name="amount"
+                    value={editedLead?.amount ?? ''}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
               </div>
               <div>
+                <div className="mb-4">
+                  <label className="block text-gray-700 mb-1">Employment Status</label>
+                  <input
+                    type="text"
+                    name="employment_status"
+                    value={editedLead?.employment_status ?? ''}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-gray-700 mb-1">Loan Purpose</label>
+                  <input
+                    type="text"
+                    name="loan_purpose"
+                    value={editedLead?.loan_purpose ?? ''}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-gray-700 mb-1">Existing Loans</label>
+                  <input
+                    type="text"
+                    name="existing_loans"
+                    value={editedLead?.existing_loans ?? ''}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
                 <div className="mb-4">
                   <label className="block text-gray-700 mb-1">Status</label>
                   <select
