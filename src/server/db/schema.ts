@@ -1,8 +1,19 @@
 // Example model schema from the Drizzle docs
 // https://orm.drizzle.team/docs/sql-schema-declaration
 
-import { sql } from "drizzle-orm";
-import { index, pgTableCreator, primaryKey, varchar, timestamp, integer, text, boolean, pgEnum} from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import {
+  index,
+  integer,
+  primaryKey,
+  serial,
+  text,
+  timestamp,
+  varchar,
+  pgTable,
+  pgEnum,
+  pgTableCreator,
+} from "drizzle-orm/pg-core";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -142,6 +153,47 @@ export const leadCardActionEnum = pgEnum('lead_card_action', [
   'edit_lead',
   'pin_lead'
 ]);
+
+// Define enum for tag types
+export const tagTypeEnum = pgEnum('tag_type', [
+  'follow_up',
+  'no_answer',
+  'missed_rs',
+  'give_up',
+  'blacklisted',
+  'done'
+]);
+
+// Tags table
+export const tags = createTable(
+  "tags",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    name: d.varchar({ length: 100 }).notNull().unique(),
+    type: d.varchar({ length: 50 }).notNull(),
+    description: d.varchar({ length: 255 }),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("tag_name_idx").on(t.name),
+    index("tag_type_idx").on(t.type)
+  ]
+);
+
+// Lead Tags junction table
+export const leadTags = createTable(
+  "lead_tags",
+  (d) => ({
+    lead_id: d.integer().references(() => leads.id, { onDelete: "cascade" }).notNull(),
+    tag_id: d.integer().references(() => tags.id, { onDelete: "cascade" }).notNull(),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    created_by: d.varchar({ length: 256 }).references(() => users.id),
+  }),
+  (t) => [
+    primaryKey({ columns: [t.lead_id, t.tag_id] })
+  ]
+);
 
 // Leads table
 export const leads = createTable(
@@ -352,3 +404,33 @@ export const report_snapshots = createTable(
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   })
 );
+
+// Add a table for tracking checked-in agents
+export const checkedInAgents = createTable(
+  "checked_in_agents",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    agent_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    checked_in_date: d.date().default(sql`CURRENT_DATE`).notNull(),
+    lead_capacity: d.integer().default(10), // Default number of leads an agent can handle
+    is_active: d.boolean().default(true),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("checked_in_agent_id_idx").on(t.agent_id),
+    index("checked_in_date_idx").on(t.checked_in_date)
+  ]
+);
+
+// Add these relations after all table definitions
+export const checkedInAgentsRelations = relations(checkedInAgents, ({ one }) => ({
+  agent: one(users, {
+    fields: [checkedInAgents.agent_id],
+    references: [users.id],
+  }),
+}));
+
+export const usersRelations = relations(users, ({ many }) => ({
+  checkedInAgents: many(checkedInAgents)
+}));

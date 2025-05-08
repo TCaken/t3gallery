@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
+import { fetchUserData } from "~/app/_actions/userActions";
 
 // Use Heroicons
 import { 
@@ -14,13 +16,15 @@ import {
   Bars3Icon,
   ChevronLeftIcon,
   CalendarIcon,
-  ShoppingBagIcon
+  ShoppingBagIcon,
+  UserGroupIcon
 } from "@heroicons/react/24/outline";
 
 interface NavItem {
   title: string;
   href: string;
   icon: React.ReactNode;
+  roles: string[]; // Add roles that can access this item
 }
 
 interface SideNavProps {
@@ -30,22 +34,47 @@ interface SideNavProps {
 
 export default function SideNav({ expanded, setExpanded }: SideNavProps) {
   const pathname = usePathname();
+  const { userId, isLoaded } = useAuth();
+  const [userRoles, setUserRoles] = useState<{roleId: number, roleName: string}[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadUserData = async () => {
+      if (isLoaded && userId) {
+        try {
+          const { roles } = await fetchUserData();
+          setUserRoles(roles);
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+        } finally {
+          setLoading(false);
+        }
+      } else if (isLoaded) {
+        setLoading(false);
+      }
+    };
+
+    void loadUserData();
+  }, [isLoaded, userId]);
 
   const navItems: NavItem[] = [
     {
       title: "Dashboard",
       href: "/dashboard",
-      icon: <HomeIcon className="h-5 w-5" />
+      icon: <HomeIcon className="h-5 w-5" />,
+      roles: ["admin", "agent", "retail"] // All roles can access dashboard
     },
     {
       title: "Leads",
       href: "/dashboard/leads",
-      icon: <UsersIcon className="h-5 w-5" />
+      icon: <UsersIcon className="h-5 w-5" />,
+      roles: ["admin", "agent"] // Only admin and agent can access leads
     },
     {
       title: "Appointments",
       href: "/dashboard/appointments",
-      icon: <CalendarIcon className="h-5 w-5" />
+      icon: <CalendarIcon className="h-5 w-5" />,
+      roles: ["admin", "agent"] // Only admin and agent can access appointments
     },
     // {
     //   title: "Analytics",
@@ -60,9 +89,25 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
     {
       title: "Retail",
       href: "/dashboard/retail",
-      icon: <ShoppingBagIcon className="h-5 w-5" />
+      icon: <ShoppingBagIcon className="h-5 w-5" />,
+      roles: ["admin", "retail"] // Only admin and retail can access retail section
+    },
+    {
+      title: "User Management",
+      href: "/dashboard/users",
+      icon: <UserGroupIcon className="h-5 w-5" />,
+      roles: ["admin"] // Only admin can access user management
     }
   ];
+
+  // Filter nav items based on user roles
+  const filteredNavItems = navItems.filter(item => {
+    if (loading) return false;
+    if (!userId) return false;
+    return item.roles.some(role => 
+      userRoles.some(userRole => userRole.roleName === role)
+    );
+  });
 
   return (
     <aside className={`${expanded ? "w-64" : "w-20"} h-screen bg-gray-800 text-white p-4 transition-all duration-300 ease-in-out fixed left-0 top-0 z-10`}>
@@ -76,33 +121,39 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
         </button>
       </div>
       
-      <div className="space-y-2">
-        {navItems.map((item) => {
-          // Check if current path starts with the nav item path for active state
-          // This allows sub-pages to highlight the parent nav item
-          const isActive = pathname === item.href || 
-            (pathname.startsWith(item.href) && item.href !== "/dashboard");
-            
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center p-3 rounded-lg transition-colors ${
-                isActive 
-                  ? "bg-gray-700 text-white" 
-                  : "text-gray-300 hover:bg-gray-700 hover:text-white"
-              }`}
-            >
-              <div className="flex items-center flex-shrink-0">
-                {item.icon}
-              </div>
-              {expanded && (
-                <span className="ml-3 text-sm font-medium">{item.title}</span>
-              )}
-            </Link>
-          );
-        })}
-      </div>
+      {userId && !loading && (
+        <div className="space-y-2">
+          {filteredNavItems.length > 0 ? (
+            filteredNavItems.map((item) => {
+              const isActive = pathname === item.href || 
+                (pathname.startsWith(item.href) && item.href !== "/dashboard");
+                
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center p-3 rounded-lg transition-colors ${
+                    isActive 
+                      ? "bg-gray-700 text-white" 
+                      : "text-gray-300 hover:bg-gray-700 hover:text-white"
+                  }`}
+                >
+                  <div className="flex items-center flex-shrink-0">
+                    {item.icon}
+                  </div>
+                  {expanded && (
+                    <span className="ml-3 text-sm font-medium">{item.title}</span>
+                  )}
+                </Link>
+              );
+            })
+          ) : (
+            <div className="text-gray-400 text-sm p-3">
+              {expanded ? "No access granted" : "No access"}
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

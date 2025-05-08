@@ -1,4 +1,8 @@
-export default function DashboardHomePage() {
+import { getCurrentUserId } from "../_actions/userActions";
+
+export default async function DashboardHomePage() {
+  const userId = await getCurrentUserId();
+  console.log('Current User ID:', userId);
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Dashboard Overview</h1>

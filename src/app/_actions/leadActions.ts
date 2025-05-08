@@ -4,6 +4,8 @@ import { db } from "~/server/db";
 import { leads, leadStatusEnum, leadTypeEnum, lead_notes } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import { desc, eq, or } from "drizzle-orm";
+import { getCurrentUserId } from "~/app/_actions/userActions";
+import type { InferSelectModel } from "drizzle-orm";
 
 // Populate the database with sample leads
 export async function populateLeads() {
@@ -390,48 +392,60 @@ export async function updateLead(
 }
 
 // Update just the lead status
-export async function updateLeadStatus(leadId: number, status: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
-  
-  // Validate status
-  const validStatuses = ['new', 'unqualified', 'give_up', 'blacklisted'];
-  
-  if (!validStatuses.includes(status)) {
-    return { 
-      success: false, 
-      message: "Invalid status. Must be one of: new, unqualified, give_up, blacklisted" 
-    };
-  }
-  
+export async function updateLeadStatus(leadId: number, newStatus: string) {
   try {
-    // First check if lead exists
-    const existingLead = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
-    
-    if (existingLead.length === 0) {
-      return { success: false, message: "Lead not found" };
+    await db.update(leads)
+      .set({ 
+        status: newStatus,
+        updated_at: new Date()
+      })
+      .where(eq(leads.id, leadId));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating lead status:", error);
+    return { success: false, error: "Failed to update lead status" };
+  }
+}
+
+export async function updateLeadDetails(leadId: number, leadData: Partial<InferSelectModel<typeof leads>>) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, message: 'Not authenticated' };
     }
     
-    // Update only the status
-    const [updated] = await db.update(leads)
-      .set({
-        status,
-        updated_by: userId,
-        updated_at: new Date(),
-      })
-      .where(eq(leads.id, leadId))
-      .returning();
+    // Check if user has admin role - implement your own role checking logic
+    
+    // Prepare the data to update
+    const updateData = {
+      ...leadData,
+      updated_at: new Date(),
+      updated_by: userId
+    };
+    
+    // Remove any fields that shouldn't be updated
+    delete updateData.id;
+    delete updateData.created_at;
+    delete updateData.created_by;
+    
+    // Update the lead in the database
+    await db.update(leads)
+      .set(updateData)
+      .where(eq(leads.id, leadId));
+    
+    // Fetch the updated lead to return
+    const updatedLead = await db.query.leads.findFirst({
+      where: eq(leads.id, leadId)
+    });
     
     return { 
       success: true, 
-      lead: updated,
-      message: "Lead status updated successfully" 
+      message: 'Lead updated successfully',
+      lead: updatedLead
     };
   } catch (error) {
-    console.error("Error updating lead status:", error);
-    return { 
-      success: false, 
-      message: `Failed to update lead status: ${(error as Error).message}` 
-    };
+    console.error('Error updating lead details:', error);
+    return { success: false, message: 'Failed to update lead details' };
   }
 }

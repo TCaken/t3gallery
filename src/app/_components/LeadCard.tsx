@@ -1,4 +1,4 @@
-// Modified LeadCard.tsx with appointment button
+// Modified LeadCard.tsx without drag functionality
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -6,11 +6,15 @@ import {
   PhoneIcon,
   DocumentTextIcon,
   CalendarIcon,
-  ChatBubbleLeftRightIcon
+  ChatBubbleLeftRightIcon,
+  BookmarkIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads } from "~/server/db/schema";
 import { fetchLeadNotes } from '~/app/_actions/leadActions';
+import LeadActionButtons from './LeadActionButtons';
+import LazyComment from './LazyComment';
 
 // Infer lead type from Drizzle schema
 type Lead = InferSelectModel<typeof leads>;
@@ -26,21 +30,24 @@ interface LeadCardProps {
   lead: Lead;
   statusInfo: StatusInfo;
   onAction?: (action: string, leadId: number) => void;
-  draggable?: boolean;
-  onDragStart?: () => void;
+  isPinned?: boolean;
+  onView: (lead: Lead) => void;
+  tag?: { id: number; name: string } | null;
 }
 
 export default function LeadCard({ 
   lead, 
   statusInfo, 
   onAction,
-  draggable = false,
-  onDragStart 
+  isPinned = false,
+  onView,
+  tag
 }: LeadCardProps) {
   const [noteCount, setNoteCount] = useState(0);
   const [showNotesTooltip, setShowNotesTooltip] = useState(false);
   const [notes, setNotes] = useState<string[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const handleAction = (action: string) => {
     console.log('LeadCard: Action clicked:', action);
@@ -86,103 +93,91 @@ export default function LeadCard({
     }
   }, [lead.id]);
 
+  const getStatusColor = (status: string) => {
+    const statusMap: Record<string, string> = {
+      new: "bg-blue-100 text-blue-800",
+      assigned: "bg-cyan-100 text-cyan-800",
+      no_answer: "bg-gray-100 text-gray-800",
+      follow_up: "bg-indigo-100 text-indigo-800",
+      P: "bg-emerald-100 text-emerald-800",
+      PRS: "bg-teal-100 text-teal-800",
+      R: "bg-violet-100 text-violet-800",
+      "miss/RS": "bg-pink-100 text-pink-800",
+      booked: "bg-green-100 text-green-800",
+      unqualified: "bg-orange-100 text-orange-800",
+      give_up: "bg-red-100 text-red-800",
+      blacklisted: "bg-black text-white",
+    };
+    return statusMap[status] ?? "bg-gray-100 text-gray-800";
+  };
+
+  const getTagColor = (status: string) => {
+    const tagColorMap: Record<string, string> = {
+      follow_up: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      "miss/RS": "bg-pink-50 text-pink-700 border-pink-200",
+      give_up: "bg-red-50 text-red-700 border-red-200",
+      blacklisted: "bg-gray-50 text-gray-700 border-gray-200",
+      done: "bg-emerald-50 text-emerald-700 border-emerald-200"
+    };
+    return tagColorMap[status] ?? "bg-gray-50 text-gray-700 border-gray-200";
+  };
+
   return (
-    <div 
-      className="bg-white p-3 rounded-lg shadow-sm mb-2 cursor-pointer hover:shadow-md relative"
-      onClick={() => handleAction('view')}
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onMouseEnter={() => void loadNotes()}
+    <div
+      className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
+        isPinned ? 'border-l-4 border-blue-400' : ''
+      }`}
+      onClick={() => onView(lead)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Basic lead info */}
-      <div className="flex justify-between items-start mb-2">
-        <h4 className="font-medium">
-          {lead.first_name !== '-' ? lead.first_name : ''} {lead.last_name !== '-' ? lead.last_name : ''}
-        </h4>
-        <span className={`text-xs px-2 py-1 rounded-full ${statusInfo.color}`}>
-          {statusInfo.name}
-        </span>
-      </div>
-      
-      <div className="text-sm text-gray-600 mb-1">{lead.phone_number}</div>
-      <div className="text-sm text-gray-600 mb-2">{lead.email ?? 'No email'}</div>
-      <div className="text-xs text-gray-500 mb-3">
-        Source: {lead.source ?? 'Unknown'}
-      </div>
-      
-      {/* Basic action buttons */}
-      <div className="flex justify-between border-t pt-2">
-        <div className="flex gap-3">
-          <button 
-            className="text-gray-500 hover:text-blue-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleAction('make_call');
-            }}
-          >
-            <PhoneIcon className="h-4 w-4" />
-          </button>
-          <button 
-            className="text-gray-500 hover:text-green-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              console.log('WhatsApp button clicked');
-              console.log('Phone number:', lead.phone_number);
-              handleAction('send_whatsapp');
-            }}
-          >
-            <ChatBubbleLeftRightIcon className="h-4 w-4" />
-          </button>
-          <div className="relative z-30">
-            <button 
-              className="text-gray-500 hover:text-blue-600 relative"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAction('add_note');
-              }}
-              onMouseEnter={() => setShowNotesTooltip(true)}
-              onMouseLeave={() => setShowNotesTooltip(false)}
-            >
-              <DocumentTextIcon className="h-4 w-4" />
-              {noteCount > 0 && (
-                <span className="absolute -top-2 -right-2 bg-blue-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                  {noteCount}
-                </span>
-              )}
-            </button>
-            
-            {/* Notes tooltip - Fixed positioning */}
-            {showNotesTooltip && noteCount > 0 && (
-              <div className="fixed transform -translate-y-full -translate-x-1/2 z-50 mt-1 w-64 bg-white rounded-lg shadow-xl p-3 text-sm border border-gray-200">
-                <div className="font-medium mb-1">Notes ({noteCount})</div>
-                <div className="max-h-40 overflow-y-auto">
-                  {loadingNotes ? (
-                    <p className="text-gray-500">Loading notes...</p>
-                  ) : notes.length > 0 ? (
-                    notes.map((note, index) => (
-                      <div key={index} className="mb-2 pb-2 border-b border-gray-100 last:border-0">
-                        <p className="text-gray-700 line-clamp-2">{note}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-500">No notes available</p>
-                  )}
-                </div>
-                <div className="absolute w-3 h-3 bg-white transform rotate-45 left-1/2 bottom-0 translate-y-1/2 -translate-x-1/2 border-r border-b border-gray-200"></div>
-              </div>
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h4 className="font-medium">
+            {lead.first_name} {lead.last_name}
+            {isPinned && (
+              <BookmarkIcon className="h-4 w-4 ml-1 inline-block text-blue-500" />
+            )}
+          </h4>
+          <p className="text-sm text-gray-600">{lead.phone_number}</p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(lead.status)}`}>
+              {lead.status}
+            </span>
+            {tag && (
+              <span className={`text-xs px-2 py-0.5 rounded-full border ${getTagColor(lead.status)}`}>
+                {tag.name}
+              </span>
             )}
           </div>
-          {/* New Calendar/Appointment Button with special color */}
-          <button 
-            className="text-indigo-600 hover:text-indigo-800"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleAction('schedule_appointment');
-            }}
-          >
-            <CalendarIcon className="h-4 w-4" />
-          </button>
         </div>
+      </div>
+
+      <div className="space-y-2 mb-3">
+        <p className="text-sm text-gray-600">
+          <span className="font-medium">Email:</span> {lead.email ?? 'N/A'}
+        </p>
+        <p className="text-sm text-gray-600">
+          <span className="font-medium">Source:</span> {lead.source ?? 'N/A'}
+        </p>
+        <p className="text-sm text-gray-600">
+          <span className="font-medium">Created:</span>{' '}
+          {new Date(lead.created_at).toLocaleDateString()}
+        </p>
+      </div>
+
+      <div onClick={(e) => e.stopPropagation()} className="mb-3">
+        <LeadActionButtons
+          leadId={lead.id}
+          onAction={handleAction}
+          isPinned={isPinned}
+          currentStatus={lead.status}
+          phoneNumber={lead.phone_number}
+        />
+      </div>
+
+      <div onClick={(e) => e.stopPropagation()}>
+        <LazyComment leadId={lead.id} />
       </div>
     </div>
   );
