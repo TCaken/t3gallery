@@ -273,17 +273,17 @@ export async function POST(request: Request) {
       const { message, subject } = directValidation.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+)/i;
-      const nationalityRegex = /Nationality:?\s*([^\n\r]+)/i;
-      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+)/i;
+      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+?)(?=Phone|$)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+?)(?=Loan|$)/i;
+      const nationalityRegex = /Nationality:?\s*([^\n\r]+?)(?=---|$)/i;
+      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+?)(?=Nationality|$)/i;
       const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:?\s*([^\n\r]+)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+)/i;
-      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+)/i;
-      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+)/i;
-      const assignedToRegex = /Assigned to:?\s*([^\n\r]+)/i;
+      const employmentRegex = /Employment Status:?\s*([^\n\r]+?)(?=Email|$)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+?)(?=Employment|$)/i;
+      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+?)(?=Ideal|$)/i;
+      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+?)(?=Date|$)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+?)(?=Time|$)/i;
+      const assignedToRegex = /Assigned to:?\s*([^\n\r]+?)(?=Source|$)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
@@ -303,17 +303,17 @@ export async function POST(request: Request) {
 
       // Clean and format the data
       const leadData = {
-        full_name: fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN',
-        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]) : '',
+        full_name: (fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
+        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]).substring(0, 20) : '',
         residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()),
-        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]) : 'UNKNOWN',
-        email: emailMatch?.[1]?.trim() ?? 'UNKNOWN',
+        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]).substring(0, 50) : 'UNKNOWN',
+        email: emailMatch?.[1]?.trim()?.substring(0, 255) ?? 'UNKNOWN',
         employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()),
-        loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]) : 'UNKNOWN',
-        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]) : 'UNKNOWN',
-        ideal_tenure: idealTenureMatch?.[1]?.trim() ?? 'UNKNOWN',
+        loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]).substring(0, 100) : 'UNKNOWN',
+        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]).substring(0, 50) : 'UNKNOWN',
+        ideal_tenure: idealTenureMatch?.[1]?.trim()?.substring(0, 50) ?? 'UNKNOWN',
         date_time: dateTimeMatch?.[1]?.trim(),
-        assigned_to: assignedToMatch?.[1]?.trim() ?? 'UNKNOWN',
+        assigned_to: assignedToMatch?.[1]?.trim()?.substring(0, 256) ?? 'UNKNOWN',
         source: determineLeadSource(message, undefined, subject),
       };
 
@@ -376,17 +376,17 @@ export async function POST(request: Request) {
       const { message, subject } = validationResult.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+)/i;
-      const nationalityRegex = /Nationality:?\s*([^\n\r]+)/i;
-      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+)/i;
+      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+?)(?=Phone|$)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+?)(?=Loan|$)/i;
+      const nationalityRegex = /Nationality:?\s*([^\n\r]+?)(?=---|$)/i;
+      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+?)(?=Nationality|$)/i;
       const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:?\s*([^\n\r]+)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+)/i;
-      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+)/i;
-      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+)/i;
-      const assignedToRegex = /Assigned to:?\s*([^\n\r]+)/i;
+      const employmentRegex = /Employment Status:?\s*([^\n\r]+?)(?=Email|$)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+?)(?=Employment|$)/i;
+      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+?)(?=Ideal|$)/i;
+      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+?)(?=Date|$)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+?)(?=Time|$)/i;
+      const assignedToRegex = /Assigned to:?\s*([^\n\r]+?)(?=Source|$)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
@@ -406,17 +406,17 @@ export async function POST(request: Request) {
 
       // Clean and format the data
       const leadData = {
-        full_name: fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN',
-        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]) : '',
+        full_name: (fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
+        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]).substring(0, 20) : '',
         residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()),
-        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]) : 'UNKNOWN',
-        email: emailMatch?.[1]?.trim() ?? 'UNKNOWN',
+        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]).substring(0, 50) : 'UNKNOWN',
+        email: emailMatch?.[1]?.trim()?.substring(0, 255) ?? 'UNKNOWN',
         employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()),
-        loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]) : 'UNKNOWN',
-        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]) : 'UNKNOWN',
-        ideal_tenure: idealTenureMatch?.[1]?.trim() ?? 'UNKNOWN',
+        loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]).substring(0, 100) : 'UNKNOWN',
+        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]).substring(0, 50) : 'UNKNOWN',
+        ideal_tenure: idealTenureMatch?.[1]?.trim()?.substring(0, 50) ?? 'UNKNOWN',
         date_time: dateTimeMatch?.[1]?.trim(),
-        assigned_to: assignedToMatch?.[1]?.trim() ?? 'UNKNOWN',
+        assigned_to: assignedToMatch?.[1]?.trim()?.substring(0, 256) ?? 'UNKNOWN',
         source: determineLeadSource(message, undefined, subject),
       };
 
