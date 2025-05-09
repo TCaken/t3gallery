@@ -303,17 +303,17 @@ export async function POST(request: Request) {
       const { message, subject } = directValidation.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([^\n\r]+)/i;
-      const nationalityRegex = /Nationality:\s*([^\n\r]+)/i;
-      const amountRegex = /(?:Amount|Loan Amount):\s*([^\n\r]+)/i;
+      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:Phone Number:|$)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*(\d+)/i;
+      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:---|$)/i;
+      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:---|$)/i;
       const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:\s*([^\n\r]+)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+)/i;
-      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+)/i;
-      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+)/i;
-      const assignedToRegex = /Assigned to:\s*([^\n\r]+)/i;
+      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:---|$)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:---|$)/i;
+      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:---|$)/i;
+      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:---|$)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:Time:|$)/i;
+      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:---|$)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
@@ -415,17 +415,17 @@ export async function POST(request: Request) {
       const { message, subject } = validationResult.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([^\n\r]+)/i;
-      const nationalityRegex = /Nationality:\s*([^\n\r]+)/i;
-      const amountRegex = /(?:Amount|Loan Amount):\s*([^\n\r]+)/i;
+      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:Phone Number:|$)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*(\d+)/i;
+      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:---|$)/i;
+      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:---|$)/i;
       const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:\s*([^\n\r]+)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+)/i;
-      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+)/i;
-      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+)/i;
-      const assignedToRegex = /Assigned to:\s*([^\n\r]+)/i;
+      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:---|$)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:---|$)/i;
+      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:---|$)/i;
+      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:---|$)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:Time:|$)/i;
+      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:---|$)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
