@@ -88,15 +88,9 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (formUrl.includes('crawfort.com')) return 'Crawfort';
   }
 
-  // Check provided subject first, then fall back to extracting from message
-  const subjectToCheck = subject ?? (() => {
-    const subjectRegex = /Subject: ([^\n]+)/i;
-    const subjectMatch = subjectRegex.exec(message);
-    return subjectMatch?.[1];
-  })();
-
-  if (subjectToCheck) {
-    const subjectLower = subjectToCheck.toLowerCase();
+  // Check subject if provided
+  if (subject) {
+    const subjectLower = subject.toLowerCase();
     if (subjectLower.includes('moneyright') || subjectLower.includes('1% interest')) return 'MoneyRight';
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
     if (subjectLower.includes('loanable') || subjectLower.includes('clientsuccessemail.com')) return 'Loanable';
