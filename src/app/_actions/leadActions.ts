@@ -136,7 +136,7 @@ export async function createLead(input: CreateLeadInput) {
     // Check eligibility first
     const eligibilityResult = await checkLeadEligibility(input.phone_number);
 
-    // Create the lead with initial eligibility status
+    // Create the lead with eligibility status
     const [newLead] = await db
       .insert(leads)
       .values({
@@ -150,9 +150,9 @@ export async function createLead(input: CreateLeadInput) {
         amount: input.amount,
         source: input.source,
         lead_type: 'new',
-        status: 'new',
-        eligibility_checked: eligibilityResult.isEligible,
-        eligibility_status: eligibilityResult.status,
+        status: eligibilityResult.status, // Use status from eligibility check
+        eligibility_checked: true,
+        eligibility_status: eligibilityResult.isEligible ? 'eligible' : 'ineligible',
         eligibility_notes: eligibilityResult.notes,
         created_by: input.created_by,
       })
