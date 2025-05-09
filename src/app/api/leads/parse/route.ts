@@ -145,6 +145,7 @@ export async function POST(request: Request) {
   try {
     // Parse and validate request body
     const body = await request.json();
+    console.log(body);
     
     // Try to validate as Workato request first
     const workatoValidation = WorkatoRequestSchema.safeParse(body);
