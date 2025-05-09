@@ -28,12 +28,29 @@ const LeadSchema = z.object({
 
 // Define the Workato request schema
 const WorkatoRequestSchema = z.object({
+  request_name: z.string(),
   request: z.object({
+    method: z.string(),
+    content_type: z.string(),
+    url: z.string(),
+    request_body_schema: z.string(),
     body: z.object({
+      subject: z.string(),
       message: z.string(),
-      subject: z.string().optional(),
     }),
+    headers: z.array(z.object({
+      header: z.string(),
+      value: z.string(),
+    })).optional(),
   }),
+  response: z.object({
+    output_type: z.string(),
+    expected_encoding: z.string(),
+    ignore_http_errors: z.string(),
+    response_schema: z.string(),
+    headers_schema: z.string(),
+  }),
+  wait_for_response: z.string(),
 });
 
 // Helper function to clean phone number
@@ -145,109 +162,212 @@ export async function POST(request: Request) {
   try {
     // Parse and validate request body
     const body = await request.json();
-    console.log(body);
+    console.log('Received request body:', JSON.stringify(body, null, 2));
     
     // Try to validate as Workato request first
     const workatoValidation = WorkatoRequestSchema.safeParse(body);
-    const requestBody = workatoValidation.success ? workatoValidation.data.request.body : body;
-
-    const validationResult = RequestSchema.safeParse(requestBody);
+    console.log('Workato validation result:', workatoValidation.success);
     
-    if (!validationResult.success) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid request body', details: validationResult.error },
-        { status: 400 }
-      );
-    }
-
-    const { message, subject } = validationResult.data;
-
-    // Extract lead information using regex
-    const fullNameRegex = /Full Name:?\s*([^\n\r]+)/i;
-    const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+)/i;
-    const nationalityRegex = /Nationality:?\s*([^\n\r]+)/i;
-    const amountRegex = /Amount:?\s*([^\n\r]+)/i;
-    const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-    const employmentRegex = /Employment Status:?\s*([^\n\r]+)/i;
-    const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+)/i;
-    const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+)/i;
-    const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+)/i;
-    const ipRegex = /(?:IP|Remote IP):?\s*([0-9.]+)/i;
-    const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+)/i;
-    const formUrlRegex = /(?:Form URL|Page URL|Lead from page URL):?\s*([^\n\r]+)/i;
-    const assignedToRegex = /Assigned to:?\s*([^\n\r]+)/i;
-
-    // Extract matches
-    const fullNameMatch = fullNameRegex.exec(message);
-    const phoneMatch = phoneRegex.exec(message);
-    const nationalityMatch = nationalityRegex.exec(message);
-    const amountMatch = amountRegex.exec(message);
-    const emailMatch = emailRegex.exec(message);
-    const employmentMatch = employmentRegex.exec(message);
-    const purposeMatch = purposeRegex.exec(message);
-    const existingLoansMatch = existingLoansRegex.exec(message);
-    const idealTenureMatch = idealTenureRegex.exec(message);
-    const ipMatch = ipRegex.exec(message);
-    const dateTimeMatch = dateTimeRegex.exec(message);
-    const formUrlMatch = formUrlRegex.exec(message);
-    const assignedToMatch = assignedToRegex.exec(message);
-
-    // Clean and format the data
-    const formUrl = formUrlMatch?.[1]?.trim();
-    const leadData = {
-      full_name: fullNameMatch?.[1]?.trim(),
-      phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]) : '',
-      nationality: nationalityMatch?.[1]?.trim(),
-      amount: amountMatch?.[1] ? extractAmount(amountMatch[1]) : undefined,
-      email: emailMatch?.[1]?.trim(),
-      employment_status: employmentMatch?.[1]?.trim(),
-      loan_purpose: purposeMatch?.[1]?.trim(),
-      existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]) : undefined,
-      ideal_tenure: idealTenureMatch?.[1]?.trim(),
-      ip_address: ipMatch?.[1]?.trim(),
-      date_time: dateTimeMatch?.[1]?.trim(),
-      form_url: formUrl,
-      assigned_to: assignedToMatch?.[1]?.trim(),
-      source: determineLeadSource(message, formUrl, subject),
-    };
-
-    // Validate the extracted data
-    const leadValidation = LeadSchema.safeParse(leadData);
-    if (!leadValidation.success) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid lead data', details: leadValidation.error },
-        { status: 400 }
-      );
-    }
-
-    console.log(leadData);
-
-    // Create the lead
-    const createResult = await createLead(leadData);
-
-    if (!createResult.success) {
-      return NextResponse.json(
-        { success: false, error: createResult.error },
-        { status: 500 }
-      );
-    }
-
-    // Return the parsed data and creation status
-    return NextResponse.json({
-      success: true,
-      data: {
-        ...leadData,
-        created: true,
-        lead_id: createResult.lead?.id,
-        status: createResult.lead?.status,
-        eligibility_status: createResult.lead?.eligibility_status
+    if (workatoValidation.success) {
+      console.log('Processing Workato request');
+      const requestBody = workatoValidation.data.request.body;
+      const validationResult = RequestSchema.safeParse(requestBody);
+      
+      if (!validationResult.success) {
+        console.error('Invalid request body:', validationResult.error);
+        return NextResponse.json(
+          { success: false, error: 'Invalid request body', details: validationResult.error },
+          { status: 400 }
+        );
       }
-    });
 
+      const { message, subject } = validationResult.data;
+
+      // Extract lead information using regex
+      const fullNameRegex = /Full Name:?\s*([^\n\r]+)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+)/i;
+      const nationalityRegex = /Nationality:?\s*([^\n\r]+)/i;
+      const amountRegex = /Amount:?\s*([^\n\r]+)/i;
+      const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
+      const employmentRegex = /Employment Status:?\s*([^\n\r]+)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+)/i;
+      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+)/i;
+      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+)/i;
+      const ipRegex = /(?:IP|Remote IP):?\s*([0-9.]+)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+)/i;
+      const formUrlRegex = /(?:Form URL|Page URL|Lead from page URL):?\s*([^\n\r]+)/i;
+      const assignedToRegex = /Assigned to:?\s*([^\n\r]+)/i;
+
+      // Extract matches
+      const fullNameMatch = fullNameRegex.exec(message);
+      const phoneMatch = phoneRegex.exec(message);
+      const nationalityMatch = nationalityRegex.exec(message);
+      const amountMatch = amountRegex.exec(message);
+      const emailMatch = emailRegex.exec(message);
+      const employmentMatch = employmentRegex.exec(message);
+      const purposeMatch = purposeRegex.exec(message);
+      const existingLoansMatch = existingLoansRegex.exec(message);
+      const idealTenureMatch = idealTenureRegex.exec(message);
+      const ipMatch = ipRegex.exec(message);
+      const dateTimeMatch = dateTimeRegex.exec(message);
+      const formUrlMatch = formUrlRegex.exec(message);
+      const assignedToMatch = assignedToRegex.exec(message);
+
+      // Clean and format the data
+      const formUrl = formUrlMatch?.[1]?.trim();
+      const leadData = {
+        full_name: fullNameMatch?.[1]?.trim(),
+        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]) : '',
+        nationality: nationalityMatch?.[1]?.trim(),
+        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]) : undefined,
+        email: emailMatch?.[1]?.trim(),
+        employment_status: employmentMatch?.[1]?.trim(),
+        loan_purpose: purposeMatch?.[1]?.trim(),
+        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]) : undefined,
+        ideal_tenure: idealTenureMatch?.[1]?.trim(),
+        ip_address: ipMatch?.[1]?.trim(),
+        date_time: dateTimeMatch?.[1]?.trim(),
+        form_url: formUrl,
+        assigned_to: assignedToMatch?.[1]?.trim(),
+        source: determineLeadSource(message, formUrl, subject),
+      };
+
+      console.log('Processed lead data:', leadData);
+
+      // Validate the extracted data
+      const leadValidation = LeadSchema.safeParse(leadData);
+      if (!leadValidation.success) {
+        console.error('Invalid lead data:', leadValidation.error);
+        return NextResponse.json(
+          { success: false, error: 'Invalid lead data', details: leadValidation.error },
+          { status: 400 }
+        );
+      }
+
+      // Create the lead
+      const createResult = await createLead(leadData);
+      console.log('Lead creation result:', createResult);
+
+      if (!createResult.success) {
+        return NextResponse.json(
+          { success: false, error: createResult.error },
+          { status: 500 }
+        );
+      }
+
+      // Return the parsed data and creation status
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...leadData,
+          created: true,
+          lead_id: createResult.lead?.id,
+          status: createResult.lead?.status,
+          eligibility_status: createResult.lead?.eligibility_status
+        }
+      });
+    } else {
+      console.log('Processing direct API request');
+      const validationResult = RequestSchema.safeParse(body);
+      
+      if (!validationResult.success) {
+        console.error('Invalid request body:', validationResult.error);
+        return NextResponse.json(
+          { success: false, error: 'Invalid request body', details: validationResult.error },
+          { status: 400 }
+        );
+      }
+
+      const { message, subject } = validationResult.data;
+
+      // Extract lead information using regex
+      const fullNameRegex = /Full Name:?\s*([^\n\r]+)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+)/i;
+      const nationalityRegex = /Nationality:?\s*([^\n\r]+)/i;
+      const amountRegex = /Amount:?\s*([^\n\r]+)/i;
+      const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
+      const employmentRegex = /Employment Status:?\s*([^\n\r]+)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+)/i;
+      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+)/i;
+      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+)/i;
+      const ipRegex = /(?:IP|Remote IP):?\s*([0-9.]+)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+)/i;
+      const formUrlRegex = /(?:Form URL|Page URL|Lead from page URL):?\s*([^\n\r]+)/i;
+      const assignedToRegex = /Assigned to:?\s*([^\n\r]+)/i;
+
+      // Extract matches
+      const fullNameMatch = fullNameRegex.exec(message);
+      const phoneMatch = phoneRegex.exec(message);
+      const nationalityMatch = nationalityRegex.exec(message);
+      const amountMatch = amountRegex.exec(message);
+      const emailMatch = emailRegex.exec(message);
+      const employmentMatch = employmentRegex.exec(message);
+      const purposeMatch = purposeRegex.exec(message);
+      const existingLoansMatch = existingLoansRegex.exec(message);
+      const idealTenureMatch = idealTenureRegex.exec(message);
+      const ipMatch = ipRegex.exec(message);
+      const dateTimeMatch = dateTimeRegex.exec(message);
+      const formUrlMatch = formUrlRegex.exec(message);
+      const assignedToMatch = assignedToRegex.exec(message);
+
+      // Clean and format the data
+      const formUrl = formUrlMatch?.[1]?.trim();
+      const leadData = {
+        full_name: fullNameMatch?.[1]?.trim(),
+        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]) : '',
+        nationality: nationalityMatch?.[1]?.trim(),
+        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]) : undefined,
+        email: emailMatch?.[1]?.trim(),
+        employment_status: employmentMatch?.[1]?.trim(),
+        loan_purpose: purposeMatch?.[1]?.trim(),
+        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]) : undefined,
+        ideal_tenure: idealTenureMatch?.[1]?.trim(),
+        ip_address: ipMatch?.[1]?.trim(),
+        date_time: dateTimeMatch?.[1]?.trim(),
+        form_url: formUrl,
+        assigned_to: assignedToMatch?.[1]?.trim(),
+        source: determineLeadSource(message, formUrl, subject),
+      };
+
+      console.log('Processed lead data:', leadData);
+
+      // Validate the extracted data
+      const leadValidation = LeadSchema.safeParse(leadData);
+      if (!leadValidation.success) {
+        console.error('Invalid lead data:', leadValidation.error);
+        return NextResponse.json(
+          { success: false, error: 'Invalid lead data', details: leadValidation.error },
+          { status: 400 }
+        );
+      }
+
+      // Create the lead
+      const createResult = await createLead(leadData);
+      console.log('Lead creation result:', createResult);
+
+      if (!createResult.success) {
+        return NextResponse.json(
+          { success: false, error: createResult.error },
+          { status: 500 }
+        );
+      }
+
+      // Return the parsed data and creation status
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...leadData,
+          created: true,
+          lead_id: createResult.lead?.id,
+          status: createResult.lead?.status,
+          eligibility_status: createResult.lead?.eligibility_status
+        }
+      });
+    }
   } catch (error) {
     console.error('Error parsing lead:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to parse lead' },
+      { success: false, error: 'Failed to parse lead', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
