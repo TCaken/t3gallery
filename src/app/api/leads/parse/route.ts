@@ -5,24 +5,25 @@ import { createLead } from '~/app/_actions/leadActions';
 // Define the request schema
 const RequestSchema = z.object({
   message: z.string(),
+  subject: z.string().optional(),
 });
 
 // Define the lead schema
 const LeadSchema = z.object({
-  full_name: z.string().optional(),
-  phone_number: z.string(),
-  nationality: z.string().optional(),
-  amount: z.string().optional(),
-  email: z.string().optional(),
-  employment_status: z.string().optional(),
-  loan_purpose: z.string().optional(),
-  existing_loans: z.string().optional(),
-  ideal_tenure: z.string().optional(),
-  ip_address: z.string().optional(),
-  date_time: z.string().optional(),
-  form_url: z.string().optional(),
-  assigned_to: z.string().optional(),
-  source: z.string().optional(),
+  full_name: z.string().max(255).optional(),
+  phone_number: z.string().max(20),
+  nationality: z.string().max(100).optional(),
+  amount: z.string().max(50).optional(),
+  email: z.string().max(255).optional(),
+  employment_status: z.string().max(100).optional(),
+  loan_purpose: z.string().max(100).optional(),
+  existing_loans: z.string().max(50).optional(),
+  ideal_tenure: z.string().max(50).optional(),
+  ip_address: z.string().max(50).optional(),
+  date_time: z.string().max(50).optional(),
+  form_url: z.string().max(255).optional(),
+  assigned_to: z.string().max(256).optional(),
+  source: z.string().max(100).optional(),
 });
 
 // Helper function to clean phone number
@@ -77,7 +78,7 @@ function cleanExistingLoans(value: string): string {
 }
 
 // Helper function to determine lead source
-function determineLeadSource(message: string, formUrl?: string): string {
+function determineLeadSource(message: string, formUrl?: string, subject?: string): string {
   // Check form URL first
   if (formUrl) {
     if (formUrl.includes('omy.sg')) return 'OMY.sg';
@@ -87,15 +88,19 @@ function determineLeadSource(message: string, formUrl?: string): string {
     if (formUrl.includes('crawfort.com')) return 'Crawfort';
   }
 
-  // Check subject line
-  const subjectRegex = /Subject: ([^\n]+)/i;
-  const subjectMatch = subjectRegex.exec(message);
-  if (subjectMatch?.[1]) {
-    const subject = subjectMatch[1].toLowerCase();
-    if (subject.includes('moneyright') || subject.includes('1% interest')) return 'MoneyRight';
-    if (subject.includes('1% loan') || subject.includes('one percent')) return '1% Loan';
-    if (subject.includes('loanable')) return 'Loanable';
-    if (subject.includes('crawfort')) return 'Crawfort';
+  // Check provided subject first, then fall back to extracting from message
+  const subjectToCheck = subject ?? (() => {
+    const subjectRegex = /Subject: ([^\n]+)/i;
+    const subjectMatch = subjectRegex.exec(message);
+    return subjectMatch?.[1];
+  })();
+
+  if (subjectToCheck) {
+    const subjectLower = subjectToCheck.toLowerCase();
+    if (subjectLower.includes('moneyright') || subjectLower.includes('1% interest')) return 'MoneyRight';
+    if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
+    if (subjectLower.includes('loanable') || subjectLower.includes('clientsuccessemail.com')) return 'Loanable';
+    if (subjectLower.includes('crawfort')) return 'Crawfort';
   }
 
   // Then check message content
@@ -103,7 +108,7 @@ function determineLeadSource(message: string, formUrl?: string): string {
     { source: 'OMY.sg', keywords: ['OMY.sg', 'OMY', 'get-personal-loan'] },
     { source: '1% Loan', keywords: ['1% Loan', '1%', 'One Percent'] },
     { source: 'MoneyRight', keywords: ['MoneyRight', '1% Interest'] },
-    { source: 'Loanable', keywords: ['Loanable', 'loanable.sg'] },
+    { source: 'Loanable', keywords: ['Loanable', 'loanable.sg', 'clientsuccessemail.com'] },
     { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com', 'personal-loan-singapore'] }
   ];
 
@@ -123,7 +128,7 @@ function determineLeadSource(message: string, formUrl?: string): string {
       if (domain.includes('omy.sg')) return 'OMY.sg';
       if (domain.includes('1percent.sg')) return '1% Loan';
       if (domain.includes('moneyright.sg')) return 'MoneyRight';
-      if (domain.includes('loanable.sg')) return 'Loanable';
+      if (domain.includes('loanable.sg') || domain.includes('clientsuccessemail.com')) return 'Loanable';
       if (domain.includes('crawfort.com')) return 'Crawfort';
     }
     return fromValue;
@@ -145,7 +150,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { message } = validationResult.data;
+    const { message, subject } = validationResult.data;
 
     // Extract lead information using regex
     const fullNameRegex = /Full Name:?\s*([^\n\r]+)/i;
@@ -193,7 +198,7 @@ export async function POST(request: Request) {
       date_time: dateTimeMatch?.[1]?.trim(),
       form_url: formUrl,
       assigned_to: assignedToMatch?.[1]?.trim(),
-      source: determineLeadSource(message, formUrl),
+      source: determineLeadSource(message, formUrl, subject),
     };
 
     // Validate the extracted data
@@ -204,6 +209,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    console.log(leadData);
 
     // Create the lead
     const createResult = await createLead(leadData);
