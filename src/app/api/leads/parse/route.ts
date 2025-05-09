@@ -72,11 +72,14 @@ function cleanPhoneNumber(phone: string): string {
 
 // Helper function to extract amount
 function extractAmount(amount: string): string {
-  if (!amount) return '';
+  if (!amount) return 'UNKNOWN';
+  
+  // Remove everything after the first occurrence of '---'
+  const cleanAmount = amount.split('---')[0].trim();
   
   // Check if amount contains "to" for range
-  if (amount.toLowerCase().includes('to')) {
-    const [min, max] = amount.split(/to/i).map(part => {
+  if (cleanAmount.toLowerCase().includes('to')) {
+    const [min, max] = cleanAmount.split(/to/i).map(part => {
       // Remove currency symbols and clean up, but keep the minus sign
       return part.replace(/[^0-9-]/g, '').trim();
     });
@@ -84,7 +87,20 @@ function extractAmount(amount: string): string {
   }
   
   // Remove currency symbols and clean up, but keep the minus sign
-  return amount.replace(/[^0-9-]/g, '').trim();
+  return cleanAmount.replace(/[^0-9-]/g, '').trim() || 'UNKNOWN';
+}
+
+// Helper function to extract name from subject
+function extractNameFromSubject(subject: string): string | null {
+  if (!subject) return null;
+  
+  // Look for patterns like "from [Name]" or "Request from [Name]"
+  const fromMatch = subject.match(/(?:from|request from)\s+([^,]+)/i);
+  if (fromMatch?.[1]) {
+    return fromMatch[1].trim();
+  }
+  
+  return null;
 }
 
 // Helper function to validate email
@@ -257,10 +273,10 @@ export async function POST(request: Request) {
       const { message, subject } = directValidation.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /Full Name:?\s*([^\n\r]+)/i;
+      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+)/i;
       const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+)/i;
       const nationalityRegex = /Nationality:?\s*([^\n\r]+)/i;
-      const amountRegex = /Amount:?\s*([^\n\r]+)/i;
+      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+)/i;
       const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
       const employmentRegex = /Employment Status:?\s*([^\n\r]+)/i;
       const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+)/i;
@@ -282,9 +298,12 @@ export async function POST(request: Request) {
       const dateTimeMatch = dateTimeRegex.exec(message);
       const assignedToMatch = assignedToRegex.exec(message);
 
+      // Try to get name from subject if not found in message
+      const nameFromSubject = !fullNameMatch?.[1] ? extractNameFromSubject(subject ?? '') : null;
+
       // Clean and format the data
       const leadData = {
-        full_name: fullNameMatch?.[1]?.trim() ?? 'UNKNOWN',
+        full_name: fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN',
         phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]) : '',
         residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()),
         amount: amountMatch?.[1] ? extractAmount(amountMatch[1]) : 'UNKNOWN',
@@ -357,10 +376,10 @@ export async function POST(request: Request) {
       const { message, subject } = validationResult.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /Full Name:?\s*([^\n\r]+)/i;
+      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+)/i;
       const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+)/i;
       const nationalityRegex = /Nationality:?\s*([^\n\r]+)/i;
-      const amountRegex = /Amount:?\s*([^\n\r]+)/i;
+      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+)/i;
       const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
       const employmentRegex = /Employment Status:?\s*([^\n\r]+)/i;
       const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+)/i;
@@ -382,9 +401,12 @@ export async function POST(request: Request) {
       const dateTimeMatch = dateTimeRegex.exec(message);
       const assignedToMatch = assignedToRegex.exec(message);
 
+      // Try to get name from subject if not found in message
+      const nameFromSubject = !fullNameMatch?.[1] ? extractNameFromSubject(subject ?? '') : null;
+
       // Clean and format the data
       const leadData = {
-        full_name: fullNameMatch?.[1]?.trim() ?? 'UNKNOWN',
+        full_name: fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN',
         phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]) : '',
         residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()),
         amount: amountMatch?.[1] ? extractAmount(amountMatch[1]) : 'UNKNOWN',
