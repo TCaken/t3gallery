@@ -26,6 +26,16 @@ const LeadSchema = z.object({
   source: z.string().max(100).optional(),
 });
 
+// Define the Workato request schema
+const WorkatoRequestSchema = z.object({
+  request: z.object({
+    body: z.object({
+      message: z.string(),
+      subject: z.string().optional(),
+    }),
+  }),
+});
+
 // Helper function to clean phone number
 function cleanPhoneNumber(phone: string): string {
   if (!phone) return '';
@@ -135,7 +145,12 @@ export async function POST(request: Request) {
   try {
     // Parse and validate request body
     const body = await request.json();
-    const validationResult = RequestSchema.safeParse(body);
+    
+    // Try to validate as Workato request first
+    const workatoValidation = WorkatoRequestSchema.safeParse(body);
+    const requestBody = workatoValidation.success ? workatoValidation.data.request.body : body;
+
+    const validationResult = RequestSchema.safeParse(requestBody);
     
     if (!validationResult.success) {
       return NextResponse.json(
