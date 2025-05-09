@@ -203,8 +203,8 @@ export const leads = createTable(
     phone_number: d.varchar({ length: 20 }).notNull(),
     full_name: d.varchar({ length: 255 }),
     email: d.varchar({ length: 255 }),
-    nationality: d.varchar({ length: 100 }),
-    employment_status: d.varchar({ length: 100 }),
+    residential_status: d.varchar({ length: 50 }),
+    employment_status: d.varchar({ length: 50 }),
     loan_purpose: d.varchar({ length: 100 }),
     existing_loans: d.varchar({ length: 50 }),
     amount: d.varchar({ length: 50 }),
@@ -311,7 +311,9 @@ export const appointment_timeslots = createTable(
     primary: d.boolean().default(true),
   }),
   (t) => [
-    primaryKey({ columns: [t.appointment_id, t.timeslot_id] })
+    primaryKey({ columns: [t.appointment_id, t.timeslot_id] }),
+    index("appointment_timeslot_appointment_id_idx").on(t.appointment_id),
+    index("appointment_timeslot_timeslot_id_idx").on(t.timeslot_id)
   ]
 );
 

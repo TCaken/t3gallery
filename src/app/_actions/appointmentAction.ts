@@ -134,56 +134,64 @@ export async function createAppointment(data: {
     }
     
     // Check if the timeslot is already at capacity
-    if (selectedSlot.occupied_count >= selectedSlot.max_capacity) {
+    const occupiedCount = selectedSlot.occupied_count ?? 0;
+    const maxCapacity = selectedSlot.max_capacity ?? 1;
+    if (occupiedCount >= maxCapacity) {
       return { success: false, message: "This timeslot is already fully booked" };
     }
-    
-    // Create the appointment
-    const [newAppointment] = await db
-      .insert(appointments)
-      .values({
-        lead_id: data.leadId,
-        agent_id: userId,
-        status: 'upcoming',
-        notes: data.notes,
-        is_urgent: data.isUrgent,
-        start_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.start_time}`),
-        end_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.end_time}`),
-        created_at: new Date(),
-        created_by: userId
-      })
-      .returning();
-    
-    // Create appointment_timeslot relationship
-    await db
-      .insert(appointment_timeslots)
-      .values({
-        appointment_id: newAppointment.id,
-        timeslot_id: data.timeslotId,
-        primary: true
-      });
-    
-    // Update the timeslot occupied count
-    await db
-      .update(timeslots)
-      .set({
-        occupied_count: selectedSlot.occupied_count + 1,
-        updated_at: new Date(),
-        updated_by: userId
-      })
-      .where(eq(timeslots.id, data.timeslotId));
-    
-    // Update lead status to "booked"
-    await db
-      .update(leads)
-      .set({
-        status: 'booked',
-        updated_at: new Date(),
-        updated_by: userId
-      })
-      .where(eq(leads.id, data.leadId));
-    
-    return { success: true, appointment: newAppointment };
+
+    // Use a transaction to ensure all operations succeed or fail together
+    return await db.transaction(async (tx) => {
+      // Create the appointment first
+      const [newAppointment] = await tx
+        .insert(appointments)
+        .values({
+          lead_id: data.leadId,
+          agent_id: userId,
+          status: 'upcoming',
+          notes: data.notes,
+          start_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.start_time}`),
+          end_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.end_time}`),
+          created_at: new Date(),
+          created_by: userId
+        })
+        .returning();
+
+      if (!newAppointment) {
+        throw new Error("Failed to create appointment");
+      }
+
+      // Then create the appointment_timeslot relationship
+      await tx
+        .insert(appointment_timeslots)
+        .values({
+          appointment_id: newAppointment.id,
+          timeslot_id: data.timeslotId,
+          primary: true
+        });
+      
+      // Update the timeslot occupied count
+      await tx
+        .update(timeslots)
+        .set({
+          occupied_count: occupiedCount + 1,
+          updated_at: new Date(),
+          updated_by: userId
+        })
+        .where(eq(timeslots.id, data.timeslotId));
+      
+      // Update lead status to "booked"
+      await tx
+        .update(leads)
+        .set({
+          status: 'booked',
+          updated_at: new Date(),
+          updated_by: userId
+        })
+        .where(eq(leads.id, data.leadId));
+      
+      return { success: true, appointment: newAppointment };
+    });
   } catch (error) {
     console.error("Error creating appointment:", error);
     return { success: false, message: "Failed to create appointment" };
