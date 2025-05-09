@@ -95,7 +95,7 @@ function extractNameFromSubject(subject: string): string | null {
   if (!subject) return null;
   
   // Look for patterns like "from [Name]" or "Request from [Name]"
-  const fromMatch = subject.match(/(?:from|request from)\s+([^,]+)/i);
+  const fromMatch = /(?:from|request from)\s+([^,]+)/i.exec(subject);
   if (fromMatch?.[1]) {
     return fromMatch[1].trim();
   }
@@ -113,22 +113,52 @@ function isValidEmail(email: string): boolean {
 // Helper function to clean existing loans value
 function cleanExistingLoans(value: string): string {
   if (!value || value.trim() === '') return 'UNKNOWN';
-  // Remove the "?:" prefix if present
-  const cleaned = value.replace(/^\?:\s*/, '').trim();
-  return cleaned || 'UNKNOWN';
+  
+  const valueLower = value.toLowerCase().trim();
+  // Handle various yes formats
+  if (valueLower === 'yes' || valueLower === 'y' || valueLower === 'have' || valueLower.includes('have loan')) {
+    return 'Yes';
+  }
+  // Handle various no formats
+  if (valueLower === 'no' || valueLower === 'n' || valueLower === 'none' || valueLower.includes('no loan')) {
+    return 'No';
+  }
+  return value.trim();
 }
 
 // Helper function to determine residential status
 function determineResidentialStatus(nationality: string | undefined): string {
-  if (!nationality) return 'UNKNOWN';
+  if (!nationality) {
+    console.log('Nationality is undefined or empty, returning UNKNOWN');
+    return 'UNKNOWN';
+  }
   
   const nationalityLower = nationality.toLowerCase();
-  if (nationalityLower.includes('singapore') || nationalityLower.includes('local')) {
+  console.log('Processing nationality:', nationalityLower);
+  
+  // Check for Local/PR first
+  if (nationalityLower.includes('singapore') || 
+      nationalityLower.includes('local') || 
+      nationalityLower.includes('pr') || 
+      nationalityLower.includes('permanent resident')) {
+    console.log('Matched as Local/PR');
     return 'Local';
   }
-  if (nationalityLower.includes('foreign') || nationalityLower.includes('foreigner')) {
+  // Check for Foreigner/Work Permit/S Pass
+  if (nationalityLower.includes('foreign') || 
+      nationalityLower.includes('foreigner') || 
+      nationalityLower.includes('s pass') || 
+      nationalityLower.includes('work permit') ||
+      nationalityLower.includes('ep') ||
+      nationalityLower.includes('employment pass')) {
+    console.log('Matched as Foreigner');
     return 'Foreigner';
   }
+  if (nationalityLower.includes('others')) {
+    console.log('Matched as Others');
+    return 'Others';
+  }
+  console.log('No match found, returning UNKNOWN');
   return 'UNKNOWN';
 }
 
@@ -273,17 +303,17 @@ export async function POST(request: Request) {
       const { message, subject } = directValidation.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+?)(?=Phone|$)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+?)(?=Loan|$)/i;
-      const nationalityRegex = /Nationality:?\s*([^\n\r]+?)(?=---|$)/i;
-      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+?)(?=Nationality|$)/i;
-      const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:?\s*([^\n\r]+?)(?=Email|$)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+?)(?=Employment|$)/i;
-      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+?)(?=Ideal|$)/i;
-      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+?)(?=Date|$)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+?)(?=Time|$)/i;
-      const assignedToRegex = /Assigned to:?\s*([^\n\r]+?)(?=Source|$)/i;
+      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([^\n\r]+)/i;
+      const nationalityRegex = /Nationality:\s*([^\n\r]+)/i;
+      const amountRegex = /(?:Amount|Loan Amount):\s*([^\n\r]+)/i;
+      const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
+      const employmentRegex = /Employment Status:\s*([^\n\r]+)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+)/i;
+      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+)/i;
+      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+)/i;
+      const assignedToRegex = /Assigned to:\s*([^\n\r]+)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
@@ -298,17 +328,17 @@ export async function POST(request: Request) {
       const dateTimeMatch = dateTimeRegex.exec(message);
       const assignedToMatch = assignedToRegex.exec(message);
 
-      // Try to get name from subject if not found in message
+      // Only try to get name from subject if not found in message
       const nameFromSubject = !fullNameMatch?.[1] ? extractNameFromSubject(subject ?? '') : null;
 
       // Clean and format the data
       const leadData = {
         full_name: (fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
         phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]).substring(0, 20) : '',
-        residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()),
+        residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()) || 'UNKNOWN',
         amount: amountMatch?.[1] ? extractAmount(amountMatch[1]).substring(0, 50) : 'UNKNOWN',
         email: emailMatch?.[1]?.trim()?.substring(0, 255) ?? 'UNKNOWN',
-        employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()),
+        employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()) || 'UNKNOWN',
         loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]).substring(0, 100) : 'UNKNOWN',
         existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]).substring(0, 50) : 'UNKNOWN',
         ideal_tenure: idealTenureMatch?.[1]?.trim()?.substring(0, 50) ?? 'UNKNOWN',
@@ -317,7 +347,16 @@ export async function POST(request: Request) {
         source: determineLeadSource(message, undefined, subject),
       };
 
-      console.log('Processed lead data:', leadData);
+      console.log('Raw matches:', {
+        fullNameMatch: fullNameMatch?.[1],
+        phoneMatch: phoneMatch?.[1],
+        nationalityMatch: nationalityMatch?.[1],
+        amountMatch: amountMatch?.[1],
+        existingLoansMatch: existingLoansMatch?.[1],
+        nameFromSubject,
+        nationalityRaw: nationalityMatch?.[1]?.trim(),
+        residentialStatus: leadData.residential_status
+      });
 
       // Validate the extracted data
       const leadValidation = LeadSchema.safeParse(leadData);
@@ -376,17 +415,17 @@ export async function POST(request: Request) {
       const { message, subject } = validationResult.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):?\s*([^\n\r]+?)(?=Phone|$)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:?\s*([^\n\r]+?)(?=Loan|$)/i;
-      const nationalityRegex = /Nationality:?\s*([^\n\r]+?)(?=---|$)/i;
-      const amountRegex = /(?:Amount|Loan Amount):?\s*([^\n\r]+?)(?=Nationality|$)/i;
-      const emailRegex = /Email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:?\s*([^\n\r]+?)(?=Email|$)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):?\s*([^\n\r]+?)(?=Employment|$)/i;
-      const existingLoansRegex = /(?:Any Existing Loans|Existing Loans):?\s*([^\n\r]+?)(?=Ideal|$)/i;
-      const idealTenureRegex = /Ideal Tenure:?\s*([^\n\r]+?)(?=Date|$)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):?\s*([^\n\r]+?)(?=Time|$)/i;
-      const assignedToRegex = /Assigned to:?\s*([^\n\r]+?)(?=Source|$)/i;
+      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([^\n\r]+)/i;
+      const nationalityRegex = /Nationality:\s*([^\n\r]+)/i;
+      const amountRegex = /(?:Amount|Loan Amount):\s*([^\n\r]+)/i;
+      const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
+      const employmentRegex = /Employment Status:\s*([^\n\r]+)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+)/i;
+      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+)/i;
+      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+)/i;
+      const assignedToRegex = /Assigned to:\s*([^\n\r]+)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
@@ -401,17 +440,17 @@ export async function POST(request: Request) {
       const dateTimeMatch = dateTimeRegex.exec(message);
       const assignedToMatch = assignedToRegex.exec(message);
 
-      // Try to get name from subject if not found in message
+      // Only try to get name from subject if not found in message
       const nameFromSubject = !fullNameMatch?.[1] ? extractNameFromSubject(subject ?? '') : null;
 
       // Clean and format the data
       const leadData = {
         full_name: (fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
         phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]).substring(0, 20) : '',
-        residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()),
+        residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()) || 'UNKNOWN',
         amount: amountMatch?.[1] ? extractAmount(amountMatch[1]).substring(0, 50) : 'UNKNOWN',
         email: emailMatch?.[1]?.trim()?.substring(0, 255) ?? 'UNKNOWN',
-        employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()),
+        employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()) || 'UNKNOWN',
         loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]).substring(0, 100) : 'UNKNOWN',
         existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]).substring(0, 50) : 'UNKNOWN',
         ideal_tenure: idealTenureMatch?.[1]?.trim()?.substring(0, 50) ?? 'UNKNOWN',
@@ -420,7 +459,16 @@ export async function POST(request: Request) {
         source: determineLeadSource(message, undefined, subject),
       };
 
-      console.log('Processed lead data:', leadData);
+      console.log('Raw matches:', {
+        fullNameMatch: fullNameMatch?.[1],
+        phoneMatch: phoneMatch?.[1],
+        nationalityMatch: nationalityMatch?.[1],
+        amountMatch: amountMatch?.[1],
+        existingLoansMatch: existingLoansMatch?.[1],
+        nameFromSubject,
+        nationalityRaw: nationalityMatch?.[1]?.trim(),
+        residentialStatus: leadData.residential_status
+      });
 
       // Validate the extracted data
       const leadValidation = LeadSchema.safeParse(leadData);

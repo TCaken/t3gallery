@@ -122,7 +122,7 @@ interface CreateLeadInput {
   phone_number: string;
   full_name?: string;
   email?: string;
-  nationality?: string;
+  residential_status?: string;
   employment_status?: string;
   loan_purpose?: string;
   existing_loans?: string;
@@ -143,7 +143,7 @@ export async function createLead(input: CreateLeadInput) {
         phone_number: input.phone_number,
         full_name: input.full_name,
         email: input.email,
-        nationality: input.nationality,
+        residential_status: input.residential_status,
         employment_status: input.employment_status,
         loan_purpose: input.loan_purpose,
         existing_loans: input.existing_loans,
