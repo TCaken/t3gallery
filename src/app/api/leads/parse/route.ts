@@ -94,10 +94,10 @@ function extractAmount(amount: string): string {
 function extractNameFromSubject(subject: string): string | null {
   if (!subject) return null;
   
-  // Look for patterns like "from [Name]" or "Request from [Name]"
-  const fromMatch = /(?:from|request from)\s+([^,]+)/i.exec(subject);
-  if (fromMatch?.[1]) {
-    return fromMatch[1].trim();
+  // Look for patterns like "from [Name]" or "Request from [Name]" or "Loan from MoneyIQ SG ([Name])"
+  const fromMatch = /(?:from|request from|loan from moneyiq sg)\s*(?:\(([^)]+)\)|([^,]+))/i.exec(subject);
+  if (fromMatch?.[1] ?? fromMatch?.[2]) {
+    return (fromMatch[1] ?? fromMatch[2] ?? '').trim();
   }
   
   return null;
@@ -191,6 +191,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (formUrl.includes('moneyright.sg')) return 'MoneyRight';
     if (formUrl.includes('loanable.sg')) return 'Loanable';
     if (formUrl.includes('crawfort.com')) return 'Crawfort';
+    if (formUrl.includes('moneyiq.sg')) return 'MoneyIQ SG';
   }
 
   // Check subject if provided
@@ -200,6 +201,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
     if (subjectLower.includes('loanable') || subjectLower.includes('clientsuccessemail.com')) return 'Loanable';
     if (subjectLower.includes('crawfort')) return 'Crawfort';
+    if (subjectLower.includes('moneyiq')) return 'MoneyIQ SG';
   }
 
   // Then check message content
@@ -208,7 +210,8 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     { source: '1% Loan', keywords: ['1% Loan', '1%', 'One Percent'] },
     { source: 'MoneyRight', keywords: ['MoneyRight', '1% Interest'] },
     { source: 'Loanable', keywords: ['Loanable', 'loanable.sg', 'clientsuccessemail.com'] },
-    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com', 'personal-loan-singapore'] }
+    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com', 'personal-loan-singapore'] },
+    { source: 'MoneyIQ SG', keywords: ['MoneyIQ', 'moneyiq.sg'] }
   ];
 
   for (const check of sourceChecks) {
@@ -303,17 +306,17 @@ export async function POST(request: Request) {
       const { message, subject } = directValidation.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:Phone Number:|$)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*(\d+)/i;
-      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:---|$)/i;
-      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:---|$)/i;
+      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:\n|$)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([0-9+\s-]+)/i;
+      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:\n|$)/i;
+      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:\n|$)/i;
       const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:---|$)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:---|$)/i;
-      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:---|$)/i;
-      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:---|$)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:Time:|$)/i;
-      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:---|$)/i;
+      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:\n|$)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:\n|$)/i;
+      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:\n|$)/i;
+      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:\n|$)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:\n|$)/i;
+      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:\n|$)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
@@ -415,17 +418,17 @@ export async function POST(request: Request) {
       const { message, subject } = validationResult.data;
 
       // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:Phone Number:|$)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*(\d+)/i;
-      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:---|$)/i;
-      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:---|$)/i;
+      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:\n|$)/i;
+      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([0-9+\s-]+)/i;
+      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:\n|$)/i;
+      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:\n|$)/i;
       const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:---|$)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:---|$)/i;
-      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:---|$)/i;
-      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:---|$)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:Time:|$)/i;
-      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:---|$)/i;
+      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:\n|$)/i;
+      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:\n|$)/i;
+      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:\n|$)/i;
+      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:\n|$)/i;
+      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:\n|$)/i;
+      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:\n|$)/i;
 
       // Extract matches
       const fullNameMatch = fullNameRegex.exec(message);
