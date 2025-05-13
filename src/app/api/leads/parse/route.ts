@@ -295,17 +295,6 @@ export async function POST(request: Request) {
 
     console.log('Message tokens:', tokens);
 
-    // Helper function to find value after a label
-    function findValueAfterLabel(label: string): string | undefined {
-      const labelIndex = tokens.findIndex(token => 
-        token.toLowerCase().includes(label.toLowerCase())
-      );
-      if (labelIndex !== -1 && labelIndex + 1 < tokens.length) {
-        return tokens[labelIndex + 1];
-      }
-      return undefined;
-    }
-
     // Helper function to find value in the same line as label
     function findValueInLine(label: string): string | undefined {
       const line = tokens.find(token => 
@@ -320,18 +309,29 @@ export async function POST(request: Request) {
       return undefined;
     }
 
+    // Helper function to find value after a label
+    function findValueAfterLabel(label: string): string | undefined {
+      const labelIndex = tokens.findIndex(token => 
+        token.toLowerCase().includes(label.toLowerCase())
+      );
+      if (labelIndex !== -1 && labelIndex + 1 < tokens.length) {
+        return tokens[labelIndex + 1];
+      }
+      return undefined;
+    }
+
     // Extract values using both helper functions
     const fullName = findValueInLine('Full Name') ?? findValueAfterLabel('Name:') ?? findValueAfterLabel('I am:');
     const phoneNumber = findValueInLine('Phone Number') ?? findValueAfterLabel('Mobile No.:') ?? findValueAfterLabel('Phone Number:');
     const nationality = findValueInLine('Nationality') ?? findValueAfterLabel('I am:');
     const amount = findValueInLine('Amount') ?? findValueAfterLabel('Loan Amount:');
-    const email = findValueAfterLabel('Email:');
-    const employment = findValueAfterLabel('Employment Status:');
-    const purpose = findValueAfterLabel('Loan Purpose:');
-    const existingLoans = findValueAfterLabel('Existing Loans:');
+    const email = findValueInLine('Email') ?? findValueAfterLabel('Email:');
+    const employment = findValueInLine('Employment Status') ?? findValueAfterLabel('Employment Status:');
+    const purpose = findValueInLine('Main Purpose of Loan') ?? findValueAfterLabel('Loan Purpose:');
+    const existingLoans = findValueInLine('Any Existing Loans') ?? findValueAfterLabel('Existing Loans:');
     const idealTenure = findValueInLine('Ideal Tenure') ?? findValueAfterLabel('Ideal Tenure:');
     const dateTime = findValueAfterLabel('Date/Time:');
-    const assignedTo = findValueAfterLabel('Assigned to:');
+    const assignedTo = findValueInLine('Assigned to') ?? findValueAfterLabel('Assigned to:');
 
     // Only try to get name from subject if not found in message
     const nameFromSubject = !fullName ? extractNameFromSubject(subject ?? '') : null;
