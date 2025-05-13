@@ -6,7 +6,7 @@ import { useAuth } from '@clerk/nextjs';
 import { 
   PlusIcon, 
   FunnelIcon,
-  MagnifyingGlassIcon,
+  MagnifyingGlassIcon as SearchIcon,
   UserGroupIcon,
   BookmarkIcon,
   ClockIcon,
@@ -20,9 +20,9 @@ import {
 } from '@heroicons/react/24/outline';
 import LeadCard  from '~/app/_components/LeadCard';
 import { hasPermission } from '~/server/rbac/queries';
-import { fetchLeads, populateLeads, updateLeadStatus } from '~/app/_actions/leadActions';
+import { fetchLeads, populateLeads, updateLeadStatus, fetchFilteredLeads } from '~/app/_actions/leadActions';
 import { type InferSelectModel } from 'drizzle-orm';
-import { leads } from "~/server/db/schema";
+import { leads, leadStatusEnum } from "~/server/db/schema";
 import LazyComment from '~/app/_components/LazyComment';
 import LeadActionButtons from '~/app/_components/LeadActionButtons';
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
@@ -36,22 +36,21 @@ import { updateLeadTag, getLeadTag, removeLeadTag } from '~/app/_actions/tagActi
 // Infer Lead type from the schema
 type Lead = InferSelectModel<typeof leads>;
 
-// Update the StatusInfo type definition
+// Update the StatusInfo type to use the schema's lead status enum
 type StatusInfo = {
-  id: string;
+  id: typeof leadStatusEnum.enumValues[number];
   name: string;
   color: string;
 };
 
-// Update the LEAD_STATUSES constant
+// Update the LEAD_STATUSES constant to use the schema's enum values
 const LEAD_STATUSES: StatusInfo[] = [
   { id: 'new', name: 'New', color: 'bg-blue-100 text-blue-800' },
-  { id: 'assigned', name: 'Assigned', color: 'bg-cyan-100 text-cyan-800' },
-  { id: 'follow_up', name: 'Follow Up', color: 'bg-indigo-100 text-indigo-800' },
+  { id: 'open', name: 'Open', color: 'bg-cyan-100 text-cyan-800' },
+  { id: 'contacted', name: 'Contacted', color: 'bg-indigo-100 text-indigo-800' },
   { id: 'no_answer', name: 'No Answer', color: 'bg-gray-100 text-gray-800' },
+  { id: 'follow_up', name: 'Follow Up', color: 'bg-indigo-100 text-indigo-800' },
   { id: 'booked', name: 'Booked', color: 'bg-green-100 text-green-800' },
-  { id: 'done', name: 'Done', color: 'bg-emerald-100 text-emerald-800' },
-  { id: 'miss/RS', name: 'Miss/RS', color: 'bg-pink-100 text-pink-800' },
   { id: 'unqualified', name: 'Unqualified', color: 'bg-orange-100 text-orange-800' },
   { id: 'give_up', name: 'Give Up', color: 'bg-red-100 text-red-800' },
   { id: 'blacklisted', name: 'Blacklisted', color: 'bg-black text-white' },
@@ -117,6 +116,22 @@ export default function LeadsPage() {
   const [isTagModalOpen, setIsTagModalOpen] = useState(false);
   const [pendingStatusChange, setPendingStatusChange] = useState<{ leadId: number, newStatus: string } | null>(null);
   const [leadTags, setLeadTags] = useState<Record<number, { id: number, name: string }>>({});
+  const [filters, setFilters] = useState<{
+    status?: typeof leadStatusEnum.enumValues[number];
+    search?: string;
+    sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number';
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    limit?: number;
+  }>({
+    status: 'new',
+    search: '',
+    sortBy: 'created_at',
+    sortOrder: 'desc',
+    page: 1,
+    limit: 50
+  });
+  const [hasMore, setHasMore] = useState(true);
 
   // Define statuses that agents can move leads to
   const agentAllowedStatuses = [
@@ -138,22 +153,69 @@ export default function LeadsPage() {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  // Function to fetch leads with filters
+  const fetchLeadsWithFilters = async (currentFilters: typeof filters) => {
+    try {
+      setLoading(true);
+      const result = await fetchFilteredLeads({
+        status: currentFilters.status,
+        search: currentFilters.search,
+        sortBy: currentFilters.sortBy ?? "created_at",
+        sortOrder: currentFilters.sortOrder ?? "desc",
+        page: currentFilters.page ?? 1,
+        limit: currentFilters.limit ?? 50
+      });
+      
+      if (result.success && result.leads) {
+        setLeads(prevLeads => 
+          (currentFilters.page ?? 1) === 1 ? result.leads : [...prevLeads, ...result.leads]
+        );
+        setHasMore(result.hasMore ?? false);
+      } else {
+        throw new Error(result.error ?? 'Failed to fetch leads');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial data loading
   useEffect(() => {
-    const loadLeads = async () => {
+    const loadInitialData = async () => {
       try {
         setLoading(true);
-        const result = await fetchLeads();
+        
+        // Load leads with initial filters
+        const result = await fetchFilteredLeads({
+          status: filters.status,
+          search: filters.search,
+          sortBy: filters.sortBy ?? "created_at",
+          sortOrder: filters.sortOrder ?? "desc",
+          page: 1,
+          limit: 50
+        });
+        
         if (result.success && result.leads) {
           setLeads(result.leads);
         } else {
           throw new Error('Failed to load leads');
         }
 
+        // Load pinned leads
         const pinnedResult = await getPinnedLeads();
-        if (pinnedResult.success && pinnedResult.pinnedLeads) {
+        if (pinnedResult.success && pinnedResult.pinnedLeads && result.leads) {
           const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
           const pinnedLeadsData = result.leads.filter(lead => pinnedLeadIds.includes(lead.id));
           setPinnedLeads(pinnedLeadsData);
+        }
+        
+        // Load user role
+        const { roles } = await fetchUserData();
+        if (roles && roles.length > 0) {
+          const roleName = roles[0]?.roleName ?? 'user';
+          setUserRole(roleName as UserRole);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -162,111 +224,15 @@ export default function LeadsPage() {
       }
     };
 
-    // Fetch user roles
-    const fetchRole = async () => {
-      try {
-        const { roles } = await fetchUserData();
-        console.log('Roles:', roles);
-        if (roles && roles.length > 0) {
-          // Convert to our UserRole type safely
-          const roleName = roles[0]?.roleName ?? 'user';
-          setUserRole(roleName as UserRole);
-          // console.log('User role set to:', roleName);
-        }
-      } catch (e) {
-        console.error('Error fetching user role:', e);
-        setUserRole('user');
-      }
-    };
-
-    // Execute functions
-    void loadLeads();
-    void fetchRole();
+    void loadInitialData();
   }, []);
 
+  // Effect to fetch leads when filters change
   useEffect(() => {
-    const loadAgentStatus = async () => {
-      // console.log('Loading agent status for user:', userId, userRole);
-      if (!userId || userRole !== 'agent') return;
-      
-      try {
-        // Normally you would check if the agent is already checked in for today
-        // This is a placeholder - implement the actual check on your server
-        setIsCheckedIn(false); // Default to not checked in
-      } catch (error) {
-        console.error("Error checking agent status:", error);
-      }
-    };
+    void fetchLeadsWithFilters(filters);
+  }, [filters]);
 
-    const loadAssignmentPreview = async () => {
-      // console.log('Loading assignment preview for user:', userId, userRole);
-      if (!userId || userRole !== 'admin') return;
-      
-      try {
-        setIsLoadingPreview(true);
-        const result = await getAssignmentPreview();
-        console.log('Assignment preview result:', result);
-        if (result.success) {
-          setAssignmentPreview(result.preview as { agentId: string; agentName: string; leadCount: number }[]);
-          setAssignmentStats({
-            totalAgents: result.totalAgents,
-            totalLeads: result.totalLeads
-          });
-        }
-      } catch (error) {
-        console.error("Error loading assignment preview:", error);
-      } finally {
-        setIsLoadingPreview(false);
-      }
-    };
-
-    void loadAgentStatus();
-    void loadAssignmentPreview();
-  }, [userId, userRole]);
-
-  useEffect(() => {
-    const loadLeadTags = async () => {
-      const tagPromises = leads.map(async (lead) => {
-        const result = await getLeadTag(lead.id);
-        if (result.success && result.tag) {
-          return [lead.id, { id: result.tag.id, name: result.tag.name }] as const;
-        }
-        return null;
-      });
-
-      const tagResults = await Promise.all(tagPromises);
-      const tagsMap = Object.fromEntries(
-        tagResults.filter((result): result is readonly [number, { id: number, name: string }] => result !== null)
-      );
-      setLeadTags(tagsMap);
-    };
-
-    void loadLeadTags();
-  }, [leads]);
-
-  const handlePopulateLeads = async () => {
-    try {
-      setLoading(true);
-      const result = await populateLeads();
-      
-      if (result.success) {
-        // Reload leads after populating
-        const leadsResult = await fetchLeads();
-        if (leadsResult.success) {
-          setLeads(leadsResult.leads);
-        }
-        alert(result.message);
-      } else {
-        alert(result.message || "Failed to populate leads");
-      }
-    } catch (err) {
-      console.error("Error populating leads:", err);
-      alert("An error occurred while populating leads");
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Handle lead actions
   const handleLeadAction = async (action: string, leadId: number) => {
     try {
       switch (action) {
@@ -328,14 +294,13 @@ export default function LeadsPage() {
           await removeLeadTag(leadId); // Remove any existing tag
           
           // Update local state
-          const updatedLeads = leads.map(lead => 
+          setLeads(prevLeads => prevLeads.map(lead => 
             lead.id === leadId ? { ...lead, status: newStatus } : lead
-          );
-          setLeads(updatedLeads);
+          ));
           
           // Update pinnedLeads if needed
           if (pinnedLeads.some(p => p.id === leadId)) {
-            setPinnedLeads(pinnedLeads.map(lead => 
+            setPinnedLeads(prevPinned => prevPinned.map(lead => 
               lead.id === leadId ? { ...lead, status: newStatus } : lead
             ));
           }
@@ -460,8 +425,16 @@ export default function LeadsPage() {
         setAssignmentMessage(result.message);
         
         // Refresh the leads and preview
-        const leadsResult = await fetchLeads();
-        if (leadsResult.success) {
+        const leadsResult = await fetchFilteredLeads({
+          status: filters.status,
+          search: filters.search,
+          sortBy: "created_at",
+          sortOrder: filters.sortOrder,
+          page: 1,
+          limit: 50
+        });
+        
+        if (leadsResult.success && leadsResult.leads) {
           setLeads(leadsResult.leads);
           
           // Also update pinnedLeads with fresh data
@@ -521,12 +494,11 @@ export default function LeadsPage() {
       }
 
       // Update local state
-      const updatedLeads = leads.map(lead => 
+      setLeads(leads.map(lead => 
         lead.id === pendingStatusChange.leadId 
           ? { ...lead, status: pendingStatusChange.newStatus } 
           : lead
-      );
-      setLeads(updatedLeads);
+      ));
       
       // Update pinnedLeads if needed
       if (pinnedLeads.some(p => p.id === pendingStatusChange.leadId)) {
@@ -559,22 +531,8 @@ export default function LeadsPage() {
     }
   };
 
-  if (loading) {
+  if (loading && leads.length === 0) {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 text-center">
-        <p className="text-red-500">{error}</p>
-        <button 
-          onClick={() => router.refresh()}
-          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          Try Again
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -688,100 +646,105 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
-        </div>
-      ) : error ? (
-        <div className="text-red-500 text-center">{error}</div>
-      ) : activeTab === 'kanban' ? (
-        <div className="flex space-x-4 overflow-x-auto pb-4">
-          {/* Pinned column */}
-          <div
-            className="flex-none w-80 bg-gray-50 rounded-lg p-4 border-l-4 border-blue-500"
-          >
-            <h3 className="font-semibold mb-4 flex items-center">
-              <BookmarkIcon className="h-5 w-5 mr-2 text-blue-500" />
-              Pinned
-            </h3>
-            <div className="space-y-4">
-              {pinnedLeads.length === 0 ? (
-                <p className="text-sm text-gray-500 italic">No pinned leads</p>
-              ) : (
-                pinnedLeads.map((lead) => {
-                  const statusInfo = visibleStatuses.find(s => s.id === lead.status) ?? {
-                    id: 'new',
-                    name: 'New',
-                    color: 'bg-blue-100 text-blue-800'
-                  };
-                  return (
-                    <LeadCard
-                      key={`pinned-${lead.id}`}
-                      lead={lead}
-                      statusInfo={statusInfo}
-                      onAction={handleLeadAction}
-                      isPinned={true}
-                      onView={handleViewLead}
-                      tag={leadTags[lead.id]}
-                    />
-                  );
-                })
-              )}
-            </div>
-          </div>
-          
-          {/* Status columns */}
-          {visibleStatuses.map((status) => (
-            <div
-              key={status.id}
-              className="flex-none w-80 bg-gray-50 rounded-lg p-4"
-            >
-              <h3 className="font-semibold mb-4">{status.name}</h3>
-              <div className="space-y-4">
-                {visibleLeads
-                  .filter((lead) => lead.status === status.id)
-                  .map((lead) => {
-                    const statusInfo: StatusInfo = {
-                      id: status.id,
-                      name: status.name,
-                      color: status.color
-                    };
-                    return (
-                      <LeadCard
-                        key={lead.id}
-                        lead={lead}
-                        statusInfo={statusInfo}
-                        onAction={handleLeadAction}
-                        isPinned={pinnedLeads.some(p => p.id === lead.id)}
-                        onView={handleViewLead}
-                        tag={leadTags[lead.id]}
-                      />
-                    );
-                  })}
-              </div>
-            </div>
+      {/* Search Bar */}
+      <div className="mb-6 relative">
+        <input
+          type="text"
+          placeholder="Search by name or phone..."
+          className="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 focus:border-blue-500 focus:outline-none"
+          value={filters.search ?? ''}
+          onChange={(e) => setFilters(prev => ({
+            ...prev,
+            search: e.target.value,
+            page: 1 // Reset to page 1 when searching
+          }))}
+        />
+        <SearchIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+      </div>
+
+      {/* Filters */}
+      <div className="mb-6 flex flex-wrap gap-4">
+        <select
+          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
+          value={filters.status ?? 'new'}
+          onChange={(e) => setFilters(prev => ({
+            ...prev,
+            status: e.target.value as typeof leadStatusEnum.enumValues[number]
+          }))}
+        >
+          {LEAD_STATUSES.map((status) => (
+            <option key={status.id} value={status.id}>
+              {status.name}
+            </option>
           ))}
+        </select>
+
+        <select
+          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
+          value={filters.sortBy ?? 'created_at'}
+          onChange={(e) => setFilters(prev => ({
+            ...prev,
+            sortBy: e.target.value as 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number'
+          }))}
+        >
+          <option value="created_at">Created Date</option>
+          <option value="updated_at">Updated Date</option>
+          <option value="full_name">Name</option>
+          <option value="amount">Amount</option>
+        </select>
+
+        <button
+          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
+          onClick={() => setFilters(prev => ({
+            ...prev,
+            sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc'
+          }))}
+        >
+          {filters.sortOrder === 'asc' ? '↑' : '↓'}
+        </button>
+      </div>
+
+      {/* Leads List */}
+      <div className="space-y-4">
+        {getCurrentLeads().map((lead) => {
+          const statusInfo = LEAD_STATUSES.find(s => s.id === lead.status) ?? {
+            id: 'new',
+            name: 'New',
+            color: 'bg-blue-100 text-blue-800'
+          };
+          return (
+            <LeadCard 
+              key={lead.id} 
+              lead={lead} 
+              statusInfo={statusInfo}
+              onAction={handleLeadAction}
+              isPinned={pinnedLeads.some(p => p.id === lead.id)}
+              onView={handleViewLead}
+              tag={leadTags[lead.id]}
+            />
+          );
+        })}
+      </div>
+
+      {/* Load More Button */}
+      {hasMore && activeTab !== 'pinned' && (
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => setFilters(prev => ({
+              ...prev,
+              page: (prev.page ?? 1) + 1
+            }))}
+            disabled={loading}
+            className="rounded-lg bg-blue-500 px-6 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
+          >
+            {loading ? 'Loading...' : 'Load More'}
+          </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {getCurrentLeads().map((lead) => {
-            const statusInfo = visibleStatuses.find(s => s.id === lead.status) ?? {
-              id: 'new',
-              name: 'New',
-              color: 'bg-blue-100 text-blue-800'
-            };
-            return (
-              <LeadCard
-                key={lead.id}
-                lead={lead}
-                statusInfo={statusInfo}
-                onAction={handleLeadAction}
-                isPinned={pinnedLeads.some(p => p.id === lead.id)}
-                onView={handleViewLead}
-                tag={leadTags[lead.id]}
-              />
-            );
-          })}
+      )}
+
+      {error && (
+        <div className="mt-4 rounded-lg bg-red-100 p-4 text-red-700">
+          {error}
         </div>
       )}
 
@@ -862,7 +825,7 @@ export default function LeadsPage() {
                   
                   {userRole === 'admin' && (
                     <button 
-                      onClick={() => setIsAssignModalOpen(true)}
+                      onClick={() => handleLeadAction('assign', selectedLead.id)}
                       className="flex items-center px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200"
                     >
                       <UserPlusIcon className="h-5 w-5 mr-2" />
@@ -891,11 +854,7 @@ export default function LeadsPage() {
           setSelectedLead(null);
           setIsAssignModalOpen(false);
           // Refresh leads
-          void fetchLeads().then(result => {
-            if (result.success && result.leads) {
-              setLeads(result.leads);
-            }
-          });
+          void fetchLeadsWithFilters(filters);
         }}
       />
 

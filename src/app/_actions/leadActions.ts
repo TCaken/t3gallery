@@ -3,10 +3,11 @@
 import { db } from "~/server/db";
 import { leads, leadStatusEnum, leadTypeEnum, lead_notes } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { desc, eq, or } from "drizzle-orm";
+import { desc, eq, or, and, like, asc } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import type { InferSelectModel } from "drizzle-orm";
 import { checkLeadEligibility } from "./leadEligibility";
+import { SQL } from "drizzle-orm";
 
 // Populate the database with sample leads
 export async function populateLeads() {
@@ -443,5 +444,80 @@ export async function updateLeadDetails(leadId: number, leadData: Partial<InferS
   } catch (error) {
     console.error('Error updating lead details:', error);
     return { success: false, message: 'Failed to update lead details' };
+  }
+}
+
+// Add this new action
+export async function fetchFilteredLeads({
+  status,
+  search,
+  sortBy = 'created_at',
+  sortOrder = 'desc',
+  page = 1,
+  limit = 50
+}: {
+  status?: typeof leadStatusEnum.enumValues[number];
+  search?: string;
+  sortBy?: keyof typeof leads;
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
+}) {
+  try {
+    const offset = (page - 1) * limit;
+
+    // Build query conditions
+    const conditions: SQL[] = [];
+    if (status) {
+      conditions.push(eq(leads.status, status));
+    }
+    if (search) {
+      conditions.push(
+        or(
+          like(leads.full_name, `%${search}%`),
+          like(leads.phone_number, `%${search}%`)
+        )
+      );
+    }
+
+    // Build the query
+    const baseQuery = db.select().from(leads);
+    
+    // Add conditions if any
+    const queryWithConditions = conditions.length > 0
+      ? baseQuery.where(and(...conditions))
+      : baseQuery;
+
+    // Add sorting
+    const sortColumn = leads[sortBy];
+    const queryWithSort = sortColumn
+      ? queryWithConditions.orderBy(sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn))
+      : queryWithConditions;
+
+    // Add pagination
+    const finalQuery = queryWithSort.limit(limit + 1).offset(offset);
+
+    // Execute query
+    const results = await finalQuery;
+    
+    // Check if there are more results
+    const hasMore = results.length > limit;
+    const leadsToReturn = hasMore ? results.slice(0, limit) : results;
+
+    return {
+      success: true,
+      leads: leadsToReturn,
+      hasMore,
+      page,
+      limit
+    };
+
+  } catch (error) {
+    console.error('Error fetching leads:', error);
+    return {
+      success: false,
+      error: 'Failed to fetch leads',
+      details: error instanceof Error ? error.message : String(error)
+    };
   }
 }

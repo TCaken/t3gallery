@@ -83,6 +83,26 @@ function isValidEmail(email: string): boolean {
   return emailRegex.test(email.trim());
 }
 
+// Helper function to extract email from any text
+function extractEmailFromText(text: string): string | null {
+  if (!text) return null;
+  
+  // Use regex to find email patterns in the text
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  const matches = text.match(emailRegex);
+  
+  if (matches && matches.length > 0) {
+    // Return the first valid email found
+    for (const match of matches) {
+      if (isValidEmail(match)) {
+        return match.trim();
+      }
+    }
+  }
+  
+  return null;
+}
+
 // Helper function to clean existing loans value
 function cleanExistingLoans(value: string): string {
   if (!value || value.trim() === '') return 'UNKNOWN';
@@ -171,6 +191,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
   // Check subject if provided
   if (subject) {
     const subjectLower = subject.toLowerCase();
+    if (subjectLower.includes('omy.sg') || subjectLower.includes('omy')) return 'OMY.sg';
     if (subjectLower.includes('moneyright') || subjectLower.includes('1% interest')) return 'MoneyRight';
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
     if (subjectLower.includes('loanable') || subjectLower.includes('clientsuccessemail.com')) return 'Loanable';
@@ -218,6 +239,58 @@ function cleanLoanPurpose(value: string): string {
   if (!value || value.trim() === '') return 'UNKNOWN';
   const cleaned = value.trim();
   return cleaned || 'UNKNOWN';
+}
+
+// Helper function to extract data from OMY.sg format
+function extractOMYData(message: string): { 
+  full_name?: string;
+  phone_number?: string; 
+  residential_status?: string;
+} {
+  // Initialize result object
+  const result: { 
+    full_name?: string;
+    phone_number?: string; 
+    residential_status?: string;
+  } = {};
+  
+  // Common patterns in OMY.sg leads
+  const nameRegex = /(?:Name|Full Name|Customer Name)[:\s]+([^\r\n,]+)/i;
+  const phoneRegex = /(?:Phone|Mobile|Contact|Phone Number|HP)[:\s]+([0-9\s+]+)/i;
+  const citizenRegex = /(?:Citizenship|Nationality|Residential Status)[:\s]+([^\r\n,]+)/i;
+  
+  // Extract name
+  const nameMatch = nameRegex.exec(message);
+  if (nameMatch && nameMatch[1]) {
+    result.full_name = nameMatch[1].trim();
+  }
+  
+  // Extract phone number
+  const phoneMatch = phoneRegex.exec(message);
+  if (phoneMatch && phoneMatch[1]) {
+    result.phone_number = phoneMatch[1].trim();
+  }
+  
+  // Extract citizenship/residential status
+  const citizenMatch = citizenRegex.exec(message);
+  if (citizenMatch && citizenMatch[1]) {
+    const citizenValue = citizenMatch[1].trim().toLowerCase();
+    if (citizenValue.includes('singapore') || 
+        citizenValue.includes('local') || 
+        citizenValue.includes('citizen') || 
+        citizenValue.includes('pr')) {
+      result.residential_status = 'Local';
+    } else if (citizenValue.includes('foreigner') || 
+               citizenValue.includes('foreign') || 
+               citizenValue.includes('work pass') || 
+               citizenValue.includes('work permit') ||
+               citizenValue.includes('employment pass') || 
+               citizenValue.includes('s pass')) {
+      result.residential_status = 'Foreigner';
+    }
+  }
+  
+  return result;
 }
 
 export async function POST(request: Request) {
@@ -325,7 +398,23 @@ export async function POST(request: Request) {
     const phoneNumber = findValueInLine('Phone Number') ?? findValueAfterLabel('Mobile No.:') ?? findValueAfterLabel('Phone Number:');
     const nationality = findValueInLine('Nationality') ?? findValueAfterLabel('I am:');
     const amount = findValueInLine('Amount') ?? findValueAfterLabel('Loan Amount:');
-    const email = findValueInLine('Email') ?? findValueAfterLabel('Email:');
+
+    // For email, first try standard extraction methods
+    const emailFromFields = findValueInLine('Email') ?? findValueAfterLabel('Email:');
+
+    // Then attempt to extract from full message if needed
+    let emailToUse = 'UNKNOWN';
+    if (emailFromFields && isValidEmail(emailFromFields)) {
+      emailToUse = emailFromFields.trim();
+    } else {
+      console.log('Standard email extraction failed, searching in entire message');
+      const emailFromMessage = extractEmailFromText(message);
+      if (emailFromMessage) {
+        console.log('Found email in message content:', emailFromMessage);
+        emailToUse = emailFromMessage;
+      }
+    }
+
     const employment = findValueInLine('Employment Status') ?? findValueAfterLabel('Employment Status:');
     const purpose = findValueInLine('Main Purpose of Loan') ?? findValueAfterLabel('Loan Purpose:');
     const existingLoans = findValueInLine('Any Existing Loans') ?? findValueAfterLabel('Existing Loans:');
@@ -333,23 +422,39 @@ export async function POST(request: Request) {
     const dateTime = findValueAfterLabel('Date/Time:');
     const assignedTo = findValueInLine('Assigned to') ?? findValueAfterLabel('Assigned to:');
 
-    // Only try to get name from subject if not found in message
-    const nameFromSubject = !fullName ? extractNameFromSubject(subject ?? '') : null;
+    // Detect source first
+    const source = determineLeadSource(message, undefined, subject);
+
+    // Try to extract additional data for OMY.sg leads
+    let omyData: { 
+      full_name?: string;
+      phone_number?: string; 
+      residential_status?: string;
+    } = {};
+    if (source === 'OMY.sg') {
+      console.log('Detected OMY.sg lead, applying specialized extraction');
+      omyData = extractOMYData(message);
+      console.log('OMY specialized data:', omyData);
+    }
+
+    // Only try to get name from subject if not found in message and not found from OMY extraction
+    const nameFromSubject = !fullName && !omyData.full_name ? extractNameFromSubject(subject ?? '') : null;
 
     // Clean and format the data
     const leadData = {
-      full_name: (fullName?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
-      phone_number: phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '',
-      residential_status: determineResidentialStatus(nationality?.trim()) || 'UNKNOWN',
+      full_name: (omyData?.full_name?.trim() ?? fullName?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
+      phone_number: omyData?.phone_number ? cleanPhoneNumber(omyData.phone_number).substring(0, 20) : 
+                    phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '',
+      residential_status: omyData?.residential_status ?? (determineResidentialStatus(nationality?.trim()) || 'UNKNOWN'),
       amount: amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
-      email: email?.trim()?.substring(0, 255) ?? 'UNKNOWN',
+      email: emailToUse.substring(0, 255),
       employment_status: determineEmploymentStatus(employment?.trim()) || 'UNKNOWN',
       loan_purpose: purpose ? cleanLoanPurpose(purpose).substring(0, 100) : 'UNKNOWN',
       existing_loans: existingLoans ? cleanExistingLoans(existingLoans).substring(0, 50) : 'UNKNOWN',
       ideal_tenure: idealTenure?.trim()?.substring(0, 50) ?? 'UNKNOWN',
       date_time: dateTime?.trim(),
       assigned_to: assignedTo?.trim()?.substring(0, 256) ?? 'UNKNOWN',
-      source: determineLeadSource(message, undefined, subject),
+      source: source,
     };
 
     console.log('Extracted values:', {
@@ -357,7 +462,7 @@ export async function POST(request: Request) {
       phoneNumber,
       nationality,
       amount,
-      email,
+      email: emailToUse,
       employment,
       purpose,
       existingLoans,
