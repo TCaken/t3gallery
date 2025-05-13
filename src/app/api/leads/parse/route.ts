@@ -23,33 +23,6 @@ const LeadSchema = z.object({
   source: z.string().max(100).optional(),
 });
 
-// Define the Workato request schema
-const WorkatoRequestSchema = z.object({
-  request_name: z.string(),
-  request: z.object({
-    method: z.string(),
-    content_type: z.string(),
-    url: z.string(),
-    request_body_schema: z.string(),
-    body: z.object({
-      subject: z.string(),
-      message: z.string(),
-    }),
-    headers: z.array(z.object({
-      header: z.string(),
-      value: z.string(),
-    })).optional(),
-  }),
-  response: z.object({
-    output_type: z.string(),
-    expected_encoding: z.string(),
-    ignore_http_errors: z.string(),
-    response_schema: z.string(),
-    headers_schema: z.string(),
-  }),
-  wait_for_response: z.string(),
-});
-
 // Helper function to clean phone number
 function cleanPhoneNumber(phone: string): string {
   if (!phone) return '';
@@ -133,11 +106,12 @@ function determineResidentialStatus(nationality: string | undefined): string {
     return 'UNKNOWN';
   }
   
-  const nationalityLower = nationality.toLowerCase();
+  const nationalityLower = nationality.toLowerCase().trim();
   console.log('Processing nationality:', nationalityLower);
   
   // Check for Local/PR first
-  if (nationalityLower.includes('singapore') || 
+  if (nationalityLower === 'singaporean' || 
+      nationalityLower.includes('singapore') || 
       nationalityLower.includes('local') || 
       nationalityLower.includes('pr') || 
       nationalityLower.includes('permanent resident')) {
@@ -254,287 +228,178 @@ export async function POST(request: Request) {
 
     let body;
     try {
-      // First try to parse as regular JSON
-      body = JSON.parse(rawText);
-    } catch (error) {
-      try {
-        // If that fails, try to clean up the string and parse again
-        const cleanedText = rawText
-          // First escape any existing backslashes to prevent double escaping
-          .replace(/\\/g, '\\\\')
-          // Then handle the message content
-          .replace(/"message":\s*"([^"]*)"/g, (match, message) => {
-            // Escape special characters in the message
-            const escapedMessage = message
-              .replace(/\\/g, '\\\\')
-              .replace(/"/g, '\\"')
-              .replace(/\n/g, '\\n')
-              .replace(/\r/g, '\\r')
-              .replace(/\t/g, '\\t');
-            return `"message":"${escapedMessage}"`;
-          })
-          // Clean up any remaining issues
-          .replace(/\n/g, '\\n')
-          .replace(/\r/g, '\\r')
-          .replace(/\t/g, '\\t')
-          .replace(/"\s*:\s*"/g, '":"')
-          .replace(/"\s*,\s*"/g, '","');
+      // Clean the JSON string before parsing
+      const cleanedText = rawText
+        // First escape any existing backslashes to prevent double escaping
+        .replace(/\\/g, '\\\\')
+        // Then handle the message content
+        .replace(/"message":\s*"([^"]*)"/g, (match, message) => {
+          // Escape special characters in the message
+          const escapedMessage = message
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          return `"message":"${escapedMessage}"`;
+        })
+        // Clean up any remaining issues
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/"\s*:\s*"/g, '":"')
+        .replace(/"\s*,\s*"/g, '","');
 
-        console.log('Cleaned text:', cleanedText);
-        body = JSON.parse(cleanedText);
-      } catch (cleanError) {
-        console.error('Failed to parse JSON:', cleanError);
-        console.error('Raw text:', rawText);
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: 'Invalid JSON format',
-            details: 'Could not parse request body as JSON',
-            receivedText: rawText.substring(0, 100) + '...' // Log first 100 chars
-          },
-          { status: 400 }
-        );
-      }
+      console.log('Cleaned text:', cleanedText);
+      body = JSON.parse(cleanedText);
+    } catch (error) {
+      console.error('Failed to parse JSON:', error);
+      console.error('Raw text:', rawText);
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Invalid JSON format',
+          details: 'Could not parse request body as JSON',
+          receivedText: rawText.substring(0, 100) + '...' // Log first 100 chars
+        },
+        { status: 400 }
+      );
     }
 
     console.log('Parsed body:', JSON.stringify(body, null, 2));
 
-    // Try to validate as direct API request first
-    const directValidation = RequestSchema.safeParse(body);
-    if (directValidation.success) {
-      console.log('Processing direct API request');
-      const { message, subject } = directValidation.data;
-
-      // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:\n|$)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([0-9+\s-]+)/i;
-      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:\n|$)/i;
-      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:\n|$)/i;
-      const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:\n|$)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:\n|$)/i;
-      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:\n|$)/i;
-      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:\n|$)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:\n|$)/i;
-      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:\n|$)/i;
-
-      // Extract matches
-      const fullNameMatch = fullNameRegex.exec(message);
-      const phoneMatch = phoneRegex.exec(message);
-      const nationalityMatch = nationalityRegex.exec(message);
-      const amountMatch = amountRegex.exec(message);
-      const emailMatch = emailRegex.exec(message);
-      const employmentMatch = employmentRegex.exec(message);
-      const purposeMatch = purposeRegex.exec(message);
-      const existingLoansMatch = existingLoansRegex.exec(message);
-      const idealTenureMatch = idealTenureRegex.exec(message);
-      const dateTimeMatch = dateTimeRegex.exec(message);
-      const assignedToMatch = assignedToRegex.exec(message);
-
-      // Only try to get name from subject if not found in message
-      const nameFromSubject = !fullNameMatch?.[1] ? extractNameFromSubject(subject ?? '') : null;
-
-      // Clean and format the data
-      const leadData = {
-        full_name: (fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
-        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]).substring(0, 20) : '',
-        residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()) || 'UNKNOWN',
-        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]).substring(0, 50) : 'UNKNOWN',
-        email: emailMatch?.[1]?.trim()?.substring(0, 255) ?? 'UNKNOWN',
-        employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()) || 'UNKNOWN',
-        loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]).substring(0, 100) : 'UNKNOWN',
-        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]).substring(0, 50) : 'UNKNOWN',
-        ideal_tenure: idealTenureMatch?.[1]?.trim()?.substring(0, 50) ?? 'UNKNOWN',
-        date_time: dateTimeMatch?.[1]?.trim(),
-        assigned_to: assignedToMatch?.[1]?.trim()?.substring(0, 256) ?? 'UNKNOWN',
-        source: determineLeadSource(message, undefined, subject),
-      };
-
-      console.log('Raw matches:', {
-        fullNameMatch: fullNameMatch?.[1],
-        phoneMatch: phoneMatch?.[1],
-        nationalityMatch: nationalityMatch?.[1],
-        amountMatch: amountMatch?.[1],
-        existingLoansMatch: existingLoansMatch?.[1],
-        nameFromSubject,
-        nationalityRaw: nationalityMatch?.[1]?.trim(),
-        residentialStatus: leadData.residential_status
-      });
-
-      // Validate the extracted data
-      const leadValidation = LeadSchema.safeParse(leadData);
-      if (!leadValidation.success) {
-        console.error('Invalid lead data:', leadValidation.error);
-        return NextResponse.json(
-          { success: false, error: 'Invalid lead data', details: leadValidation.error },
-          { status: 400 }
-        );
-      }
-
-      // Create the lead
-      const createResult = await createLead(leadData);
-      console.log('Lead creation result:', createResult);
-
-      if (!createResult.success) {
-        return NextResponse.json(
-          { success: false, error: createResult.error },
-          { status: 500 }
-        );
-      }
-
-      // Return the parsed data and creation status
-      return NextResponse.json({
-        success: true,
-        data: {
-          ...leadData,
-          created: true,
-          lead_id: createResult.lead?.id,
-          status: createResult.lead?.status,
-          eligibility_status: createResult.lead?.eligibility_status
-        }
-      });
+    // Validate the request body
+    const validationResult = RequestSchema.safeParse(body);
+    if (!validationResult.success) {
+      console.error('Invalid request body:', validationResult.error);
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Invalid request body',
+          details: validationResult.error,
+          receivedBody: body
+        },
+        { status: 400 }
+      );
     }
 
-    // Then try to validate as Workato request
-    const workatoValidation = WorkatoRequestSchema.safeParse(body);
-    if (workatoValidation.success) {
-      console.log('Processing Workato request');
-      const requestBody = workatoValidation.data.request.body;
-      const validationResult = RequestSchema.safeParse(requestBody);
-      
-      if (!validationResult.success) {
-        console.error('Invalid Workato request body:', validationResult.error);
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: 'Invalid Workato request body',
-            details: validationResult.error,
-            receivedBody: body
-          },
-          { status: 400 }
-        );
+    console.log('Processing request...', validationResult.data);
+
+    const { message, subject } = validationResult.data;
+
+    // First split the message into tokens by newlines and clean them
+    const tokens = message
+      .split(/[\r\n]+/)
+      .map(token => token.trim())
+      .filter(token => token.length > 0);
+
+    console.log('Message tokens:', tokens);
+
+    // Helper function to find value after a label
+    function findValueAfterLabel(label: string): string | undefined {
+      const labelIndex = tokens.findIndex(token => 
+        token.toLowerCase().includes(label.toLowerCase())
+      );
+      if (labelIndex !== -1 && labelIndex + 1 < tokens.length) {
+        return tokens[labelIndex + 1];
       }
-
-      const { message, subject } = validationResult.data;
-
-      // Extract lead information using regex
-      const fullNameRegex = /(?:Full Name|Name):\s*([^\n\r]+?)(?:\n|$)/i;
-      const phoneRegex = /(?:Phone|Mobile|Contact)(?:\s*Number)?:\s*([0-9+\s-]+)/i;
-      const nationalityRegex = /(?:Nationality|Residential Status):\s*([^\n\r]+?)(?:\n|$)/i;
-      const amountRegex = /(?:Amount|Loan Amount):\s*\$?([^\n\r]+?)(?:\n|$)/i;
-      const emailRegex = /Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
-      const employmentRegex = /Employment Status:\s*([^\n\r]+?)(?:\n|$)/i;
-      const purposeRegex = /(?:Main Purpose of Loan|Loan Purpose):\s*([^\n\r]+?)(?:\n|$)/i;
-      const existingLoansRegex = /(?:Any Existing Loans\??|Existing Loans):\s*([^\n\r]+?)(?:\n|$)/i;
-      const idealTenureRegex = /Ideal Tenure:\s*([^\n\r]+?)(?:\n|$)/i;
-      const dateTimeRegex = /(?:Date\/Time|Date):\s*([^\n\r]+?)(?:\n|$)/i;
-      const assignedToRegex = /Assigned to:\s*([^\n\r]+?)(?:\n|$)/i;
-
-      // Extract matches
-      const fullNameMatch = fullNameRegex.exec(message);
-      const phoneMatch = phoneRegex.exec(message);
-      const nationalityMatch = nationalityRegex.exec(message);
-      const amountMatch = amountRegex.exec(message);
-      const emailMatch = emailRegex.exec(message);
-      const employmentMatch = employmentRegex.exec(message);
-      const purposeMatch = purposeRegex.exec(message);
-      const existingLoansMatch = existingLoansRegex.exec(message);
-      const idealTenureMatch = idealTenureRegex.exec(message);
-      const dateTimeMatch = dateTimeRegex.exec(message);
-      const assignedToMatch = assignedToRegex.exec(message);
-
-      // Only try to get name from subject if not found in message
-      const nameFromSubject = !fullNameMatch?.[1] ? extractNameFromSubject(subject ?? '') : null;
-
-      // Clean and format the data
-      const leadData = {
-        full_name: (fullNameMatch?.[1]?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
-        phone_number: phoneMatch?.[1] ? cleanPhoneNumber(phoneMatch[1]).substring(0, 20) : '',
-        residential_status: determineResidentialStatus(nationalityMatch?.[1]?.trim()) || 'UNKNOWN',
-        amount: amountMatch?.[1] ? extractAmount(amountMatch[1]).substring(0, 50) : 'UNKNOWN',
-        email: emailMatch?.[1]?.trim()?.substring(0, 255) ?? 'UNKNOWN',
-        employment_status: determineEmploymentStatus(employmentMatch?.[1]?.trim()) || 'UNKNOWN',
-        loan_purpose: purposeMatch?.[1] ? cleanLoanPurpose(purposeMatch[1]).substring(0, 100) : 'UNKNOWN',
-        existing_loans: existingLoansMatch?.[1] ? cleanExistingLoans(existingLoansMatch[1]).substring(0, 50) : 'UNKNOWN',
-        ideal_tenure: idealTenureMatch?.[1]?.trim()?.substring(0, 50) ?? 'UNKNOWN',
-        date_time: dateTimeMatch?.[1]?.trim(),
-        assigned_to: assignedToMatch?.[1]?.trim()?.substring(0, 256) ?? 'UNKNOWN',
-        source: determineLeadSource(message, undefined, subject),
-      };
-
-      console.log('Raw matches:', {
-        fullNameMatch: fullNameMatch?.[1],
-        phoneMatch: phoneMatch?.[1],
-        nationalityMatch: nationalityMatch?.[1],
-        amountMatch: amountMatch?.[1],
-        existingLoansMatch: existingLoansMatch?.[1],
-        nameFromSubject,
-        nationalityRaw: nationalityMatch?.[1]?.trim(),
-        residentialStatus: leadData.residential_status
-      });
-
-      // Validate the extracted data
-      const leadValidation = LeadSchema.safeParse(leadData);
-      if (!leadValidation.success) {
-        console.error('Invalid lead data:', leadValidation.error);
-        return NextResponse.json(
-          { success: false, error: 'Invalid lead data', details: leadValidation.error },
-          { status: 400 }
-        );
-      }
-
-      // Create the lead
-      const createResult = await createLead(leadData);
-      console.log('Lead creation result:', createResult);
-
-      if (!createResult.success) {
-        return NextResponse.json(
-          { success: false, error: createResult.error },
-          { status: 500 }
-        );
-      }
-
-      // Return the parsed data and creation status
-      return NextResponse.json({
-        success: true,
-        data: {
-          ...leadData,
-          created: true,
-          lead_id: createResult.lead?.id,
-          status: createResult.lead?.status,
-          eligibility_status: createResult.lead?.eligibility_status
-        }
-      });
+      return undefined;
     }
 
-    // If neither validation passes, return error with examples
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Invalid request format',
-        details: 'Request must be either a direct API request or a Workato request',
-        receivedBody: body,
-        examples: {
-          directFormat: {
-            subject: "1% Loan Notification",
-            message: "Full Name: John Doe\nPhone Number: +6512345678..."
-          },
-          workatoFormat: {
-            request_name: "Send Leads to AirConnect",
-            request: {
-              method: "POST",
-              content_type: "json",
-              url: "https://your-api-url/api/leads/parse",
-              body: {
-                subject: "1% Loan Notification",
-                message: "Full Name: John Doe\nPhone Number: +6512345678..."
-              }
-            }
-          }
+    // Helper function to find value in the same line as label
+    function findValueInLine(label: string): string | undefined {
+      const line = tokens.find(token => 
+        token.toLowerCase().includes(label.toLowerCase())
+      );
+      if (line) {
+        const parts = line.split(':');
+        if (parts.length > 1) {
+          return parts[1].trim();
         }
-      },
-      { status: 400 }
-    );
+      }
+      return undefined;
+    }
+
+    // Extract values using both helper functions
+    const fullName = findValueInLine('Full Name') ?? findValueAfterLabel('Name:') ?? findValueAfterLabel('I am:');
+    const phoneNumber = findValueInLine('Phone Number') ?? findValueAfterLabel('Mobile No.:') ?? findValueAfterLabel('Phone Number:');
+    const nationality = findValueInLine('Nationality') ?? findValueAfterLabel('I am:');
+    const amount = findValueInLine('Amount') ?? findValueAfterLabel('Loan Amount:');
+    const email = findValueAfterLabel('Email:');
+    const employment = findValueAfterLabel('Employment Status:');
+    const purpose = findValueAfterLabel('Loan Purpose:');
+    const existingLoans = findValueAfterLabel('Existing Loans:');
+    const idealTenure = findValueInLine('Ideal Tenure') ?? findValueAfterLabel('Ideal Tenure:');
+    const dateTime = findValueAfterLabel('Date/Time:');
+    const assignedTo = findValueAfterLabel('Assigned to:');
+
+    // Only try to get name from subject if not found in message
+    const nameFromSubject = !fullName ? extractNameFromSubject(subject ?? '') : null;
+
+    // Clean and format the data
+    const leadData = {
+      full_name: (fullName?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
+      phone_number: phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '',
+      residential_status: determineResidentialStatus(nationality?.trim()) || 'UNKNOWN',
+      amount: amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
+      email: email?.trim()?.substring(0, 255) ?? 'UNKNOWN',
+      employment_status: determineEmploymentStatus(employment?.trim()) || 'UNKNOWN',
+      loan_purpose: purpose ? cleanLoanPurpose(purpose).substring(0, 100) : 'UNKNOWN',
+      existing_loans: existingLoans ? cleanExistingLoans(existingLoans).substring(0, 50) : 'UNKNOWN',
+      ideal_tenure: idealTenure?.trim()?.substring(0, 50) ?? 'UNKNOWN',
+      date_time: dateTime?.trim(),
+      assigned_to: assignedTo?.trim()?.substring(0, 256) ?? 'UNKNOWN',
+      source: determineLeadSource(message, undefined, subject),
+    };
+
+    console.log('Extracted values:', {
+      fullName,
+      phoneNumber,
+      nationality,
+      amount,
+      email,
+      employment,
+      purpose,
+      existingLoans,
+      idealTenure,
+      dateTime,
+      assignedTo,
+      nameFromSubject,
+      residentialStatus: leadData.residential_status
+    });
+
+    // Validate the extracted data
+    const leadValidation = LeadSchema.safeParse(leadData);
+    if (!leadValidation.success) {
+      console.error('Invalid lead data:', leadValidation.error);
+      return NextResponse.json(
+        { success: false, error: 'Invalid lead data', details: leadValidation.error },
+        { status: 400 }
+      );
+    }
+
+    // Create the lead
+    const createResult = await createLead(leadData);
+    console.log('Lead creation result:', createResult);
+
+    if (!createResult.success) {
+      return NextResponse.json(
+        { success: false, error: createResult.error },
+        { status: 500 }
+      );
+    }
+
+    // Return the parsed data and creation status
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...leadData,
+        created: true,
+        lead_id: createResult.lead?.id,
+        status: createResult.lead?.status,
+        eligibility_status: createResult.lead?.eligibility_status
+      }
+    });
 
   } catch (error) {
     console.error('Error processing request:', error);
