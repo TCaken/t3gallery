@@ -3,11 +3,14 @@ import Link from "next/link";
 import Image from "next/image";
 import { getMyImages } from "~/server/db/queries";
 import { SignInButton } from "@clerk/nextjs";
+import { getDatabaseDiagnostics, getSafeEnvVars } from "~/app/_actions/diagnosticActions";
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
   const dbImages = await getMyImages();
+  const diagnosticInfo = await getDatabaseDiagnostics();
+  const safeEnvVars = await getSafeEnvVars();
 
   return (
     <main className="">
@@ -59,6 +62,62 @@ export default async function HomePage() {
                   Go to Dashboard &amp; Leads
                 </button>
               </Link>
+            </div>
+          </div>
+          
+          {/* Diagnostic information section */}
+          <div className="w-full max-w-4xl mt-8 bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-2xl font-semibold mb-4 text-gray-800">Database Diagnostic Information</h2>
+            
+            {diagnosticInfo.error ? (
+              <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded mb-4">
+                <h3 className="font-bold">Error connecting to database:</h3>
+                <p className="font-mono text-sm">{diagnosticInfo.error}</p>
+              </div>
+            ) : null}
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-lg font-medium mb-2 text-gray-700">All Tables in Database</h3>
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-60 overflow-y-auto">
+                  {diagnosticInfo.allTables && diagnosticInfo.allTables.length > 0 ? (
+                    <ul className="list-disc ml-4 space-y-1">
+                      {diagnosticInfo.allTables.map((table, index) => (
+                        <li key={index} className="font-mono text-sm">{table.table_name}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500 italic">No tables found</p>
+                  )}
+                </div>
+                
+                <h3 className="text-lg font-medium mb-2 mt-4 text-gray-700">Tables with &quot;leads&quot; in name</h3>
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  {diagnosticInfo.leadsTable && diagnosticInfo.leadsTable.length > 0 ? (
+                    <ul className="list-disc ml-4 space-y-1">
+                      {diagnosticInfo.leadsTable.map((table, index) => (
+                        <li key={index} className="font-mono text-sm">{table.table_name}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500 italic">No leads tables found</p>
+                  )}
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="text-lg font-medium mb-2 text-gray-700">Environment Variables</h3>
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <ul className="space-y-2">
+                    {Object.entries(safeEnvVars).map(([key, value]) => (
+                      <li key={key} className="text-sm">
+                        <span className="font-bold font-mono">{key}:</span> 
+                        <span className="ml-2 font-mono text-gray-600">{value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         </div>
