@@ -27,6 +27,12 @@ interface SafeEnvVars {
 export async function getDatabaseDiagnostics(): Promise<DiagnosticResult> {
   try {
     // Get all tables in the database
+    console.log("Getting all tables in the database");
+    console.log(process.env.DATABASE_URL);
+    console.log(process.env.POSTGRES_URL);
+    console.log(process.env.DATABASE_HOST);
+    console.log(process.env.DATABASE_NAME);
+    console.log(process.env.NODE_ENV);
     const tablesResult = await db.execute(sql`
       SELECT table_name 
       FROM information_schema.tables 
