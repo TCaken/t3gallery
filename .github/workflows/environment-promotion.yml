@@ -1,0 +1,68 @@
+name: Environment Promotion
+
+on:
+  # Manual trigger with environment selection
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Source environment branch'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - stg
+      target:
+        description: 'Target environment branch'
+        required: true
+        default: 'stg'
+        type: choice
+        options:
+          - stg
+          - main
+      
+  # Optional: Auto-create PR when dev branch is updated
+  # push:
+  #   branches:
+  #     - dev
+
+jobs:
+  create-promotion-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for all tags and branches
+      
+      - name: Set up environment variables
+        id: vars
+        run: |
+          echo "SOURCE_BRANCH=${{ github.event.inputs.source || 'dev' }}" >> $GITHUB_ENV
+          echo "TARGET_BRANCH=${{ github.event.inputs.target || 'stg' }}" >> $GITHUB_ENV
+          echo "PR_TITLE=Promote ${{ github.event.inputs.source || 'dev' }} to ${{ github.event.inputs.target || 'stg' }}" >> $GITHUB_ENV
+      
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Promote ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}"
+          title: ${{ env.PR_TITLE }}
+          body: |
+            # Environment Promotion
+            
+            This PR was automatically generated to promote changes from `${{ env.SOURCE_BRANCH }}` to `${{ env.TARGET_BRANCH }}`.
+            
+            ## Changes included
+            
+            - Automated promotion of all changes between environments
+            - Please review the changes before merging
+            
+            ## Checklist before merging
+            
+            - [ ] All tests pass
+            - [ ] Code has been reviewed
+            - [ ] Documentation has been updated (if needed)
+          branch: promotion/${{ env.SOURCE_BRANCH }}-to-${{ env.TARGET_BRANCH }}
+          base: ${{ env.TARGET_BRANCH }}
+          delete-branch: false
