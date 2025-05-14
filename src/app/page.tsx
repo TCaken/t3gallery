@@ -1,14 +1,11 @@
 import { SignedIn, SignedOut } from "@clerk/nextjs";
 import Link from "next/link";
-import Image from "next/image";
-import { getMyImages } from "~/server/db/queries";
 import { SignInButton } from "@clerk/nextjs";
 import { getDatabaseDiagnostics, getSafeEnvVars } from "~/app/_actions/diagnosticActions";
 
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
-  const dbImages = await getMyImages();
   const diagnosticInfo = await getDatabaseDiagnostics();
   const safeEnvVars = await getSafeEnvVars();
 
