@@ -6,8 +6,8 @@ import { users } from '~/server/db/schema';
 import { eq } from 'drizzle-orm';
 
 export async function POST(req: Request) {
-  console.log('Clerk webhook received');
-  console.log(process.env.NEXT_PUBLIC_CLERK_WEBHOOK_SECRET);
+  // console.log('Clerk webhook received');
+  // console.log(process.env.NEXT_PUBLIC_CLERK_WEBHOOK_SECRET);
   // Get the headers
   const headerPayload = headers();
   const svix_id = headerPayload.get('svix-id');
