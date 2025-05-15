@@ -34,7 +34,10 @@ import TagSelectionModal from '~/app/_components/TagSelectionModal';
 import { updateLeadTag, getLeadTag, removeLeadTag } from '~/app/_actions/tagActions';
 
 // Infer Lead type from the schema
-type Lead = InferSelectModel<typeof leads>;
+type Lead = InferSelectModel<typeof leads> & {
+  // Ensure phone_number is treated as a string
+  phone_number: string;
+};
 
 // Update the StatusInfo type to use the schema's lead status enum
 type StatusInfo = {
@@ -82,6 +85,16 @@ const getStatusColor = (status: string) => {
 
 // Define user role type
 type UserRole = 'admin' | 'agent' | 'retail' | 'user';
+
+// Helper component to safely display dates
+const SafeDate = ({ date }: { date: any }) => {
+  if (!date) return <span>Unknown date</span>;
+  try {
+    return <span>{new Date(date).toLocaleDateString()}</span>;
+  } catch (e) {
+    return <span>Invalid date</span>;
+  }
+};
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -704,41 +717,140 @@ export default function LeadsPage() {
         </button>
       </div>
 
-      {/* Leads List */}
-      <div className="space-y-4">
-        {getCurrentLeads().map((lead) => {
-          const statusInfo = LEAD_STATUSES.find(s => s.id === lead.status) ?? {
-            id: 'new',
-            name: 'New',
-            color: 'bg-blue-100 text-blue-800'
-          };
-          return (
-            <LeadCard 
-              key={lead.id} 
-              lead={lead} 
-              statusInfo={statusInfo}
-              onAction={handleLeadAction}
-              isPinned={pinnedLeads.some(p => p.id === lead.id)}
-              onView={handleViewLead}
-              tag={leadTags[lead.id]}
-            />
-          );
-        })}
-      </div>
-
-      {/* Load More Button */}
-      {hasMore && activeTab !== 'pinned' && (
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => setFilters(prev => ({
-              ...prev,
-              page: (prev.page ?? 1) + 1
-            }))}
-            disabled={loading}
-            className="rounded-lg bg-blue-500 px-6 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
-          >
-            {loading ? 'Loading...' : 'Load More'}
-          </button>
+      {/* Main Content - Kanban Board or List depending on active tab */}
+      {activeTab === 'kanban' ? (
+        // Kanban board view
+        <div className="overflow-x-auto pb-4">
+          <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
+            {visibleStatuses.map((status) => {
+              // Filter leads by status for each column
+              const statusLeads = visibleLeads.filter(lead => lead.status === status.id);
+              
+              return (
+                <div key={status.id} className="flex-none w-80">
+                  <div className={`p-3 rounded-t-lg ${status.color} flex justify-between items-center`}>
+                    <h3 className="font-medium">{status.name}</h3>
+                    <span className="px-2 py-1 bg-white bg-opacity-80 rounded-full text-sm">
+                      {statusLeads.length}
+                    </span>
+                  </div>
+                  <div className="bg-gray-50 rounded-b-lg p-2 h-[calc(100vh-320px)] overflow-y-auto">
+                    {statusLeads.length === 0 ? (
+                      <div className="text-center py-4 text-gray-500 italic text-sm">
+                        No leads
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {statusLeads.map((lead) => {
+                          const statusInfo = LEAD_STATUSES.find(s => s.id === lead.status) ?? {
+                            id: 'new',
+                            name: 'New',
+                            color: 'bg-blue-100 text-blue-800'
+                          };
+                          
+                          return (
+                            <div 
+                              key={lead.id}
+                              className="bg-white rounded-lg shadow p-3 cursor-pointer hover:shadow-md"
+                              onClick={() => handleViewLead(lead)}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <div>
+                                  <h4 className="font-medium truncate" title={lead.full_name ?? ''}>
+                                    {lead.full_name ?? ''}
+                                    {pinnedLeads.some(p => p.id === lead.id) && (
+                                      <BookmarkIcon className="h-4 w-4 ml-1 inline-block text-blue-500" />
+                                    )}
+                                  </h4>
+                                  <p className="text-xs text-gray-500">
+                                    <ClockIcon className="h-3 w-3 inline mr-1" />
+                                    <SafeDate date={lead.created_at} />
+                                  </p>
+                                </div>
+                                
+                                <div className="relative">
+                                  <LeadActionButtons
+                                    leadId={lead.id}
+                                    onAction={handleLeadAction}
+                                    userRole={userRole}
+                                    currentStatus={lead.status}
+                                    phoneNumber={lead.phone_number ?? ''}
+                                    isPinned={pinnedLeads.some(p => p.id === lead.id)}
+                                  />
+                                </div>
+                              </div>
+                              
+                              {leadTags[lead.id] && (
+                                <div className="mb-2">
+                                  <span className="text-xs px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50">
+                                    {leadTags[lead.id].name}
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="text-sm text-gray-600">
+                                {lead.phone_number ?? 'No phone number'}
+                              </div>
+                              
+                              {lead.email && (
+                                <div className="text-sm text-gray-600 truncate" title={lead.email}>
+                                  {lead.email}
+                                </div>
+                              )}
+                              
+                              {lead.amount && lead.amount !== 'UNKNOWN' && (
+                                <div className="mt-1 text-sm font-medium">
+                                  ${lead.amount}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        // List view for All or Pinned tabs
+        <div className="space-y-4">
+          {getCurrentLeads().map((lead) => {
+            const statusInfo = LEAD_STATUSES.find(s => s.id === lead.status) ?? {
+              id: 'new',
+              name: 'New',
+              color: 'bg-blue-100 text-blue-800'
+            };
+            return (
+              <LeadCard 
+                key={lead.id} 
+                lead={lead} 
+                statusInfo={statusInfo}
+                onAction={handleLeadAction}
+                isPinned={pinnedLeads.some(p => p.id === lead.id)}
+                onView={handleViewLead}
+                tag={leadTags[lead.id]}
+              />
+            );
+          })}
+          
+          {/* Load More Button */}
+          {hasMore && activeTab !== 'pinned' && (
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => setFilters(prev => ({
+                  ...prev,
+                  page: (prev.page ?? 1) + 1
+                }))}
+                disabled={loading}
+                className="rounded-lg bg-blue-500 px-6 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
+              >
+                {loading ? 'Loading...' : 'Load More'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -793,7 +905,7 @@ export default function LeadsPage() {
                       <span className="font-medium">Type:</span> {selectedLead.lead_type}
                     </p>
                     <p className="text-gray-700">
-                      <span className="font-medium">Created:</span> {new Date(selectedLead.created_at).toLocaleString()}
+                      <span className="font-medium">Created:</span> <SafeDate date={selectedLead.created_at} />
                     </p>
                     <p className="text-gray-700">
                       <span className="font-medium">Assigned To:</span> {selectedLead.assigned_to ?? 'Unassigned'}
