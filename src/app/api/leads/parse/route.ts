@@ -505,7 +505,8 @@ export async function POST(request: Request) {
         created: true,
         lead_id: createResult.lead?.id,
         status: createResult.lead?.status,
-        eligibility_status: createResult.lead?.eligibility_status
+        eligibility_status: createResult.lead?.eligibility_status,
+        eligibility_notes: createResult.lead?.eligibility_notes
       }
     });
 
