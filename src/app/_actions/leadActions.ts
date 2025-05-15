@@ -154,7 +154,7 @@ export async function createLead(input: CreateLeadInput) {
       eligibility_status: eligibilityResult.isEligible ? 'eligible' : 'ineligible',
       eligibility_notes: eligibilityResult.notes,
       created_by: input.created_by,
-      received_time: input.received_time ? new Date(input.received_time) : undefined,
+      created_at: input.received_time ? new Date(input.received_time) : undefined,
     };
 
     // Create the lead with or without the received_time
