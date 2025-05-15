@@ -27,10 +27,23 @@ const LeadSchema = z.object({
 
 // Helper function to clean phone number
 function cleanPhoneNumber(phone: string): string {
-  if (!phone) return '';
+  if (!phone) return '+65unknown';
   
   // Remove all non-digit characters
   const cleaned = phone.replace(/\D/g, '');
+  
+  // Validate the phone number format
+  const isValid = (
+    // With +65 prefix
+    /^\+?65[896]\d{7}$/.test(phone) ||
+    // Without country code
+    /^[896]\d{7}$/.test(cleaned)
+  );
+  
+  if (!isValid) {
+    // Keep the original number but add a +65 prefix if needed
+    return phone.startsWith('+65') ? phone : `+65${phone}`;
+  }
   
   // If it starts with 65, remove it and add +65
   if (cleaned.startsWith('65')) {
@@ -446,7 +459,7 @@ export async function POST(request: Request) {
     const leadData = {
       full_name: (omyData?.full_name?.trim() ?? fullName?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
       phone_number: omyData?.phone_number ? cleanPhoneNumber(omyData.phone_number).substring(0, 20) : 
-                    phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '',
+                    phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '+65unknown',
       residential_status: omyData?.residential_status ?? (determineResidentialStatus(nationality?.trim()) || 'UNKNOWN'),
       amount: amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
       email: emailToUse.substring(0, 255),
@@ -491,6 +504,21 @@ export async function POST(request: Request) {
     console.log('Lead creation result:', createResult);
 
     if (!createResult.success) {
+      // Check if the error is about phone number validation
+      if (createResult.error && 
+          typeof createResult.error === 'string' && 
+          createResult.error.includes('Invalid phone number format')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Invalid phone number format',
+            details: 'The provided phone number is not a valid Singapore phone number.',
+            phone_number: leadData.phone_number 
+          },
+          { status: 400 }
+        );
+      }
+      
       return NextResponse.json(
         { success: false, error: createResult.error },
         { status: 500 }

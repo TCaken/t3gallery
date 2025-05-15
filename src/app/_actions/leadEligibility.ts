@@ -8,8 +8,38 @@ interface EligibilityResponse {
   notes: string;
 }
 
+// Validate Singapore phone number
+function validateSGPhoneNumber(phone: string): boolean {
+  if (!phone) return false;
+  
+  // Remove spaces, dashes, and parentheses
+  const cleaned = phone.replace(/\s+|-|\(|\)/g, '');
+  
+  // Check for international format with +65
+  if (cleaned.startsWith('+65')) {
+    return /^\+65[896]\d{7}$/.test(cleaned);
+  }
+  
+  // Check for local format with 65 prefix
+  if (cleaned.startsWith('65')) {
+    return /^65[896]\d{7}$/.test(cleaned);
+  }
+  
+  // Check for local format without country code (8 digits)
+  return /^[896]\d{7}$/.test(cleaned);
+}
+
 async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityResponse> {
   try {
+    // First, validate phone number format
+    if (!validateSGPhoneNumber(phoneNumber)) {
+      return {
+        isEligible: false,
+        status: 'unqualified',
+        notes: 'Invalid phone number format. Must be a valid Singapore phone number.'
+      };
+    }
+    
     // Clean phone number to remove +65 if present
     const cleanPhone = phoneNumber.replace(/^\+65/, '');
     

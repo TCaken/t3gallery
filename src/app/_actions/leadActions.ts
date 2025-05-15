@@ -137,6 +137,9 @@ export async function createLead(input: CreateLeadInput) {
     // Check eligibility first
     const eligibilityResult = await checkLeadEligibility(input.phone_number);
 
+    // Note: We no longer reject leads with invalid phone numbers
+    // Instead they will be created but marked as ineligible
+
     // Prepare base values
     const baseValues = {
       phone_number: input.phone_number,
