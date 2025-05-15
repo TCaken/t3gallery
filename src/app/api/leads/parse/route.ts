@@ -6,6 +6,7 @@ import { createLead } from '~/app/_actions/leadActions';
 const RequestSchema = z.object({
   message: z.string(),
   subject: z.string().optional(),
+  received_time: z.string().optional(),
 });
 
 // Define the lead schema
@@ -21,6 +22,7 @@ const LeadSchema = z.object({
   ideal_tenure: z.string().max(50).optional(),
   assigned_to: z.string().max(256).optional(),
   source: z.string().max(100).optional(),
+  received_time: z.string().optional(),
 });
 
 // Helper function to clean phone number
@@ -358,7 +360,7 @@ export async function POST(request: Request) {
 
     console.log('Processing request...', validationResult.data);
 
-    const { message, subject } = validationResult.data;
+    const { message, subject, received_time } = validationResult.data;
 
     // First split the message into tokens by newlines and clean them
     const tokens = message
@@ -455,6 +457,7 @@ export async function POST(request: Request) {
       date_time: dateTime?.trim(),
       assigned_to: assignedTo?.trim()?.substring(0, 256) ?? 'UNKNOWN',
       source: source,
+      received_time: received_time,
     };
 
     console.log('Extracted values:', {
