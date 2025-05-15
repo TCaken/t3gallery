@@ -267,12 +267,14 @@ function extractOMYData(message: string): {
     full_name?: string;
     phone_number?: string; 
     residential_status?: string;
+    amount?: string;
   } = {};
   
   // Common patterns in OMY.sg leads
   const nameRegex = /(?:Name|Full Name|Customer Name)[:\s]+([^\r\n,]+)/i;
   const phoneRegex = /(?:Phone|Mobile|Contact|Phone Number|HP)[:\s]+([0-9\s+]+)/i;
   const citizenRegex = /(?:Citizenship|Nationality|Residential Status)[:\s]+([^\r\n,]+)/i;
+  const amountRegex = /(?:Monthly Income|Loan Amount|Amount)[:\s]+([0-9\s+]+)/i;
   
   // Extract name
   const nameMatch = nameRegex.exec(message);
@@ -303,6 +305,12 @@ function extractOMYData(message: string): {
                citizenValue.includes('s pass')) {
       result.residential_status = 'Foreigner';
     }
+  }
+
+  // Extract amount
+  const amountMatch = amountRegex.exec(message);
+  if (amountMatch && amountMatch[1]) {
+    result.amount = amountMatch[1].trim();
   }
   
   return result;
@@ -445,6 +453,7 @@ export async function POST(request: Request) {
       full_name?: string;
       phone_number?: string; 
       residential_status?: string;
+      amount?: string;
     } = {};
     if (source === 'OMY.sg') {
       console.log('Detected OMY.sg lead, applying specialized extraction');
@@ -461,7 +470,7 @@ export async function POST(request: Request) {
       phone_number: omyData?.phone_number ? cleanPhoneNumber(omyData.phone_number).substring(0, 20) : 
                     phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '+65unknown',
       residential_status: omyData?.residential_status ?? (determineResidentialStatus(nationality?.trim()) || 'UNKNOWN'),
-      amount: amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
+      amount: omyData?.amount ? extractAmount(omyData.amount).substring(0, 50) : amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
       email: emailToUse.substring(0, 255),
       employment_status: determineEmploymentStatus(employment?.trim()) || 'UNKNOWN',
       loan_purpose: purpose ? cleanLoanPurpose(purpose).substring(0, 100) : 'UNKNOWN',
