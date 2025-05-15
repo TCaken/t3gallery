@@ -3,11 +3,10 @@
 import { db } from "~/server/db";
 import { leads, leadStatusEnum, leadTypeEnum, lead_notes } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { desc, eq, or, and, like, asc } from "drizzle-orm";
+import { eq, desc, InferSelectModel, like, or, and, SQL } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
-import type { InferSelectModel } from "drizzle-orm";
 import { checkLeadEligibility } from "./leadEligibility";
-import { SQL } from "drizzle-orm";
+import { checkLeadBlocklist } from "./blocklistActions";
 
 // Populate the database with sample leads
 export async function populateLeads() {
@@ -130,6 +129,7 @@ interface CreateLeadInput {
   amount?: string;
   source?: string;
   created_by?: string;
+  received_time?: Date;
 }
 
 export async function createLead(input: CreateLeadInput) {
@@ -137,29 +137,33 @@ export async function createLead(input: CreateLeadInput) {
     // Check eligibility first
     const eligibilityResult = await checkLeadEligibility(input.phone_number);
 
-    // Create the lead with eligibility status
-    const [newLead] = await db
+    // Prepare base values
+    const baseValues = {
+      phone_number: input.phone_number,
+      full_name: input.full_name,
+      email: input.email,
+      residential_status: input.residential_status,
+      employment_status: input.employment_status,
+      loan_purpose: input.loan_purpose,
+      existing_loans: input.existing_loans,
+      amount: input.amount,
+      source: input.source,
+      lead_type: 'new',
+      status: eligibilityResult.status, // Use status from eligibility check
+      eligibility_checked: true,
+      eligibility_status: eligibilityResult.isEligible ? 'eligible' : 'ineligible',
+      eligibility_notes: eligibilityResult.notes,
+      created_by: input.created_by,
+      created_at: input.received_time ? new Date(input.received_time) : undefined,
+    };
+
+    // Create the lead with or without the received_time
+    const [lead] = await db
       .insert(leads)
-      .values({
-        phone_number: input.phone_number,
-        full_name: input.full_name,
-        email: input.email,
-        residential_status: input.residential_status,
-        employment_status: input.employment_status,
-        loan_purpose: input.loan_purpose,
-        existing_loans: input.existing_loans,
-        amount: input.amount,
-        source: input.source,
-        lead_type: 'new',
-        status: eligibilityResult.status, // Use status from eligibility check
-        eligibility_checked: true,
-        eligibility_status: eligibilityResult.isEligible ? 'eligible' : 'ineligible',
-        eligibility_notes: eligibilityResult.notes,
-        created_by: input.created_by,
-      })
+      .values(baseValues)
       .returning();
 
-    return { success: true, lead: newLead };
+    return { success: true, lead: lead };
   } catch (error) {
     console.error('Error creating lead:', error);
     return { success: false, error: 'Failed to create lead' };
