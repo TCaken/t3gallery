@@ -173,7 +173,6 @@ export async function createLead(input: CreateLeadInput) {
   }
 }
 
-
 // Import multiple leads from an Excel file
 export async function importLeads(leadsData: any[]) {
   const { userId } = await auth();
