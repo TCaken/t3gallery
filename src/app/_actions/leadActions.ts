@@ -178,6 +178,7 @@ export async function importLeads(leadsData: any[]) {
   const { userId } = await auth();
   if (!userId) throw new Error("Not authenticated");
   
+  
   try {
     // Clean and format the data
     const formattedLeads = leadsData.map(lead => ({
