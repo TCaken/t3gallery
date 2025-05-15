@@ -159,13 +159,11 @@ function determineResidentialStatus(nationality: string | undefined): string {
       nationalityLower.includes('s pass') || 
       nationalityLower.includes('work permit') ||
       nationalityLower.includes('ep') ||
-      nationalityLower.includes('employment pass')) {
+      nationalityLower.includes('employment pass') ||
+      nationalityLower.includes('work pass') ||
+      nationalityLower.includes('others')) {
     console.log('Matched as Foreigner');
     return 'Foreigner';
-  }
-  if (nationalityLower.includes('others')) {
-    console.log('Matched as Others');
-    return 'Others';
   }
   console.log('No match found, returning UNKNOWN');
   return 'UNKNOWN';
@@ -209,18 +207,18 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (subjectLower.includes('omy.sg') || subjectLower.includes('omy')) return 'OMY.sg';
     if (subjectLower.includes('moneyright') || subjectLower.includes('1% interest')) return 'MoneyRight';
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
-    if (subjectLower.includes('loanable') || subjectLower.includes('clientsuccessemail.com')) return 'Loanable';
+    if (subjectLower.includes('loanable')) return 'Loanable';
     if (subjectLower.includes('crawfort')) return 'Crawfort';
     if (subjectLower.includes('moneyiq')) return 'MoneyIQ SG';
   }
 
   // Then check message content
   const sourceChecks = [
-    { source: 'OMY.sg', keywords: ['OMY.sg', 'OMY', 'get-personal-loan'] },
+    { source: 'OMY.sg', keywords: ['OMY.sg', 'OMY'] },
     { source: '1% Loan', keywords: ['1% Loan', '1%', 'One Percent'] },
     { source: 'MoneyRight', keywords: ['MoneyRight', '1% Interest'] },
-    { source: 'Loanable', keywords: ['Loanable', 'loanable.sg', 'clientsuccessemail.com'] },
-    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com', 'personal-loan-singapore'] },
+    { source: 'Loanable', keywords: ['Loanable', 'loanable.sg'] },
+    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com'] },
     { source: 'MoneyIQ SG', keywords: ['MoneyIQ', 'moneyiq.sg'] }
   ];
 
@@ -240,7 +238,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
       if (domain.includes('omy.sg')) return 'OMY.sg';
       if (domain.includes('1percent.sg')) return '1% Loan';
       if (domain.includes('moneyright.sg')) return 'MoneyRight';
-      if (domain.includes('loanable.sg') || domain.includes('clientsuccessemail.com')) return 'Loanable';
+      if (domain.includes('loanable.sg')) return 'Loanable';
       if (domain.includes('crawfort.com')) return 'Crawfort';
     }
     return fromValue;
@@ -261,6 +259,7 @@ function extractOMYData(message: string): {
   full_name?: string;
   phone_number?: string; 
   residential_status?: string;
+  amount?: string;
 } {
   // Initialize result object
   const result: { 
