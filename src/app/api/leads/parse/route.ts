@@ -22,7 +22,7 @@ const LeadSchema = z.object({
   ideal_tenure: z.string().max(50).optional(),
   assigned_to: z.string().max(256).optional(),
   source: z.string().max(100).optional(),
-  received_time: z.string().optional(),
+  created_at: z.string().optional(),
 });
 
 // Helper function to clean phone number
@@ -457,7 +457,7 @@ export async function POST(request: Request) {
       date_time: dateTime?.trim(),
       assigned_to: assignedTo?.trim()?.substring(0, 256) ?? 'UNKNOWN',
       source: source,
-      received_time: received_time,
+      created_at: received_time,
     };
 
     console.log('Extracted values:', {
