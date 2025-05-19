@@ -52,6 +52,10 @@ export async function POST(request: Request) {
 
     const { days_ahead, calendar_setting_id, api_key } = validationResult.data;
 
+    // console.log('api_key', api_key);
+    // console.log('days_ahead', days_ahead);
+    // console.log('calendar_setting_id', calendar_setting_id);
+
     // Validate API key
     if (api_key !== validApiKey) {
       return NextResponse.json(
@@ -144,13 +148,19 @@ export async function POST(request: Request) {
             lte(timeslots.date, endDateStr),
             eq(timeslots.calendar_setting_id, setting.id)
           )
-        );
+        );      
+
+        // console.log('todayStr', todayStr);
+        // console.log('endDateStr', endDateStr);
+        // console.log('setting.id', setting.id);
+        // console.log('existingTimeslots', existingTimeslots);
 
         // Create a map of existing timeslots for quick lookup
         const existingTimeslotMap = new Map();
         existingTimeslots.forEach(slot => {
           const key = `${format(new Date(slot.date), 'yyyy-MM-dd')}_${slot.start_time}_${slot.end_time}`;
           existingTimeslotMap.set(key, true);
+        //   console.log('existingTimeslotMapKey', key);
         });
 
         // Generate timeslots for each day in the range
@@ -182,6 +192,7 @@ export async function POST(request: Request) {
                   const startTimeStr = formatTime(slotStart);
                   const endTimeStr = formatTime(slotEnd);
                   const slotKey = `${dateStr}_${startTimeStr}_${endTimeStr}`;
+                //   console.log('slotKey', slotKey);
                   
                   // Check if this slot already exists
                   if (!existingTimeslotMap.has(slotKey)) {
@@ -242,29 +253,34 @@ export async function POST(request: Request) {
 }
 
 /**
- * Helper function to parse time string (HH:MM) to minutes since midnight
+ * Helper function to parse time string (HH:MM or HH:MM:SS) to minutes since midnight
  */
 function parseTime(timeStr: string): number {
   try {
-    const validation = TimeSchema.safeParse(timeStr);
+    // Remove seconds if present
+    const timeWithoutSeconds = timeStr.split(':').slice(0, 2).join(':');
+    
+    const validation = TimeSchema.safeParse(timeWithoutSeconds);
     if (!validation.success) {
+      console.error('Time validation failed:', timeStr, validation.error);
       return 0;
     }
     
-    const [hoursStr, minutesStr] = timeStr.split(':');
+    const [hoursStr, minutesStr] = timeWithoutSeconds.split(':');
     const hours = parseInt(hoursStr ?? '0', 10);
     const minutes = parseInt(minutesStr ?? '0', 10);
     return hours * 60 + minutes;
   } catch (e) {
+    console.error('Error parsing time:', timeStr, e);
     return 0;
   }
 }
 
 /**
- * Helper function to format minutes since midnight to HH:MM
+ * Helper function to format minutes since midnight to HH:MM:SS
  */
 function formatTime(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:00`;
 } 

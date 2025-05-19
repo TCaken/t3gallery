@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     // Make internal request to the timeslots/generate endpoint
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
     const generateUrl = `${baseUrl}/api/timeslots/generate`;
+    console.log('generateUrl', generateUrl);
 
     const response = await fetch(generateUrl, {
       method: 'POST',
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         days_ahead: 30,
+        calendar_setting_id: 1,
         api_key: apiKey
       }),
     });
