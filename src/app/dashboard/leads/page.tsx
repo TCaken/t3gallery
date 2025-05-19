@@ -46,18 +46,35 @@ type StatusInfo = {
   color: string;
 };
 
-// Update the LEAD_STATUSES constant to use the schema's enum values
-const LEAD_STATUSES: StatusInfo[] = [
+// Define valid lead statuses
+const LEAD_STATUSES = [
+  'new',
+  'assigned',
+  'no_answer',
+  'follow_up',
+  'booked',
+  'done',
+  'missed/RS',
+  'unqualified',
+  'give_up',
+  'blacklisted'
+] as const;
+
+type LeadStatus = typeof LEAD_STATUSES[number];
+
+// Define status info for styling
+const allStatuses = [
   { id: 'new', name: 'New', color: 'bg-blue-100 text-blue-800' },
-  { id: 'open', name: 'Open', color: 'bg-cyan-100 text-cyan-800' },
-  { id: 'contacted', name: 'Contacted', color: 'bg-indigo-100 text-indigo-800' },
+  { id: 'assigned', name: 'Assigned', color: 'bg-cyan-100 text-cyan-800' },
   { id: 'no_answer', name: 'No Answer', color: 'bg-gray-100 text-gray-800' },
   { id: 'follow_up', name: 'Follow Up', color: 'bg-indigo-100 text-indigo-800' },
   { id: 'booked', name: 'Booked', color: 'bg-green-100 text-green-800' },
+  { id: 'done', name: 'Done', color: 'bg-green-100 text-green-800' },
+  { id: 'missed/RS', name: 'Missed/RS', color: 'bg-red-100 text-red-800' },
   { id: 'unqualified', name: 'Unqualified', color: 'bg-orange-100 text-orange-800' },
   { id: 'give_up', name: 'Give Up', color: 'bg-red-100 text-red-800' },
   { id: 'blacklisted', name: 'Blacklisted', color: 'bg-black text-white' },
-];
+] as const;
 
 // Tab options
 const TABS = [
@@ -130,7 +147,7 @@ export default function LeadsPage() {
   const [pendingStatusChange, setPendingStatusChange] = useState<{ leadId: number, newStatus: string } | null>(null);
   const [leadTags, setLeadTags] = useState<Record<number, { id: number, name: string }>>({});
   const [filters, setFilters] = useState<{
-    status?: typeof leadStatusEnum.enumValues[number];
+    status?: LeadStatus;
     search?: string;
     sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number';
     sortOrder?: 'asc' | 'desc';
@@ -145,6 +162,8 @@ export default function LeadsPage() {
     limit: 50
   });
   const [hasMore, setHasMore] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<LeadStatus>('new');
+  const validStatuses = LEAD_STATUSES;
 
   // Define statuses that agents can move leads to
   const agentAllowedStatuses = [
@@ -153,7 +172,7 @@ export default function LeadsPage() {
     'follow_up',
     'booked',
     'done',
-    'miss/RS',
+    'missed/RS',
     'unqualified',
     'give_up', 
     'blacklisted'
@@ -334,37 +353,15 @@ export default function LeadsPage() {
     }
   };
 
-  // Define visible columns based on role
-  const allStatuses = [
-    { id: 'new', name: 'New', color: 'bg-blue-100 text-blue-800' },
-    { id: 'assigned', name: 'Assigned', color: 'bg-cyan-100 text-cyan-800' },
-    { id: 'no_answer', name: 'No Answer', color: 'bg-gray-100 text-gray-800' },
-    { id: 'follow_up', name: 'Follow Up', color: 'bg-indigo-100 text-indigo-800' },
-    { id: 'done', name: 'Done', color: 'bg-emerald-100 text-emerald-800' },
-    { id: 'miss/RS', name: 'Miss/RS', color: 'bg-pink-100 text-pink-800' },
-    { id: 'booked', name: 'Booked', color: 'bg-green-100 text-green-800' },
-    { id: 'unqualified', name: 'Unqualified', color: 'bg-orange-100 text-orange-800' },
-    { id: 'give_up', name: 'Give Up', color: 'bg-red-100 text-red-800' },
-    { id: 'blacklisted', name: 'Blacklisted', color: 'bg-black text-white' },
+  // Update the visibleStatuses definition to include pinned leads first
+  const visibleStatuses = [
+    // Add pinned leads column first
+    { id: 'pinned', name: 'Pinned Leads', color: 'bg-blue-100 text-blue-800' },
+    // Then add other statuses
+    ...(userRole === 'agent'
+      ? allStatuses.filter(col => agentAllowedStatuses.includes(col.id))
+      : allStatuses)
   ];
-  
-  // Define statuses that agents should see in Kanban view
-  const agentVisibleColumns = [
-    'assigned', 
-    'no_answer', 
-    'follow_up',
-    'booked',
-    'done',
-    'miss/RS',
-    'unqualified',
-    'give_up', 
-    'blacklisted'
-  ];
-  
-  // Filter visibleStatuses based on user role
-  const visibleStatuses = userRole === 'agent'
-    ? allStatuses.filter(col => agentVisibleColumns.includes(col.id))
-    : allStatuses;
 
   // Filter leads for agent
   const visibleLeads = userRole === 'agent'
@@ -678,27 +675,27 @@ export default function LeadsPage() {
       {/* Filters */}
       <div className="mb-6 flex flex-wrap gap-4">
         <select
-          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
           value={filters.status ?? 'new'}
           onChange={(e) => setFilters(prev => ({
             ...prev,
-            status: e.target.value as typeof leadStatusEnum.enumValues[number]
+            status: e.target.value as LeadStatus
           }))}
+          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
         >
           {LEAD_STATUSES.map((status) => (
-            <option key={status.id} value={status.id}>
-              {status.name}
+            <option key={status} value={status}>
+              {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
             </option>
           ))}
         </select>
 
         <select
-          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
           value={filters.sortBy ?? 'created_at'}
           onChange={(e) => setFilters(prev => ({
             ...prev,
             sortBy: e.target.value as 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number'
           }))}
+          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
         >
           <option value="created_at">Created Date</option>
           <option value="updated_at">Updated Date</option>
@@ -723,8 +720,10 @@ export default function LeadsPage() {
         <div className="overflow-x-auto pb-4">
           <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
             {visibleStatuses.map((status) => {
-              // Filter leads by status for each column
-              const statusLeads = visibleLeads.filter(lead => lead.status === status.id);
+              // For pinned column, show all pinned leads regardless of status
+              const statusLeads = status.id === 'pinned'
+                ? pinnedLeads
+                : visibleLeads.filter(lead => lead.status === status.id);
               
               return (
                 <div key={status.id} className="flex-none w-80">
@@ -741,71 +740,21 @@ export default function LeadsPage() {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {statusLeads.map((lead) => {
-                          const statusInfo = LEAD_STATUSES.find(s => s.id === lead.status) ?? {
-                            id: 'new',
-                            name: 'New',
-                            color: 'bg-blue-100 text-blue-800'
-                          };
-                          
-                          return (
-                            <div 
-                              key={lead.id}
-                              className="bg-white rounded-lg shadow p-3 cursor-pointer hover:shadow-md"
-                              onClick={() => handleViewLead(lead)}
-                            >
-                              <div className="flex justify-between items-start mb-2">
-                                <div>
-                                  <h4 className="font-medium truncate" title={lead.full_name ?? ''}>
-                                    {lead.full_name ?? ''}
-                                    {pinnedLeads.some(p => p.id === lead.id) && (
-                                      <BookmarkIcon className="h-4 w-4 ml-1 inline-block text-blue-500" />
-                                    )}
-                                  </h4>
-                                  <p className="text-xs text-gray-500">
-                                    <ClockIcon className="h-3 w-3 inline mr-1" />
-                                    <SafeDate date={lead.created_at} />
-                                  </p>
-                                </div>
-                                
-                                <div className="relative">
-                                  <LeadActionButtons
-                                    leadId={lead.id}
-                                    onAction={handleLeadAction}
-                                    userRole={userRole}
-                                    currentStatus={lead.status}
-                                    phoneNumber={lead.phone_number ?? ''}
-                                    isPinned={pinnedLeads.some(p => p.id === lead.id)}
-                                  />
-                                </div>
-                              </div>
-                              
-                              {leadTags[lead.id] && (
-                                <div className="mb-2">
-                                  <span className="text-xs px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50">
-                                    {leadTags[lead.id].name}
-                                  </span>
-                                </div>
-                              )}
-                              
-                              <div className="text-sm text-gray-600">
-                                {lead.phone_number ?? 'No phone number'}
-                              </div>
-                              
-                              {lead.email && (
-                                <div className="text-sm text-gray-600 truncate" title={lead.email}>
-                                  {lead.email}
-                                </div>
-                              )}
-                              
-                              {lead.amount && lead.amount !== 'UNKNOWN' && (
-                                <div className="mt-1 text-sm font-medium">
-                                  ${lead.amount}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {statusLeads.map((lead) => (
+                          <LeadCard
+                            key={lead.id}
+                            lead={lead}
+                            statusInfo={allStatuses.find(s => s.id === lead.status) ?? {
+                              id: 'new',
+                              name: 'New',
+                              color: 'bg-blue-100 text-blue-800'
+                            }}
+                            onAction={handleLeadAction}
+                            isPinned={pinnedLeads.some(p => p.id === lead.id)}
+                            onView={handleViewLead}
+                            tag={leadTags[lead.id] ?? null}
+                          />
+                        ))}
                       </div>
                     )}
                   </div>
@@ -818,7 +767,7 @@ export default function LeadsPage() {
         // List view for All or Pinned tabs
         <div className="space-y-4">
           {getCurrentLeads().map((lead) => {
-            const statusInfo = LEAD_STATUSES.find(s => s.id === lead.status) ?? {
+            const statusInfo = allStatuses.find(s => s.id === lead.status) ?? {
               id: 'new',
               name: 'New',
               color: 'bg-blue-100 text-blue-800'
@@ -857,102 +806,6 @@ export default function LeadsPage() {
       {error && (
         <div className="mt-4 rounded-lg bg-red-100 p-4 text-red-700">
           {error}
-        </div>
-      )}
-
-      {/* Lead Detail Modal */}
-      {selectedLead && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-auto">
-            <div className="flex justify-between items-center border-b p-4">
-              <h2 className="text-xl font-bold">Lead Details</h2>
-              <button 
-                onClick={() => setSelectedLead(null)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <XMarkIcon className="h-6 w-6" />
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Personal Information</h3>
-                  <div className="space-y-3">
-                    <p className="text-gray-700">
-                      <span className="font-medium">Name:</span> {selectedLead.full_name}
-                    </p>
-                    <p className="text-gray-700">
-                      <span className="font-medium">Phone:</span> {selectedLead.phone_number}
-                    </p>
-                    <p className="text-gray-700">
-                      <span className="font-medium">Email:</span> {selectedLead.email ?? 'N/A'}
-                    </p>
-                    <p className="text-gray-700">
-                      <span className="font-medium">Status:</span> 
-                      <span className={`ml-2 px-2 py-1 rounded-full ${getStatusColor(selectedLead.status)}`}>
-                        {selectedLead.status}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Lead Information</h3>
-                  <div className="space-y-3">
-                    <p className="text-gray-700">
-                      <span className="font-medium">Source:</span> {selectedLead.source ?? 'N/A'}
-                    </p>
-                    <p className="text-gray-700">
-                      <span className="font-medium">Type:</span> {selectedLead.lead_type}
-                    </p>
-                    <p className="text-gray-700">
-                      <span className="font-medium">Created:</span> <SafeDate date={selectedLead.created_at} />
-                    </p>
-                    <p className="text-gray-700">
-                      <span className="font-medium">Assigned To:</span> {selectedLead.assigned_to ?? 'Unassigned'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <h3 className="text-lg font-semibold mb-4">Actions</h3>
-                <div className="flex space-x-4">
-                  <button 
-                    onClick={() => handleLeadAction(pinnedLeads.some(p => p.id === selectedLead.id) ? 'unpin' : 'pin', selectedLead.id)}
-                    className="flex items-center px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200"
-                  >
-                    <BookmarkIcon className="h-5 w-5 mr-2" />
-                    {pinnedLeads.some(p => p.id === selectedLead.id) ? 'Unpin Lead' : 'Pin Lead'}
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setIsWhatsAppModalOpen(true);
-                      setSelectedLead(null);
-                    }}
-                    className="flex items-center px-4 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200"
-                  >
-                    <PaperAirplaneIcon className="h-5 w-5 mr-2" />
-                    Send WhatsApp
-                  </button>
-                  
-                  {userRole === 'admin' && (
-                    <button 
-                      onClick={() => handleLeadAction('assign', selectedLead.id)}
-                      className="flex items-center px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200"
-                    >
-                      <UserPlusIcon className="h-5 w-5 mr-2" />
-                      Assign to Agent
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <h3 className="text-lg font-semibold mb-4">Comments</h3>
-                <LazyComment leadId={selectedLead.id} />
-              </div>
-            </div>
-          </div>
         </div>
       )}
 

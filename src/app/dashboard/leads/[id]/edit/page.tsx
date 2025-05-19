@@ -163,235 +163,241 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
   }
   
   return (
-    <div className="max-w-2xl mx-auto">
-      {/* Header with back button */}
-      <div className="mb-6 flex items-center">
-        <button
-          onClick={() => router.push(`/dashboard/leads/${leadId}`)}
-          className="mr-4 p-2 rounded-full hover:bg-gray-100"
-        >
-          <ArrowLeftIcon className="h-5 w-5" />
-        </button>
-        <h1 className="text-2xl font-bold">Edit Lead</h1>
-      </div>
-      
-      <div className="bg-white p-6 rounded-lg shadow-md">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label htmlFor="phone_number" className="block text-sm font-medium text-gray-700">
-                Phone Number <span className="text-red-500">*</span>
-              </label>
-              
-              {/* Custom phone input with +65 prefix */}
-              <div className={`mt-1 flex rounded-md shadow-sm border ${phoneError ? 'border-red-500' : 'border-gray-300'}`}>
-                <span className="inline-flex items-center px-3 rounded-l-md border-r border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
-                  +65
-                </span>
-                <input
-                  type="tel"
-                  id="phone_number"
-                  name="phone_number"
-                  value={formData.phone_number}
-                  onChange={handleChange}
-                  required
-                  placeholder="81234567"
-                  className="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                />
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Header with back button */}
+        <div className="mb-8 flex items-center justify-between">
+          <div className="flex items-center">
+            <button
+              onClick={() => router.push(`/dashboard/leads/${leadId}`)}
+              className="mr-4 p-2 rounded-full hover:bg-gray-100 transition-colors"
+            >
+              <ArrowLeftIcon className="h-5 w-5" />
+            </button>
+            <h1 className="text-2xl font-bold text-gray-900">Edit Lead</h1>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          <form onSubmit={handleSubmit} className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Personal Information Section */}
+              <div className="space-y-6">
+                <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">Personal Information</h2>
+                
+                <div>
+                  <label htmlFor="phone_number" className="block text-sm font-medium text-gray-700">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <div className={`mt-1 flex rounded-md shadow-sm border ${phoneError ? 'border-red-500' : 'border-gray-300'}`}>
+                    <span className="inline-flex items-center px-3 rounded-l-md border-r border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
+                      +65
+                    </span>
+                    <input
+                      type="tel"
+                      id="phone_number"
+                      name="phone_number"
+                      value={formData.phone_number}
+                      onChange={handleChange}
+                      required
+                      placeholder="81234567"
+                      className="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    />
+                  </div>
+                  {phoneError ? (
+                    <p className="mt-1 text-xs text-red-500">{phoneError}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Enter 8 digits only (e.g., 81234567)
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="first_name" className="block text-sm font-medium text-gray-700">
+                      First Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="first_name"
+                      name="first_name"
+                      value={formData.first_name}
+                      onChange={handleChange}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="last_name" className="block text-sm font-medium text-gray-700">
+                      Last Name
+                    </label>
+                    <input
+                      type="text"
+                      id="last_name"
+                      name="last_name"
+                      value={formData.last_name}
+                      onChange={handleChange}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
               </div>
-              
-              {phoneError ? (
-                <p className="mt-1 text-xs text-red-500">{phoneError}</p>
-              ) : (
-                <p className="mt-1 text-xs text-gray-500">
-                  Enter 8 digits only (e.g., 81234567)
-                </p>
-              )}
+
+              {/* Loan Information Section */}
+              <div className="space-y-6">
+                <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">Loan Information</h2>
+                
+                <div>
+                  <label htmlFor="amount" className="block text-sm font-medium text-gray-700">
+                    Amount
+                  </label>
+                  <input
+                    type="text"
+                    id="amount"
+                    name="amount"
+                    value={formData.amount}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="employment_status" className="block text-sm font-medium text-gray-700">
+                    Employment Status
+                  </label>
+                  <input
+                    type="text"
+                    id="employment_status"
+                    name="employment_status"
+                    value={formData.employment_status}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="loan_purpose" className="block text-sm font-medium text-gray-700">
+                    Loan Purpose
+                  </label>
+                  <input
+                    type="text"
+                    id="loan_purpose"
+                    name="loan_purpose"
+                    value={formData.loan_purpose}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="existing_loans" className="block text-sm font-medium text-gray-700">
+                    Existing Loans
+                  </label>
+                  <input
+                    type="text"
+                    id="existing_loans"
+                    name="existing_loans"
+                    value={formData.existing_loans}
+                    onChange={handleChange}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Additional Information Section */}
+              <div className="space-y-6 md:col-span-2">
+                <h2 className="text-lg font-semibold text-gray-900 border-b pb-2">Additional Information</h2>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label htmlFor="status" className="block text-sm font-medium text-gray-700">
+                      Status
+                    </label>
+                    <select
+                      id="status"
+                      name="status"
+                      value={formData.status}
+                      onChange={handleChange}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    >
+                      {validStatuses.map(status => (
+                        <option key={status} value={status}>
+                          {status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="lead_type" className="block text-sm font-medium text-gray-700">
+                      Lead Type
+                    </label>
+                    <select
+                      id="lead_type"
+                      name="lead_type"
+                      value={formData.lead_type}
+                      onChange={handleChange}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    >
+                      {validLeadTypes.map(type => (
+                        <option key={type} value={type}>
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="source" className="block text-sm font-medium text-gray-700">
+                      Source
+                    </label>
+                    <input
+                      type="text"
+                      id="source"
+                      name="source"
+                      value={formData.source}
+                      onChange={handleChange}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
             
-            <div>
-              <label htmlFor="nationality" className="block text-sm font-medium text-gray-700">
-                Nationality
-              </label>
-              <input
-                type="text"
-                id="nationality"
-                name="nationality"
-                value={formData.nationality}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="amount" className="block text-sm font-medium text-gray-700">
-                Amount
-              </label>
-              <input
-                type="text"
-                id="amount"
-                name="amount"
-                value={formData.amount}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="employment_status" className="block text-sm font-medium text-gray-700">
-                Employment Status
-              </label>
-              <input
-                type="text"
-                id="employment_status"
-                name="employment_status"
-                value={formData.employment_status}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="loan_purpose" className="block text-sm font-medium text-gray-700">
-                Loan Purpose
-              </label>
-              <input
-                type="text"
-                id="loan_purpose"
-                name="loan_purpose"
-                value={formData.loan_purpose}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="existing_loans" className="block text-sm font-medium text-gray-700">
-                Existing Loans
-              </label>
-              <input
-                type="text"
-                id="existing_loans"
-                name="existing_loans"
-                value={formData.existing_loans}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="first_name" className="block text-sm font-medium text-gray-700">
-                First Name
-              </label>
-              <input
-                type="text"
-                id="first_name"
-                name="first_name"
-                value={formData.first_name}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                required
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="last_name" className="block text-sm font-medium text-gray-700">
-                Last Name
-              </label>
-              <input
-                type="text"
-                id="last_name"
-                name="last_name"
-                value={formData.last_name}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
-              </label>
-              <input
-                type="email"
-                id="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="source" className="block text-sm font-medium text-gray-700">
-                Source
-              </label>
-              <input
-                type="text"
-                id="source"
-                name="source"
-                value={formData.source}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="status" className="block text-sm font-medium text-gray-700">
-                Status
-              </label>
-              <select
-                id="status"
-                name="status"
-                value={formData.status}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            <div className="mt-8 flex justify-end space-x-4">
+              <button
+                type="button"
+                onClick={() => router.back()}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
               >
-                {validStatuses.map(status => (
-                  <option key={status} value={status}>
-                    {status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div>
-              <label htmlFor="lead_type" className="block text-sm font-medium text-gray-700">
-                Lead Type
-              </label>
-              <select
-                id="lead_type"
-                name="lead_type"
-                value={formData.lead_type}
-                onChange={handleChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50"
               >
-                {validLeadTypes.map(type => (
-                  <option key={type} value={type}>
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                  </option>
-                ))}
-              </select>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
             </div>
-          </div>
-          
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );
