@@ -55,7 +55,7 @@ function cleanPhoneNumber(phone: string): string {
   }
   
   // If we can't extract a valid number, return unknown
-  return '+65unknown';
+  return `+65${withoutPrefix}`;
 }
 
 // Helper function to extract amount
