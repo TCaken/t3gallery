@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     }
 
     // Validate API key
-    const apiKey = process.env.LEAD_MAINTENANCE_API_KEY;
+    const apiKey = process.env.API_KEY;
     if (!apiKey || parsedBody.data.api_key !== apiKey) {
       return NextResponse.json(
         { success: false, message: "Invalid API key" },

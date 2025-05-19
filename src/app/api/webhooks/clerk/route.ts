@@ -1,3 +1,4 @@
+'use server';
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import type { WebhookEvent } from '@clerk/nextjs/server';
@@ -27,10 +28,10 @@ export async function POST(req: Request) {
   const body = JSON.stringify(payload);
 
   // Create a new Svix instance with your webhook secret
-  const wh = new Webhook(process.env.NEXT_PUBLIC_CLERK_WEBHOOK_SECRET ?? '');
+  const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET ?? '');
 
   let evt: WebhookEvent;
-
+c
   // Verify the payload with the headers
   try {
     evt = wh.verify(body, {

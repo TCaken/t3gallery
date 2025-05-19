@@ -107,11 +107,12 @@ export const userRoles = createTable(
 // Define enum for lead statuses
 export const leadStatusEnum = pgEnum('lead_status', [
   'new',
-  'open',
-  'contacted',
+  'assigned',
   'no_answer',
   'follow_up',
   'booked',
+  'done',
+  'missed/RS',
   'unqualified',
   'give_up',
   'blacklisted'

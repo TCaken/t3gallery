@@ -29,33 +29,33 @@ const LeadSchema = z.object({
 function cleanPhoneNumber(phone: string): string {
   if (!phone) return '+65unknown';
   
-  // Remove all non-digit characters
-  const cleaned = phone.replace(/\D/g, '');
+  // First, standardize by removing any invisible characters or formatting
+  const standardized = phone.replace(/\s+/g, '').replace(/[^\d+]/g, '');
   
-  // Validate the phone number format
-  const isValid = (
-    // With +65 prefix
-    /^\+?65[896]\d{7}$/.test(phone) ||
-    // Without country code
-    /^[896]\d{7}$/.test(cleaned)
-  );
+  // Remove any existing +65 prefix to avoid duplication
+  const withoutPrefix = standardized.startsWith('+65') 
+    ? standardized.substring(3) 
+    : standardized.startsWith('65') 
+      ? standardized.substring(2) 
+      : standardized;
   
-  if (!isValid) {
-    // Keep the original number but add a +65 prefix if needed
-    return phone.startsWith('+65') ? phone : `+65${phone}`;
+  // Check if the remaining number is a valid Singapore mobile number (8 digits starting with 8 or 9)
+  const isValidSingaporeNumber = /^[89]\d{7}$/.test(withoutPrefix);
+  
+  if (isValidSingaporeNumber) {
+    // Return a properly formatted number with +65 prefix
+    return `+65${withoutPrefix}`;
   }
   
-  // If it starts with 65, remove it and add +65
-  if (cleaned.startsWith('65')) {
-    return `+65${cleaned.slice(2)}`;
+  // For invalid numbers, attempt to extract any 8-digit sequence starting with 8 or 9
+  const numberRegex = /[89]\d{7}/;
+  const numberMatch = numberRegex.exec(withoutPrefix);
+  if (numberMatch) {
+    return `+65${numberMatch[0]}`;
   }
   
-  // If it doesn't start with +65, add it
-  if (!cleaned.startsWith('+65')) {
-    return `+65${cleaned}`;
-  }
-  
-  return cleaned;
+  // If we can't extract a valid number, return unknown
+  return `+65${withoutPrefix}`;
 }
 
 // Helper function to extract amount

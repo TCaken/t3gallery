@@ -95,16 +95,12 @@ export default function LeadActionButtons({
         return <PhoneIcon className="h-4 w-4 text-gray-500" />;
       case 'follow_up':
         return <ClockIcon className="h-4 w-4 text-blue-500" />;
-      case 'P':
-        return <CheckCircleIcon className="h-4 w-4 text-emerald-500" />;
-      case 'PRS':
-        return <CheckCircleIcon className="h-4 w-4 text-teal-500" />;
-      case 'R':
-        return <CheckCircleIcon className="h-4 w-4 text-violet-500" />;
-      case 'miss/RS':
-        return <XCircleIcon className="h-4 w-4 text-pink-500" />;
       case 'booked':
         return <CalendarIcon className="h-4 w-4 text-green-500" />;
+      case 'done':
+        return <CheckCircleIcon className="h-4 w-4 text-emerald-500" />;
+      case 'missed/RS':
+        return <XCircleIcon className="h-4 w-4 text-pink-500" />;
       case 'unqualified':
         return <XCircleIcon className="h-4 w-4 text-orange-500" />;
       case 'give_up':
@@ -122,7 +118,9 @@ export default function LeadActionButtons({
     { id: 'no_answer', label: 'No Answer' },
     { id: 'follow_up', label: 'Follow Up' },
     { id: 'booked', label: 'Booked' },
-    { id: 'miss/RS', label: 'Miss/RS' },
+    { id: 'done', label: 'Done' },
+    { id: 'missed/RS', label: 'Missed/RS' },
+    { id: 'unqualified', label: 'Unqualified' },
     { id: 'give_up', label: 'Give Up' },
     { id: 'blacklisted', label: 'Blacklisted' },
   ];
@@ -133,11 +131,9 @@ export default function LeadActionButtons({
     { id: 'assigned', label: 'Assigned' },
     { id: 'no_answer', label: 'No Answer' },
     { id: 'follow_up', label: 'Follow Up' },
-    { id: 'P', label: 'P' },
-    { id: 'PRS', label: 'PRS' },
-    { id: 'R', label: 'R' },
-    { id: 'miss/RS', label: 'Miss/RS' },
     { id: 'booked', label: 'Booked' },
+    { id: 'done', label: 'Done' },
+    { id: 'missed/RS', label: 'Missed/RS' },
     { id: 'unqualified', label: 'Unqualified' },
     { id: 'give_up', label: 'Give Up' },
     { id: 'blacklisted', label: 'Blacklisted' },

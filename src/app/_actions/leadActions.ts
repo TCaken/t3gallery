@@ -462,7 +462,7 @@ export async function fetchFilteredLeads({
   sortBy = 'created_at',
   sortOrder = 'desc',
   page = 1,
-  limit = 50
+  limit = 200
 }: {
   status?: typeof leadStatusEnum.enumValues[number];
   search?: string;

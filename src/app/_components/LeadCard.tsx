@@ -158,9 +158,6 @@ export default function LeadCard({
           <div className="flex items-center gap-2">
             <h4 className="font-medium text-lg">
               {lead.full_name}
-              {isPinned && (
-                <BookmarkIcon className="h-4 w-4 ml-1 inline-block text-blue-500" />
-              )}
             </h4>
             <div className="flex items-center text-sm text-gray-500">
               <ClockIcon className="h-4 w-4 mr-1" />
