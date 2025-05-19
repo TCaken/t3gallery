@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from "~/server/db";
 import { leads } from "~/server/db/schema";
-import { eq, and, lt, or, sql } from "drizzle-orm";
+import { eq, and, lt, or, sql, gt } from "drizzle-orm";
 
 // Define the request schema
 const RequestSchema = z.object({
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
     // API key authentication (optional - only check if provided)
     if (parsedBody.data.api_key) {
-      const apiKey = process.env.LEAD_MAINTENANCE_API_KEY;
+      const apiKey = process.env.API_KEY;
       if (!apiKey || parsedBody.data.api_key !== apiKey) {
         return NextResponse.json(
           { success: false, message: "Invalid API key" },

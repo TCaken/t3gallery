@@ -30,6 +30,12 @@ export default function TopNav({ expanded, setExpanded, isMobile }: TopNavProps)
         </button>
       )}
       
+      <div className="flex-1 max-w-xl">
+        <div className="relative">
+           
+        </div>
+      </div>
+      
       <div className="flex items-center space-x-4">
         <button className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full">
           <BellIcon className="h-5 w-5" />

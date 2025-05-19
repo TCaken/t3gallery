@@ -1,6 +1,6 @@
 import { db } from "~/server/db";
 import { leads } from "~/server/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, not } from "drizzle-orm";
 
 interface EligibilityResponse {
   isEligible: boolean;
@@ -59,19 +59,23 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
 
     const lists = await response.json() as string[];
     
-    // Check if phone exists in leads
+    // Check if phone exists in leads with status other than unqualified
+    console.log('phoneNumber', phoneNumber);
     const existingLead = await db.query.leads.findFirst({
-      where: eq(leads.phone_number, phoneNumber)
+      where: and(
+        eq(leads.phone_number, phoneNumber),
+        not(eq(leads.status, 'unqualified'))
+      )
     });
 
-    // If phone exists in our leads or in any CAPC lists, mark as unqualified
+    // If phone exists in our leads (non-unqualified) or in any CAPC lists, mark as unqualified
     if (lists.length > 0 || existingLead) {
       return {
         isEligible: false,
         status: 'unqualified',
         notes: lists.length > 0
           ? `Found in CAPC lists: ${lists.join(', ')}`
-          : `Phone number already exists in leads ${existingLead?.id} ${existingLead?.status}`
+          : `Phone number already exists in leads ${existingLead?.id} with status ${existingLead?.status}`
       };
     }
 

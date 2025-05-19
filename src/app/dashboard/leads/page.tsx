@@ -75,7 +75,7 @@ const getStatusColor = (status: string) => {
     follow_up: "bg-indigo-100 text-indigo-800",
     booked: "bg-green-100 text-green-800",
     done: "bg-emerald-100 text-emerald-800",
-    "miss/RS": "bg-pink-100 text-pink-800",
+    "missed/RS": "bg-pink-100 text-pink-800",
     unqualified: "bg-orange-100 text-orange-800",
     give_up: "bg-red-100 text-red-800",
     blacklisted: "bg-black text-white",
