@@ -71,7 +71,7 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
         status: 'unqualified',
         notes: lists.length > 0
           ? `Found in CAPC lists: ${lists.join(', ')}`
-          : 'Phone number already exists in leads'
+          : `Phone number already exists in leads ${existingLead?.id} ${existingLead?.status}`
       };
     }
 
