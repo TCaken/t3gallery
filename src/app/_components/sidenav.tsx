@@ -18,7 +18,7 @@ import {
   CalendarIcon,
   ShoppingBagIcon,
   UserGroupIcon
-} from "@heroicons/react/24/outline";
+} from "@heroicons/react/24/solid";
 
 interface NavItem {
   title: string;

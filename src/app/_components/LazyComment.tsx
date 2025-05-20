@@ -30,12 +30,13 @@ export default function LazyComment({ leadId }: LazyCommentProps) {
     setError(null);
     
     try {
-      const result = await getLeadComments(leadId);
-      if (result.success && result.comments) {
-        setComments(result.comments);
-      } else {
-        setError(result.error ?? 'Failed to load comments');
-      }
+      setError('Failed to load comments');
+      // const result = await getLeadComments(leadId);
+      // if (result.success && result.comments) {
+      //   setComments(result.comments);
+      // } else {
+      //   setError(result.error ?? 'Failed to load comments');
+      // }
     } catch (err) {
       setError('An error occurred while loading comments');
       console.error('Error loading comments:', err);
