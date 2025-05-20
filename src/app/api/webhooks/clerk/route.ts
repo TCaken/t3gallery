@@ -15,6 +15,10 @@ export async function POST(req: Request) {
   const svix_timestamp = headerPayload.get('svix-timestamp');
   const svix_signature = headerPayload.get('svix-signature');
 
+  console.log('svix_id:', svix_id);
+  console.log('svix_timestamp:', svix_timestamp);
+  console.log('svix_signature:', svix_signature);
+
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
     console.log('Webhook Error: Missing headers');
@@ -26,6 +30,7 @@ export async function POST(req: Request) {
   // Get the body
   const payload = await req.json();
   const body = JSON.stringify(payload);
+  console.log('Body:', body);
 
   // Create a new Svix instance with your webhook secret
   const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET ?? '');
