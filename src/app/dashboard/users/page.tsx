@@ -45,8 +45,6 @@ export default function UserManagementPage() {
           getAllRoles()
         ]);
 
-        console.log('usersResult:', usersResult);
-        console.log('rolesResult:', rolesResult);
 
         if (usersResult.success && rolesResult.success) {
           setUsers(usersResult.users as User[]);

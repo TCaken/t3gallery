@@ -21,7 +21,7 @@ export async function getAllUsers() {
     .leftJoin(userRoles, eq(users.id, userRoles.userId))
     .leftJoin(roles, eq(userRoles.roleId, roles.id));
 
-    console.log('allUsers:', allUsers);
+    // console.log('allUsers:', allUsers);
 
     // Group users and their roles
     const userMap = new Map();
