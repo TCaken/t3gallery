@@ -13,11 +13,15 @@ export async function getAllUsers() {
       first_name: users.first_name,
       last_name: users.last_name,
       email: users.email,
-      roles: userRoles
+      roleId: userRoles.roleId,
+      roleName: roles.name,
+      roleDescription: roles.description
     })
     .from(users)
     .leftJoin(userRoles, eq(users.id, userRoles.userId))
     .leftJoin(roles, eq(userRoles.roleId, roles.id));
+
+    console.log('allUsers:', allUsers);
 
     // Group users and their roles
     const userMap = new Map();
@@ -31,12 +35,12 @@ export async function getAllUsers() {
           roles: []
         });
       }
-      if (row.roles) {
+      if (row.roleId) {
         userMap.get(row.id).roles.push({
           role: {
-            id: row.roles.roleId,
-            name: row.roles.role?.name,
-            description: row.roles.role?.description
+            id: row.roleId,
+            name: row.roleName,
+            description: row.roleDescription
           }
         });
       }
