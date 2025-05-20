@@ -93,15 +93,24 @@ export async function POST(req: Request) {
     console.log('Updating user:', { id, email: email_addresses[0]?.email_address, first_name, last_name });
 
     try {
-      // Update user
-      await db.update(users)
-        .set({
+      // Upsert user
+      await db.insert(users)
+        .values({
+          id,
           email: email_addresses[0]?.email_address ?? null,
           first_name: first_name ?? null,
           last_name: last_name ?? null,
+          is_verified: false,
         })
-        .where(eq(users.id, id));
-      console.log('Successfully updated user:', id);
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            email: email_addresses[0]?.email_address ?? null,
+            first_name: first_name ?? null,
+            last_name: last_name ?? null,
+          }
+        });
+      console.log('Successfully upserted user:', id);
     } catch (error) {
       console.error('Error updating user:', error);
       return new Response('Error updating user', {
