@@ -45,6 +45,7 @@ export default function UserManagementPage() {
           getAllRoles()
         ]);
 
+
         if (usersResult.success && rolesResult.success) {
           setUsers(usersResult.users as User[]);
           setRoles(rolesResult.roles as Role[]);

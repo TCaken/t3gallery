@@ -10,7 +10,7 @@ import {
     BellIcon, 
     MagnifyingGlassIcon,
     Bars3Icon
-} from "@heroicons/react/24/outline";
+} from "@heroicons/react/24/solid";
 
 interface TopNavProps {
   expanded: boolean;

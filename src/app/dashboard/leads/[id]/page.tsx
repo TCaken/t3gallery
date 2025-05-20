@@ -16,7 +16,7 @@ import {
   ClockIcon,
   ChatBubbleLeftIcon,
   UserIcon
-} from "@heroicons/react/24/outline";
+} from "@heroicons/react/24/solid";
 import { checkExistingAppointment } from "~/app/_actions/appointmentAction";
 import { getLeadComments, addLeadComment } from '~/app/_actions/commentActions';
 import { useAuth } from '@clerk/nextjs';

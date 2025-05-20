@@ -186,16 +186,6 @@ export default function LeadCard({
         </div>
       </div>
 
-      <div className="flex justify-between items-center text-sm text-gray-500 mt-2">
-        <div className="flex items-center">
-          <span className="font-medium">ID:</span>
-          <span className="ml-1">{lead.id}</span>
-        </div>
-        <div className="text-blue-500 hover:text-blue-600">
-          Click to view details →
-        </div>
-      </div>
-
       <div onClick={(e) => e.stopPropagation()} className="mb-3 mt-3">
         <LeadActionButtons
           leadId={lead.id}

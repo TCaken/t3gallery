@@ -17,14 +17,15 @@ import {
   UserIcon,
   CalendarIcon,
   InformationCircleIcon,
-  UserPlusIcon
+  UserPlusIcon,
+  CalendarDaysIcon
 } from '@heroicons/react/24/outline';
 import {
   ChatBubbleLeftIcon as ChatBubbleLeftSolidIcon,
   PhoneIcon as PhoneSolidIcon,
   PaperAirplaneIcon as PaperAirplaneSolidIcon,
   BookmarkIcon as BookmarkSolidIcon,
-  CalendarIcon as CalendarSolidIcon,
+  CalendarDaysIcon as CalendarDaysSolidIcon,
   InformationCircleIcon as InformationCircleSolidIcon,
   UserPlusIcon as UserPlusSolidIcon
 } from '@heroicons/react/24/solid';
@@ -178,8 +179,8 @@ export default function LeadActionButtons({
     },
     {
       id: 'calendar',
-      icon: CalendarIcon,
-      solidIcon: CalendarSolidIcon,
+      icon: CalendarDaysIcon,
+      solidIcon: CalendarDaysSolidIcon,
       title: 'Schedule Appointment',
       onClick: () => router.push(`/dashboard/leads/${leadId}/appointment`),
       disabled: false,
@@ -214,7 +215,7 @@ export default function LeadActionButtons({
             {button.active ? (
               <button.solidIcon className="h-4 w-4" />
             ) : (
-              <button.icon className="h-4 w-4" />
+              <button.solidIcon className="h-4 w-4" />
             )}
           </button>
         ))}
