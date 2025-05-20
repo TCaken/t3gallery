@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET ?? '');
 
   let evt: WebhookEvent;
-c
+  
   // Verify the payload with the headers
   try {
     evt = wh.verify(body, {
