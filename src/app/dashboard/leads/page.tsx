@@ -20,7 +20,7 @@ import {
 } from '@heroicons/react/24/outline';
 import LeadCard  from '~/app/_components/LeadCard';
 import { hasPermission } from '~/server/rbac/queries';
-import { fetchLeads, populateLeads, updateLeadStatus, fetchFilteredLeads } from '~/app/_actions/leadActions';
+import { updateLeadStatus, fetchFilteredLeads } from '~/app/_actions/leadActions';
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads, leadStatusEnum } from "~/server/db/schema";
 import LazyComment from '~/app/_components/LazyComment';
@@ -114,9 +114,9 @@ const SafeDate = ({ date }: { date: any }) => {
 };
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
+  const [leads, setLeads] = useState<Record<string, Lead[]>>({});
   const [pinnedLeads, setPinnedLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -161,7 +161,7 @@ export default function LeadsPage() {
     page: 1,
     limit: 50
   });
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState<Record<string, boolean>>({});
   const [statusFilter, setStatusFilter] = useState<LeadStatus>('new');
   const validStatuses = LEAD_STATUSES;
 
@@ -186,11 +186,12 @@ export default function LeadsPage() {
   };
 
   // Function to fetch leads with filters
-  const fetchLeadsWithFilters = async (currentFilters: typeof filters) => {
+  const fetchLeadsWithFilters = async (currentFilters: typeof filters, status: string) => {
     try {
-      setLoading(true);
+      setLoading(prev => ({ ...prev, [status]: true }));
+      console.log('fetchLeadsWithFilters:', { ...currentFilters, status });
       const result = await fetchFilteredLeads({
-        status: currentFilters.status,
+        status: status as LeadStatus,
         search: currentFilters.search,
         sortBy: currentFilters.sortBy ?? "created_at",
         sortOrder: currentFilters.sortOrder ?? "desc",
@@ -199,17 +200,20 @@ export default function LeadsPage() {
       });
       
       if (result.success && result.leads) {
-        setLeads(prevLeads => 
-          (currentFilters.page ?? 1) === 1 ? result.leads : [...prevLeads, ...result.leads]
-        );
-        setHasMore(result.hasMore ?? false);
+        setLeads(prevLeads => ({
+          ...prevLeads,
+          [status]: (currentFilters.page ?? 1) === 1 
+            ? result.leads 
+            : [...(prevLeads[status] ?? []), ...result.leads]
+        }));
+        setHasMore(prev => ({ ...prev, [status]: result.hasMore ?? false }));
       } else {
         throw new Error(result.error ?? 'Failed to fetch leads');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
-      setLoading(false);
+      setLoading(prev => ({ ...prev, [status]: false }));
     }
   };
 
@@ -217,29 +221,28 @@ export default function LeadsPage() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        setLoading(true);
+        console.log('Starting loadInitialData');
         
-        // Load leads with initial filters
-        const result = await fetchFilteredLeads({
-          status: filters.status,
-          search: filters.search,
-          sortBy: filters.sortBy ?? "created_at",
-          sortOrder: filters.sortOrder ?? "desc",
-          page: 1,
-          limit: 50
+        // Load leads for each status
+        const loadPromises = validStatuses.map(async status => {
+          console.log('Loading leads for status:', status);
+          const result = await fetchLeadsWithFilters({ ...filters, page: 1 }, status);
+          console.log('Loaded leads for status:', status, result);
+          return result;
         });
-        
-        if (result.success && result.leads) {
-          setLeads(result.leads);
-        } else {
-          throw new Error('Failed to load leads');
-        }
+
+        const results = await Promise.all(loadPromises);
+        console.log('All leads loaded:', results);
 
         // Load pinned leads
         const pinnedResult = await getPinnedLeads();
-        if (pinnedResult.success && pinnedResult.pinnedLeads && result.leads) {
+        console.log('Pinned leads result:', pinnedResult);
+        
+        if (pinnedResult.success && pinnedResult.pinnedLeads) {
           const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
-          const pinnedLeadsData = result.leads.filter(lead => pinnedLeadIds.includes(lead.id));
+          const allLeads = Object.values(leads).flat();
+          console.log('All leads for pinned filtering:', allLeads);
+          const pinnedLeadsData = allLeads.filter(lead => pinnedLeadIds.includes(lead.id));
           setPinnedLeads(pinnedLeadsData);
         }
         
@@ -250,9 +253,8 @@ export default function LeadsPage() {
           setUserRole(roleName as UserRole);
         }
       } catch (err) {
+        console.error('Error in loadInitialData:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
       }
     };
 
@@ -261,41 +263,70 @@ export default function LeadsPage() {
 
   // Effect to fetch leads when filters change
   useEffect(() => {
-    void fetchLeadsWithFilters(filters);
+    void fetchLeadsWithFilters(filters, filters.status ?? 'new');
   }, [filters]);
+
+  // Function to handle scroll and load more
+  const handleScroll = (status: string, e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore[status] && !loading[status]) {
+      setFilters(prev => ({
+        ...prev,
+        status: status as LeadStatus,
+        page: (prev.page ?? 1) + 1
+      }));
+    }
+  };
 
   // Handle lead actions
   const handleLeadAction = async (action: string, leadId: number) => {
+    console.log('handleLeadAction:', action, leadId);
     try {
+      // Find the lead in any status
+      const allLeads = Object.values(leads).flat();
+      const lead = allLeads.find(l => l.id === leadId);
+      
+      if (!lead) {
+        console.error('Lead not found:', leadId);
+        showNotification('Lead not found', 'error');
+        return;
+      }
+
       switch (action) {
         case 'pin':
+          console.log('handleLeadAction: pin');
           const pinResult = await togglePinLead(leadId);
           if (pinResult.success && pinResult.action === 'pinned') {
-            const leadToPin = leads.find(l => l.id === leadId);
-            if (leadToPin && !pinnedLeads.some(p => p.id === leadId)) {
-              setPinnedLeads([...pinnedLeads, leadToPin]);
+            if (!pinnedLeads.some(p => p.id === leadId)) {
+              setPinnedLeads([...pinnedLeads, lead]);
             }
           }
           break;
+
         case 'unpin':
+          console.log('handleLeadAction: unpin');
           const unpinResult = await togglePinLead(leadId);
           if (unpinResult.success && unpinResult.action === 'unpinned') {
             setPinnedLeads(pinnedLeads.filter(p => p.id !== leadId));
           }
           break;
+
         case 'whatsapp':
-          // Use the example template (currently the only active one)
+          console.log('handleLeadAction: whatsapp');
           await sendWhatsAppMessage(
-            leads.find(l => l.id === leadId)?.phone_number ?? '', 
+            lead.phone_number,
             'example_template',
             {},
             'whatsapp'
           );
           break;
+
         case 'schedule':
+          console.log('handleLeadAction: schedule');
           // This case is now handled directly in the LeadActionButtons component
           // The button redirects to /dashboard/leads/[id]/appointment
           break;
+
         case 'move_to_new':
         case 'move_to_assigned':
         case 'move_to_no_answer':
@@ -307,6 +338,7 @@ export default function LeadsPage() {
         case 'move_to_give_up':
         case 'move_to_blacklisted':
           const newStatus = action.replace('move_to_', '');
+          console.log('handleLeadAction: move_to_', newStatus);
           
           // Check if user is agent and trying to update to a disallowed status
           if (userRole === 'agent' && !agentAllowedStatuses.includes(newStatus)) {
@@ -325,30 +357,37 @@ export default function LeadsPage() {
           await updateLeadStatus(leadId, newStatus);
           await removeLeadTag(leadId); // Remove any existing tag
           
-          // Update local state
-          setLeads(prevLeads => prevLeads.map(lead => 
-            lead.id === leadId ? { ...lead, status: newStatus } : lead
-          ));
+          // Update local state by moving the lead to the new status
+          setLeads(prevLeads => {
+            const newLeads = { ...prevLeads };
+            // Remove from old status
+            Object.keys(newLeads).forEach(status => {
+              newLeads[status] = newLeads[status]?.filter(l => l.id !== leadId) ?? [];
+            });
+            // Add to new status
+            newLeads[newStatus] = [...(newLeads[newStatus] ?? []), { ...lead, status: newStatus }];
+            return newLeads;
+          });
           
           // Update pinnedLeads if needed
           if (pinnedLeads.some(p => p.id === leadId)) {
-            setPinnedLeads(prevPinned => prevPinned.map(lead => 
-              lead.id === leadId ? { ...lead, status: newStatus } : lead
+            setPinnedLeads(prevPinned => prevPinned.map(l => 
+              l.id === leadId ? { ...l, status: newStatus } : l
             ));
           }
           break;
+
         case 'assign':
-          const leadToAssign = leads.find(l => l.id === leadId);
-          if (leadToAssign) {
-            setSelectedLead(leadToAssign);
-            setIsAssignModalOpen(true);
-          }
+          console.log('handleLeadAction: assign');
+          setSelectedLead(lead);
+          setIsAssignModalOpen(true);
           break;
+
         default:
           console.log('Unknown action:', action);
       }
     } catch (error) {
-      console.error('Error handling lead action:', error);
+      console.error('Error in handleLeadAction:', error);
       showNotification('Failed to perform action', 'error');
     }
   };
@@ -365,13 +404,13 @@ export default function LeadsPage() {
 
   // Filter leads for agent
   const visibleLeads = userRole === 'agent'
-    ? leads.filter(lead => lead.assigned_to === userId)
-    : leads;
+    ? leads[filters.status ?? 'new'].filter(lead => lead.assigned_to === userId)
+    : leads[filters.status ?? 'new'];
 
-  console.log('Visible statuses for role', userRole, ':', visibleStatuses.map(s => s.id));
-  console.log('User ID:', userId);
-  console.log('Filtering leads:', userRole === 'agent' ? 'Yes (agent)' : 'No (admin)');
-  console.log('Visible leads count:', visibleLeads.length, 'out of', leads.length);
+  // console.log('Visible statuses for role', userRole, ':', visibleStatuses.map(s => s.id));
+  // console.log('User ID:', userId);
+  // console.log('Filtering leads:', userRole === 'agent' ? 'Yes (agent)' : 'No (admin)');
+  // console.log('Visible leads count:', visibleLeads.length, 'out of', leads[filters.status ?? 'new'].length);
 
   // Get current leads based on active tab
   const getCurrentLeads = () => {
@@ -435,6 +474,7 @@ export default function LeadsPage() {
         setAssignmentMessage(result.message);
         
         // Refresh the leads and preview
+        console.log('handleAutoAssignLeads:', filters);
         const leadsResult = await fetchFilteredLeads({
           status: filters.status,
           search: filters.search,
@@ -445,7 +485,10 @@ export default function LeadsPage() {
         });
         
         if (leadsResult.success && leadsResult.leads) {
-          setLeads(leadsResult.leads);
+          setLeads(prevLeads => ({
+            ...prevLeads,
+            [filters.status ?? 'new']: leadsResult.leads
+          }));
           
           // Also update pinnedLeads with fresh data
           const pinnedResult = await getPinnedLeads();
@@ -504,11 +547,14 @@ export default function LeadsPage() {
       }
 
       // Update local state
-      setLeads(leads.map(lead => 
-        lead.id === pendingStatusChange.leadId 
-          ? { ...lead, status: pendingStatusChange.newStatus } 
-          : lead
-      ));
+      setLeads(prevLeads => ({
+        ...prevLeads,
+        [filters.status ?? 'new']: prevLeads[filters.status ?? 'new'].map(lead => 
+          lead.id === pendingStatusChange.leadId 
+            ? { ...lead, status: pendingStatusChange.newStatus } 
+            : lead
+        )
+      }));
       
       // Update pinnedLeads if needed
       if (pinnedLeads.some(p => p.id === pendingStatusChange.leadId)) {
@@ -541,7 +587,7 @@ export default function LeadsPage() {
     }
   };
 
-  if (loading && leads.length === 0) {
+  if (loading[filters.status ?? 'new'] && leads[filters.status ?? 'new'].length === 0) {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
   }
 
@@ -723,7 +769,7 @@ export default function LeadsPage() {
               // For pinned column, show all pinned leads regardless of status
               const statusLeads = status.id === 'pinned'
                 ? pinnedLeads
-                : visibleLeads.filter(lead => lead.status === status.id);
+                : leads[status.id] ?? [];
               
               return (
                 <div key={status.id} className="flex-none w-80">
@@ -733,10 +779,13 @@ export default function LeadsPage() {
                       {statusLeads.length}
                     </span>
                   </div>
-                  <div className="bg-gray-50 rounded-b-lg p-2 h-[calc(100vh-320px)] overflow-y-auto">
+                  <div 
+                    className="bg-gray-50 rounded-b-lg p-2 h-[calc(100vh-320px)] overflow-y-auto"
+                    onScroll={(e) => handleScroll(status.id, e)}
+                  >
                     {statusLeads.length === 0 ? (
                       <div className="text-center py-4 text-gray-500 italic text-sm">
-                        No leads
+                        {loading[status.id] ? 'Loading...' : 'No leads'}
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -755,6 +804,11 @@ export default function LeadsPage() {
                             tag={leadTags[lead.id] ?? null}
                           />
                         ))}
+                        {loading[status.id] && (
+                          <div className="text-center py-2">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 mx-auto"></div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -786,17 +840,17 @@ export default function LeadsPage() {
           })}
           
           {/* Load More Button */}
-          {hasMore && activeTab !== 'pinned' && (
+          {hasMore[filters.status ?? 'new'] && activeTab !== 'pinned' && (
             <div className="mt-6 text-center">
               <button
                 onClick={() => setFilters(prev => ({
                   ...prev,
                   page: (prev.page ?? 1) + 1
                 }))}
-                disabled={loading}
+                disabled={loading[filters.status ?? 'new']}
                 className="rounded-lg bg-blue-500 px-6 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
               >
-                {loading ? 'Loading...' : 'Load More'}
+                {loading[filters.status ?? 'new'] ? 'Loading...' : 'Load More'}
               </button>
             </div>
           )}
@@ -819,7 +873,7 @@ export default function LeadsPage() {
           setSelectedLead(null);
           setIsAssignModalOpen(false);
           // Refresh leads
-          void fetchLeadsWithFilters(filters);
+          void fetchLeadsWithFilters(filters, filters.status ?? 'new');
         }}
       />
 

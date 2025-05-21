@@ -151,7 +151,7 @@ export default function LeadActionButtons({
       icon: InformationCircleIcon,
       solidIcon: InformationCircleSolidIcon,
       title: 'View Lead Details',
-      onClick: () => router.push(`/dashboard/leads/${leadId}`),
+      onClick: () => window.open(`/dashboard/leads/${leadId}`, '_blank'),
       disabled: false,
     },
     {
@@ -159,8 +159,8 @@ export default function LeadActionButtons({
       icon: UserPlusIcon,
       solidIcon: UserPlusSolidIcon,
       title: 'Assign to Agent',
-      onClick: () => handleAction('assign'),
-      disabled: userRole !== 'admin',
+      onClick: () => handleAction('assign')
+      // disabled: userRole !== 'admin',
     },
     {
       id: 'call',
@@ -182,7 +182,7 @@ export default function LeadActionButtons({
       icon: CalendarDaysIcon,
       solidIcon: CalendarDaysSolidIcon,
       title: 'Schedule Appointment',
-      onClick: () => router.push(`/dashboard/leads/${leadId}/appointment`),
+      onClick: () => window.open(`/dashboard/leads/${leadId}/appointment`, '_blank'),
       disabled: false,
     },
     {

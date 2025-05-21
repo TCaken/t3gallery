@@ -442,5 +442,17 @@ export const checkedInAgentsRelations = relations(checkedInAgents, ({ one }) => 
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({
-  checkedInAgents: many(checkedInAgents)
+  checkedInAgents: many(checkedInAgents),
+  roles: many(userRoles)
+}));
+
+export const userRolesRelations = relations(userRoles, ({ one }) => ({
+  user: one(users, {
+    fields: [userRoles.userId],
+    references: [users.id],
+  }),
+  role: one(roles, {
+    fields: [userRoles.roleId],
+    references: [roles.id],
+  }),
 }));

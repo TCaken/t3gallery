@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { 
   PhoneIcon,
+  UserCircleIcon,
   DocumentTextIcon,
   CalendarIcon,
   ChatBubbleLeftRightIcon,
@@ -55,6 +56,7 @@ export default function LeadCard({
     console.log('LeadCard: Lead data:', lead);
     
     if (onAction && lead.id) {
+      console.log('LeadCard: Calling onAction with:', action, lead.id);
       onAction(action, lead.id);
     }
   };
@@ -75,6 +77,7 @@ export default function LeadCard({
       setLoadingNotes(false);
     }
   };
+
 
   // Load note count on initial render
   useEffect(() => {
@@ -167,6 +170,16 @@ export default function LeadCard({
           <div className="flex items-center gap-2 mt-1">
             <PhoneIcon className="h-4 w-4 text-gray-500" />
             <p className="text-sm text-gray-600">{lead.phone_number}</p>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <UserCircleIcon className="h-4 w-4 text-gray-500" />
+            <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              lead.assigned_to 
+                ? 'bg-purple-100 text-purple-800 border border-purple-200' 
+                : 'bg-gray-100 text-gray-800 border border-gray-200'
+            }`}>
+              {lead.assigned_to ?? 'Unassigned'}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 mt-2">
             <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(lead.status)}`}>

@@ -1,81 +1,13 @@
 'use server';
 
 import { db } from "~/server/db";
-import { leads, leadStatusEnum, leadTypeEnum, lead_notes } from "~/server/db/schema";
+import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq, desc, InferSelectModel, like, or, and, SQL } from "drizzle-orm";
+import { eq, desc, InferSelectModel, like, or, and, SQL, asc } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import { checkLeadEligibility } from "./leadEligibility";
-import { checkLeadBlocklist } from "./blocklistActions";
+import { getUserRoles } from "~/server/rbac/queries";
 
-// Populate the database with sample leads
-export async function populateLeads() {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
-  
-  // Sample lead data with updated lead types and statuses
-  const sampleLeads = [
-    {
-      phone_number: "+12345678901",
-      first_name: "John",
-      last_name: "Smith",
-      email: "john.smith@example.com",
-      status: "new", 
-      source: "Website",
-      lead_type: "new",
-      created_by: userId,
-    },
-    {
-      phone_number: "+12345678902",
-      first_name: "Sarah",
-      last_name: "Johnson",
-      email: "sarah.j@example.com",
-      status: "new",
-      source: "Referral",
-      lead_type: "reloan",
-      created_by: userId,
-    },
-    {
-      phone_number: "+12345678903",
-      first_name: "Michael",
-      last_name: "Brown",
-      email: "m.brown@example.com",
-      status: "unqualified",
-      source: "LinkedIn",
-      lead_type: "new",
-      created_by: userId,
-    },
-    {
-      phone_number: "+12345678904",
-      first_name: "Jessica",
-      last_name: "Williams",
-      email: "j.williams@example.com",
-      status: "give_up",
-      source: "Trade Show",
-      lead_type: "reloan",
-      created_by: userId,
-    },
-    {
-      phone_number: "+12345678905",
-      first_name: "David",
-      last_name: "Miller",
-      email: "david.m@example.com",
-      status: "blacklisted",
-      source: "Cold Call",
-      lead_type: "new",
-      created_by: userId,
-    }
-  ];
-  
-  try {
-    // Insert the sample leads
-    const result = await db.insert(leads).values(sampleLeads).returning();
-    return { success: true, count: result.length, message: `${result.length} leads populated` };
-  } catch (error) {
-    console.error("Error populating leads:", error);
-    return { success: false, message: "Failed to populate leads: " + (error as Error).message };
-  }
-}
 
 // Fetch all leads with optional filtering by status
 export async function fetchLeads(statusFilter?: string[]) {
@@ -472,24 +404,68 @@ export async function fetchFilteredLeads({
   limit?: number;
 }) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    // Get user's roles
+    const userRolesResult = await getUserRoles();
+    const isAdmin = userRolesResult.some(r => r.roleName.toLowerCase() === 'admin');
+
     const offset = (page - 1) * limit;
 
     // Build query conditions
     const conditions: SQL[] = [];
+    
+    // Add role-based access control
+    if (!isAdmin) {
+      conditions.push(eq(leads.assigned_to, userId));
+    }
+
     if (status) {
       conditions.push(eq(leads.status, status));
     }
     if (search) {
       conditions.push(
         or(
-          like(leads.full_name, `%${search}%`),
-          like(leads.phone_number, `%${search}%`)
+          like(leads.full_name ?? '', `%${search}%`),
+          like(leads.phone_number ?? '', `%${search}%`)
         )
       );
     }
 
-    // Build the query
-    const baseQuery = db.select().from(leads);
+    // Build the query with proper joins and selection
+    const baseQuery = db.select({
+      id: leads.id,
+      phone_number: leads.phone_number,
+      full_name: leads.full_name,
+      email: leads.email,
+      residential_status: leads.residential_status,
+      employment_status: leads.employment_status,
+      loan_purpose: leads.loan_purpose,
+      existing_loans: leads.existing_loans,
+      amount: leads.amount,
+      source: leads.source,
+      status: leads.status,
+      lead_type: leads.lead_type,
+      created_at: leads.created_at,
+      updated_at: leads.updated_at,
+      created_by: leads.created_by,
+      updated_by: leads.updated_by,
+      assigned_to: leads.assigned_to,
+      eligibility_checked: leads.eligibility_checked,
+      eligibility_status: leads.eligibility_status,
+      eligibility_notes: leads.eligibility_notes,
+      assigned_user: {
+        id: users.id,
+        first_name: users.first_name,
+        last_name: users.last_name,
+        email: users.email
+      }
+    })
+    .from(leads)
+    .leftJoin(users, eq(leads.assigned_to, users.id));
     
     // Add conditions if any
     const queryWithConditions = conditions.length > 0
@@ -508,9 +484,15 @@ export async function fetchFilteredLeads({
     // Execute query
     const results = await finalQuery;
     
+    // Transform the results to match the Lead type
+    const transformedLeads = results.map(result => ({
+      ...result,
+      assigned_to: result.assigned_user ? `${result.assigned_user.first_name} ${result.assigned_user.last_name}` : null
+    }));
+    
     // Check if there are more results
     const hasMore = results.length > limit;
-    const leadsToReturn = hasMore ? results.slice(0, limit) : results;
+    const leadsToReturn = hasMore ? transformedLeads.slice(0, limit) : transformedLeads;
 
     return {
       success: true,
