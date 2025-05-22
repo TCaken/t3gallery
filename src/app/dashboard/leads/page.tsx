@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { 
@@ -16,22 +16,21 @@ import {
   XMarkIcon,
   PaperAirplaneIcon,
   UserPlusIcon,
-  ArrowDownOnSquareIcon
+  ArrowDownOnSquareIcon,
+  DocumentArrowDownIcon
 } from '@heroicons/react/24/outline';
 import LeadCard  from '~/app/_components/LeadCard';
 import { hasPermission } from '~/server/rbac/queries';
 import { updateLeadStatus, fetchFilteredLeads } from '~/app/_actions/leadActions';
 import { type InferSelectModel } from 'drizzle-orm';
-import { leads, leadStatusEnum } from "~/server/db/schema";
-import LazyComment from '~/app/_components/LazyComment';
-import LeadActionButtons from '~/app/_components/LeadActionButtons';
+import { type leads, type leadStatusEnum } from "~/server/db/schema";
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
 import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
 import { fetchUserData } from '~/app/_actions/userActions';
 import { checkInAgent, checkOutAgent, getAssignmentPreview, autoAssignLeads } from '~/app/_actions/agentActions';
 import AssignLeadModal from '~/app/_components/AssignLeadModal';
-import TagSelectionModal from '~/app/_components/TagSelectionModal';
-import { updateLeadTag, getLeadTag, removeLeadTag } from '~/app/_actions/tagActions';
+import { exportAllLeadsToCSV } from '~/app/_actions/exportActions';
+
 
 // Infer Lead type from the schema
 type Lead = InferSelectModel<typeof leads> & {
@@ -104,7 +103,7 @@ const getStatusColor = (status: string) => {
 type UserRole = 'admin' | 'agent' | 'retail' | 'user';
 
 // Helper component to safely display dates
-const SafeDate = ({ date }: { date: any }) => {
+const SafeDate = ({ date }: { date: Date | string | null }) => {
   if (!date) return <span>Unknown date</span>;
   try {
     return <span>{new Date(date).toLocaleDateString()}</span>;
@@ -146,6 +145,8 @@ export default function LeadsPage() {
   const [isTagModalOpen, setIsTagModalOpen] = useState(false);
   const [pendingStatusChange, setPendingStatusChange] = useState<{ leadId: number, newStatus: string } | null>(null);
   const [leadTags, setLeadTags] = useState<Record<number, { id: number, name: string }>>({});
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [filters, setFilters] = useState<{
     status?: LeadStatus;
     search?: string;
@@ -161,7 +162,6 @@ export default function LeadsPage() {
     page: 1,
     limit: 50
   });
-  const [hasMore, setHasMore] = useState<Record<string, boolean>>({});
   const [statusFilter, setStatusFilter] = useState<LeadStatus>('new');
   const validStatuses = LEAD_STATUSES;
 
@@ -178,6 +178,56 @@ export default function LeadsPage() {
     'blacklisted'
   ];
 
+  // Add new state for tracking pagination
+  const [page, setPage] = useState(1);
+
+
+  // Add state for all loaded leads
+  const [allLoadedLeads, setAllLoadedLeads] = useState<Lead[]>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Add refs for each column
+  const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Add new state for export modal
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportStatus, setExportStatus] = useState<{ loading: boolean; error?: string; success?: string }>({ 
+    loading: false 
+  });
+
+  // Add selected statuses state
+  const [selectedExportStatuses, setSelectedExportStatuses] = useState<Record<string, boolean>>({
+    assigned: true,
+    no_answer: true,
+    follow_up: true,
+    'missed/RS': true,
+    booked: false,
+    done: false,
+    new: false,
+    unqualified: false,
+    give_up: false,
+    blacklisted: false
+  });
+
+  // Function to filter leads based on search query
+  const filterLeads = (leads: Lead[], query: string) => {
+    if (!query) return leads;
+    
+    const searchLower = query.toLowerCase();
+    return leads.filter(lead => {
+      // Search by phone number (exact match)
+      if (/^\d{8,}$/.test(query.replace(/\D/g, ''))) {
+        return lead.phone_number.includes(query.replace(/\D/g, ''));
+      }
+      // Search by ID (exact match)
+      if (/^\d+$/.test(query)) {
+        return lead.id.toString() === query;
+      }
+      // Search by name (partial match)
+      return lead.full_name?.toLowerCase().includes(searchLower) ?? false;
+    });
+  };
+
   // Function to show notifications
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type });
@@ -185,63 +235,61 @@ export default function LeadsPage() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Function to fetch leads with filters
-  const fetchLeadsWithFilters = async (currentFilters: typeof filters, status: string) => {
+  // Modify fetchLeadsWithFilters to load more leads when needed
+  const fetchLeadsWithFilters = async (pageNum = 1) => {
     try {
-      setLoading(prev => ({ ...prev, [status]: true }));
-      console.log('fetchLeadsWithFilters:', { ...currentFilters, status });
+      setIsLoadingMore(true);
+      console.log('Fetching leads page:', pageNum);
+      
       const result = await fetchFilteredLeads({
-        status: status as LeadStatus,
-        search: currentFilters.search,
-        sortBy: currentFilters.sortBy ?? "created_at",
-        sortOrder: currentFilters.sortOrder ?? "desc",
-        page: currentFilters.page ?? 1,
-        limit: currentFilters.limit ?? 50
+        search: '', // Don't send search to server
+        sortBy: filters.sortBy ?? "created_at",
+        sortOrder: filters.sortOrder ?? "desc",
+        page: pageNum,
+        limit: 50
       });
       
       if (result.success && result.leads) {
-        setLeads(prevLeads => ({
-          ...prevLeads,
-          [status]: (currentFilters.page ?? 1) === 1 
-            ? result.leads 
-            : [...(prevLeads[status] ?? []), ...result.leads]
-        }));
-        setHasMore(prev => ({ ...prev, [status]: result.hasMore ?? false }));
+        setAllLoadedLeads(prev => [...prev, ...result.leads]);
+        setHasMore(result.hasMore ?? false);
       } else {
         throw new Error(result.error ?? 'Failed to fetch leads');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
-      setLoading(prev => ({ ...prev, [status]: false }));
+      setIsLoadingMore(false);
     }
   };
+
+  // Effect to load more leads if search has no results
+  useEffect(() => {
+    const loadMoreIfNeeded = async () => {
+      if (!filters.search) return;
+      
+      const filteredLeads = filterLeads(allLoadedLeads, filters.search);
+      if (filteredLeads.length === 0 && hasMore && !isLoadingMore) {
+        const nextPage = Math.ceil(allLoadedLeads.length / 50) + 1;
+        await fetchLeadsWithFilters(nextPage);
+      }
+    };
+
+    void loadMoreIfNeeded();
+  }, [filters.search, allLoadedLeads, hasMore, isLoadingMore]);
 
   // Initial data loading
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        console.log('Starting loadInitialData');
+        // Load first page of leads
+        await fetchLeadsWithFilters(1);
         
-        // Load leads for each status
-        const loadPromises = validStatuses.map(async status => {
-          console.log('Loading leads for status:', status);
-          const result = await fetchLeadsWithFilters({ ...filters, page: 1 }, status);
-          console.log('Loaded leads for status:', status, result);
-          return result;
-        });
-
-        const results = await Promise.all(loadPromises);
-        console.log('All leads loaded:', results);
-
         // Load pinned leads
         const pinnedResult = await getPinnedLeads();
-        console.log('Pinned leads result:', pinnedResult);
-        
         if (pinnedResult.success && pinnedResult.pinnedLeads) {
           const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
+          // Get pinned leads from all columns
           const allLeads = Object.values(leads).flat();
-          console.log('All leads for pinned filtering:', allLeads);
           const pinnedLeadsData = allLeads.filter(lead => pinnedLeadIds.includes(lead.id));
           setPinnedLeads(pinnedLeadsData);
         }
@@ -261,134 +309,13 @@ export default function LeadsPage() {
     void loadInitialData();
   }, []);
 
-  // Effect to fetch leads when filters change
-  useEffect(() => {
-    void fetchLeadsWithFilters(filters, filters.status ?? 'new');
-  }, [filters]);
-
-  // Function to handle scroll and load more
-  const handleScroll = (status: string, e: React.UIEvent<HTMLDivElement>) => {
+  // Modify handleScroll to load more leads when scrolling in any column
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore[status] && !loading[status]) {
-      setFilters(prev => ({
-        ...prev,
-        status: status as LeadStatus,
-        page: (prev.page ?? 1) + 1
-      }));
-    }
-  };
-
-  // Handle lead actions
-  const handleLeadAction = async (action: string, leadId: number) => {
-    console.log('handleLeadAction:', action, leadId);
-    try {
-      // Find the lead in any status
-      const allLeads = Object.values(leads).flat();
-      const lead = allLeads.find(l => l.id === leadId);
-      
-      if (!lead) {
-        console.error('Lead not found:', leadId);
-        showNotification('Lead not found', 'error');
-        return;
-      }
-
-      switch (action) {
-        case 'pin':
-          console.log('handleLeadAction: pin');
-          const pinResult = await togglePinLead(leadId);
-          if (pinResult.success && pinResult.action === 'pinned') {
-            if (!pinnedLeads.some(p => p.id === leadId)) {
-              setPinnedLeads([...pinnedLeads, lead]);
-            }
-          }
-          break;
-
-        case 'unpin':
-          console.log('handleLeadAction: unpin');
-          const unpinResult = await togglePinLead(leadId);
-          if (unpinResult.success && unpinResult.action === 'unpinned') {
-            setPinnedLeads(pinnedLeads.filter(p => p.id !== leadId));
-          }
-          break;
-
-        case 'whatsapp':
-          console.log('handleLeadAction: whatsapp');
-          await sendWhatsAppMessage(
-            lead.phone_number,
-            'example_template',
-            {},
-            'whatsapp'
-          );
-          break;
-
-        case 'schedule':
-          console.log('handleLeadAction: schedule');
-          // This case is now handled directly in the LeadActionButtons component
-          // The button redirects to /dashboard/leads/[id]/appointment
-          break;
-
-        case 'move_to_new':
-        case 'move_to_assigned':
-        case 'move_to_no_answer':
-        case 'move_to_follow_up':
-        case 'move_to_done':
-        case 'move_to_miss/RS':
-        case 'move_to_booked':
-        case 'move_to_unqualified':
-        case 'move_to_give_up':
-        case 'move_to_blacklisted':
-          const newStatus = action.replace('move_to_', '');
-          console.log('handleLeadAction: move_to_', newStatus);
-          
-          // Check if user is agent and trying to update to a disallowed status
-          if (userRole === 'agent' && !agentAllowedStatuses.includes(newStatus)) {
-            showNotification('Agents cannot set this status: ' + newStatus, 'error');
-            return;
-          }
-
-          // Check if this status requires a tag
-          if (['follow_up', 'miss/RS', 'give_up', 'blacklisted', 'done'].includes(newStatus)) {
-            setPendingStatusChange({ leadId, newStatus });
-            setIsTagModalOpen(true);
-            return;
-          }
-          
-          // For statuses that don't require tags, proceed with the update
-          await updateLeadStatus(leadId, newStatus);
-          await removeLeadTag(leadId); // Remove any existing tag
-          
-          // Update local state by moving the lead to the new status
-          setLeads(prevLeads => {
-            const newLeads = { ...prevLeads };
-            // Remove from old status
-            Object.keys(newLeads).forEach(status => {
-              newLeads[status] = newLeads[status]?.filter(l => l.id !== leadId) ?? [];
-            });
-            // Add to new status
-            newLeads[newStatus] = [...(newLeads[newStatus] ?? []), { ...lead, status: newStatus }];
-            return newLeads;
-          });
-          
-          // Update pinnedLeads if needed
-          if (pinnedLeads.some(p => p.id === leadId)) {
-            setPinnedLeads(prevPinned => prevPinned.map(l => 
-              l.id === leadId ? { ...l, status: newStatus } : l
-            ));
-          }
-          break;
-
-        case 'assign':
-          console.log('handleLeadAction: assign');
-          setSelectedLead(lead);
-          setIsAssignModalOpen(true);
-          break;
-
-        default:
-          console.log('Unknown action:', action);
-      }
-    } catch (error) {
-      console.error('Error in handleLeadAction:', error);
-      showNotification('Failed to perform action', 'error');
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !loadingMore) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      void fetchLeadsWithFilters(nextPage);
     }
   };
 
@@ -404,13 +331,8 @@ export default function LeadsPage() {
 
   // Filter leads for agent
   const visibleLeads = userRole === 'agent'
-    ? leads[filters.status ?? 'new'].filter(lead => lead.assigned_to === userId)
-    : leads[filters.status ?? 'new'];
-
-  // console.log('Visible statuses for role', userRole, ':', visibleStatuses.map(s => s.id));
-  // console.log('User ID:', userId);
-  // console.log('Filtering leads:', userRole === 'agent' ? 'Yes (agent)' : 'No (admin)');
-  // console.log('Visible leads count:', visibleLeads.length, 'out of', leads[filters.status ?? 'new'].length);
+    ? (leads[filters.status ?? 'new'] ?? []).filter(lead => lead.assigned_to === userId)
+    : (leads[filters.status ?? 'new'] ?? []);
 
   // Get current leads based on active tab
   const getCurrentLeads = () => {
@@ -473,30 +395,18 @@ export default function LeadsPage() {
       if (result.success) {
         setAssignmentMessage(result.message);
         
-        // Refresh the leads and preview
-        console.log('handleAutoAssignLeads:', filters);
-        const leadsResult = await fetchFilteredLeads({
-          status: filters.status,
-          search: filters.search,
-          sortBy: "created_at",
-          sortOrder: filters.sortOrder,
-          page: 1,
-          limit: 50
-        });
+        // Refresh all leads data
+        setAllLoadedLeads([]);
+        setPage(1);
+        await fetchLeadsWithFilters(1);
         
-        if (leadsResult.success && leadsResult.leads) {
-          setLeads(prevLeads => ({
-            ...prevLeads,
-            [filters.status ?? 'new']: leadsResult.leads
-          }));
-          
-          // Also update pinnedLeads with fresh data
-          const pinnedResult = await getPinnedLeads();
-          if (pinnedResult.success && pinnedResult.pinnedLeads) {
-            const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
-            const pinnedLeadsData = leadsResult.leads.filter(lead => pinnedLeadIds.includes(lead.id));
-            setPinnedLeads(pinnedLeadsData);
-          }
+        // Also update pinnedLeads with fresh data
+        const pinnedResult = await getPinnedLeads();
+        if (pinnedResult.success && pinnedResult.pinnedLeads) {
+          const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
+          const allLeads = allLoadedLeads;
+          const pinnedLeadsData = allLeads.filter(lead => pinnedLeadIds.includes(lead.id));
+          setPinnedLeads(pinnedLeadsData);
         }
         
         const previewResult = await getAssignmentPreview();
@@ -529,68 +439,251 @@ export default function LeadsPage() {
     void handleAutoAssignLeads();
   };
 
-  const handleTagConfirm = async (tagId: number) => {
-    if (!pendingStatusChange || !userId) return;
-
+  // Modify handleLeadAction to refresh leads after actions
+  const handleLeadAction = async (action: string, leadId: number) => {
+    console.log('handleLeadAction:', action, leadId);
+    console.log('allLoadedLeads:', allLoadedLeads);
     try {
-      // Update the lead status
-      const statusResult = await updateLeadStatus(pendingStatusChange.leadId, pendingStatusChange.newStatus);
-      if (!statusResult.success) {
-        throw new Error('Failed to update status');
-      }
+      // Find the lead in any column
+      const allLeads = Object.values(allLoadedLeads).flat();
+      const lead = allLeads.find(l => l.id === leadId);
       
-      // Update the tag
-      const result = await updateLeadTag(pendingStatusChange.leadId, tagId, userId);
-      
-      if (!result.success) {
-        throw new Error('Failed to update tag');
+      if (!lead) {
+        console.error('Lead not found:', leadId);
+        showNotification('Lead not found', 'error');
+        return;
       }
 
-      // Update local state
-      setLeads(prevLeads => ({
-        ...prevLeads,
-        [filters.status ?? 'new']: prevLeads[filters.status ?? 'new'].map(lead => 
-          lead.id === pendingStatusChange.leadId 
-            ? { ...lead, status: pendingStatusChange.newStatus } 
-            : lead
-        )
-      }));
-      
-      // Update pinnedLeads if needed
-      if (pinnedLeads.some(p => p.id === pendingStatusChange.leadId)) {
-        setPinnedLeads(pinnedLeads.map(lead => 
-          lead.id === pendingStatusChange.leadId 
-            ? { ...lead, status: pendingStatusChange.newStatus } 
-            : lead
-        ));
-      }
+      let needsRefresh = false;
 
-      // Refresh the tag for this lead
-      const tagResult = await getLeadTag(pendingStatusChange.leadId);
-      if (tagResult.success && tagResult.tag !== null) {
-        setLeadTags(prev => ({
-          ...prev,
-          [pendingStatusChange.leadId]: { 
-            id: tagResult.tag?.id ?? 0, 
-            name: tagResult.tag?.name ?? '' 
+      switch (action) {
+        case 'pin':
+          const pinResult = await togglePinLead(leadId);
+          if (pinResult.success && pinResult.action === 'pinned') {
+            if (!pinnedLeads.some(p => p.id === leadId)) {
+              setPinnedLeads([...pinnedLeads, lead]);
+            }
           }
-        }));
+          break;
+
+        case 'unpin':
+          const unpinResult = await togglePinLead(leadId);
+          if (unpinResult.success && unpinResult.action === 'unpinned') {
+            setPinnedLeads(pinnedLeads.filter(p => p.id !== leadId));
+          }
+          break;
+
+        case 'move_to_new':
+        case 'move_to_assigned':
+        case 'move_to_no_answer':
+        case 'move_to_follow_up':
+        case 'move_to_done':
+        case 'move_to_miss/RS':
+        case 'move_to_booked':
+        case 'move_to_unqualified':
+        case 'move_to_give_up':
+        case 'move_to_blacklisted':
+          const newStatus = action.replace('move_to_', '') as LeadStatus;
+          
+          if (userRole === 'agent' && !agentAllowedStatuses.includes(newStatus)) {
+            showNotification('Agents cannot set this status: ' + newStatus, 'error');
+            return;
+          }
+          
+          const statusResult = await updateLeadStatus(leadId, newStatus);
+          if (!statusResult.success) {
+            throw new Error('Failed to update status');
+          }
+          
+          // Update the lead in allLoadedLeads
+          setAllLoadedLeads(prevLeads => 
+            prevLeads.map(l => l.id === leadId ? { ...l, status: newStatus } : l)
+          );
+          
+          // Move lead to new status column
+          setLeads(prevLeads => {
+            const newLeads = { ...prevLeads };
+            const oldStatus = lead.status as LeadStatus;
+            // Remove from old status
+            newLeads[oldStatus] = newLeads[oldStatus]?.filter(l => l.id !== leadId) ?? [];
+            // Add to new status
+            newLeads[newStatus] = [...(newLeads[newStatus] ?? []), { ...lead, status: newStatus }];
+            return newLeads;
+          });
+          
+          showNotification('Status updated successfully', 'success');
+          needsRefresh = true;
+          break;
+
+        case 'whatsapp':
+          await sendWhatsAppMessage(
+            lead.phone_number,
+            'example_template',
+            {},
+            'whatsapp'
+          );
+          break;
+
+        case 'schedule':
+          break;
+
+        case 'assign':
+          setSelectedLead(lead);
+          setIsAssignModalOpen(true);
+          needsRefresh = true;
+          break;
+
+        default:
+          console.log('Unknown action:', action);
       }
 
-      showNotification('Status and tag updated successfully', 'success');
+      // Refresh all leads if needed
+      if (needsRefresh) {
+        // Reset to first page and clear current leads
+        setAllLoadedLeads([]);
+        setPage(1);
+        // Fetch fresh data
+        await fetchLeadsWithFilters(1);
+      }
     } catch (error) {
-      console.error('Error updating status and tag:', error);
-      showNotification('Failed to update status and tag', 'error');
-    } finally {
-      setIsTagModalOpen(false);
-      setPendingStatusChange(null);
+      console.error('Error in handleLeadAction:', error);
+      showNotification('Failed to perform action', 'error');
     }
   };
 
-  if (loading[filters.status ?? 'new'] && leads[filters.status ?? 'new'].length === 0) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>;
-  }
+  // Function to scroll to column with results
+  const scrollToResults = (searchQuery: string) => {
+    if (!searchQuery) return;
+    
+    const filteredLeads = filterLeads(allLoadedLeads, searchQuery);
+    if (filteredLeads.length === 0) return;
+    
+    // Find the first column that has results
+    const firstResult = filteredLeads[0];
+    if (!firstResult) return;
+    
+    const columnId = firstResult.status;
+    const columnElement = columnRefs.current[columnId];
+    
+    if (columnElement) {
+      // Get the container and ensure it exists
+      const container = columnElement.parentElement?.parentElement;
+      if (!container) return;
 
+      // Calculate the scroll position
+      const containerRect = container.getBoundingClientRect();
+      const columnRect = columnElement.getBoundingClientRect();
+      const scrollLeft = columnRect.left - containerRect.left + container.scrollLeft - 20;
+
+      // Use requestAnimationFrame for smooth scrolling
+      requestAnimationFrame(() => {
+        container.scrollTo({
+          left: scrollLeft,
+          behavior: 'smooth'
+        });
+      });
+    }
+  };
+
+  // Function to handle CSV export
+  const handleExportLeads = async () => {
+    try {
+      setExportStatus({ loading: true });
+      
+      // Get selected statuses
+      const statusesToExport = Object.entries(selectedExportStatuses)
+        .filter(([_, isSelected]) => isSelected)
+        .map(([status]) => status);
+      
+      if (statusesToExport.length === 0) {
+        setExportStatus({ 
+          loading: false, 
+          error: 'Please select at least one status to export.' 
+        });
+        return;
+      }
+      
+      const result = await exportAllLeadsToCSV(statusesToExport);
+      
+      if (!result.success || !result.csvDataByStatus) {
+        setExportStatus({ 
+          loading: false, 
+          error: result.error ?? 'Failed to export leads. Please try again.' 
+        });
+        return;
+      }
+      
+      // Create and download each CSV file
+      const date = new Date().toISOString().slice(0, 10);
+      const downloadCount = Object.entries(result.csvDataByStatus).length;
+      
+      // Process each status CSV
+      Object.entries(result.csvDataByStatus).forEach(([status, csvData]) => {
+        // Create a Blob from the CSV data
+        const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8' });
+        
+        // Create a download link element
+        const downloadLink = document.createElement('a');
+        
+        // Create a URL for the blob
+        const url = URL.createObjectURL(blob);
+        
+        // Set attributes for the download link
+        downloadLink.href = url;
+        downloadLink.download = `leads_${date}_${status}.csv`;
+        
+        // Append to the document, click it to trigger download, then remove it
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        
+        // Release the URL object
+        URL.revokeObjectURL(url);
+      });
+      
+      // Prepare the success message with counts
+      const statusCounts = Object.entries(result.statusCounts ?? {})
+        .map(([status, count]) => `${status}: ${count}`)
+        .join(', ');
+      
+      setExportStatus({ 
+        loading: false, 
+        success: `Successfully exported ${result.totalExported} leads in ${downloadCount} files (${statusCounts}).` 
+      });
+    } catch (error) {
+      console.error("Error in handleExportLeads:", error);
+      setExportStatus({ 
+        loading: false, 
+        error: 'An unexpected error occurred. Please try again.' 
+      });
+    }
+  };
+
+  // Toggle a status selection
+  const toggleStatusSelection = (status: string) => {
+    setSelectedExportStatuses(prev => ({
+      ...prev,
+      [status]: !prev[status]
+    }));
+  };
+
+  // Select all statuses
+  const selectAllStatuses = () => {
+    const allSelected = Object.fromEntries(
+      LEAD_STATUSES.map(status => [status, true])
+    );
+    setSelectedExportStatuses(allSelected);
+  };
+
+  // Deselect all statuses
+  const deselectAllStatuses = () => {
+    const allDeselected = Object.fromEntries(
+      LEAD_STATUSES.map(status => [status, false])
+    );
+    setSelectedExportStatuses(allDeselected);
+  };
+
+  // Modify the Kanban board view
   return (
     <div className="container mx-auto px-4 py-8">
       {notification && (
@@ -639,32 +732,42 @@ export default function LeadsPage() {
             </button>
           )}
           {userRole === 'admin' && (
-            <button
-              onClick={() => {
-                // Load fresh preview data when opening the modal
-                setIsLoadingPreview(true);
-                setShowAssignConfirmation(true);
-                void getAssignmentPreview().then(result => {
-                  if (result.success) {
-                    setAssignmentPreview(result.preview);
-                    setAssignmentStats({
-                      totalAgents: result.totalAgents,
-                      totalLeads: result.totalLeads
-                    });
-                  }
-                  setIsLoadingPreview(false);
-                });
-              }}
-              disabled={isAssigning}
-              className={`px-4 py-2 rounded-lg flex items-center ${
-                isAssigning
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-purple-500 text-white hover:bg-purple-600'
-              }`}
-            >
-              <ArrowDownOnSquareIcon className="h-5 w-5 mr-2" />
-              {isAssigning ? 'Assigning...' : 'Auto Assign Leads'}
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  // Load fresh preview data when opening the modal
+                  setIsLoadingPreview(true);
+                  setShowAssignConfirmation(true);
+                  void getAssignmentPreview().then(result => {
+                    if (result.success) {
+                      setAssignmentPreview(result.preview);
+                      setAssignmentStats({
+                        totalAgents: result.totalAgents,
+                        totalLeads: result.totalLeads
+                      });
+                    }
+                    setIsLoadingPreview(false);
+                  });
+                }}
+                disabled={isAssigning}
+                className={`px-4 py-2 rounded-lg flex items-center ${
+                  isAssigning
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-purple-500 text-white hover:bg-purple-600'
+                }`}
+              >
+                <ArrowDownOnSquareIcon className="h-5 w-5 mr-2" />
+                {isAssigning ? 'Assigning...' : 'Auto Assign Leads'}
+              </button>
+              {/* Add Export to CSV button */}
+              <button
+                onClick={() => setIsExportModalOpen(true)}
+                className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 flex items-center"
+              >
+                <DocumentArrowDownIcon className="h-5 w-5 mr-2" />
+                Export to CSV
+              </button>
+            </>
           )}
           <div className="relative">
             <button 
@@ -703,19 +806,37 @@ export default function LeadsPage() {
       </div>
 
       {/* Search Bar */}
-      <div className="mb-6 relative">
-        <input
-          type="text"
-          placeholder="Search by name or phone..."
-          className="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 focus:border-blue-500 focus:outline-none"
-          value={filters.search ?? ''}
-          onChange={(e) => setFilters(prev => ({
-            ...prev,
-            search: e.target.value,
-            page: 1 // Reset to page 1 when searching
-          }))}
-        />
-        <SearchIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+      <div className="mb-6">
+        <div className="flex gap-2 items-center">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="Search by phone, ID, or name..."
+              className="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 focus:border-blue-500 focus:outline-none"
+              value={filters.search ?? ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFilters(prev => ({
+                  ...prev,
+                  search: value,
+                  page: 1
+                }));
+                
+                // Scroll to results after a short delay to allow filtering
+                setTimeout(() => scrollToResults(value), 100);
+              }}
+            />
+            <SearchIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+          </div>
+          
+          {/* Search Results Count */}
+          {filters.search && (
+            <div className="text-sm text-gray-500">
+              {filterLeads(allLoadedLeads, filters.search).length} results
+              {isLoadingMore && ' (loading more...)'}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -766,13 +887,21 @@ export default function LeadsPage() {
         <div className="overflow-x-auto pb-4">
           <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
             {visibleStatuses.map((status) => {
-              // For pinned column, show all pinned leads regardless of status
               const statusLeads = status.id === 'pinned'
                 ? pinnedLeads
-                : leads[status.id] ?? [];
+                : filterLeads(allLoadedLeads, filters.search ?? '')
+                    .filter(lead => lead.status === status.id);
               
               return (
-                <div key={status.id} className="flex-none w-80">
+                <div 
+                  key={status.id} 
+                  className="flex-none w-80"
+                  ref={(el) => {
+                    if (el) {
+                      columnRefs.current[status.id] = el;
+                    }
+                  }}
+                >
                   <div className={`p-3 rounded-t-lg ${status.color} flex justify-between items-center`}>
                     <h3 className="font-medium">{status.name}</h3>
                     <span className="px-2 py-1 bg-white bg-opacity-80 rounded-full text-sm">
@@ -781,11 +910,11 @@ export default function LeadsPage() {
                   </div>
                   <div 
                     className="bg-gray-50 rounded-b-lg p-2 h-[calc(100vh-320px)] overflow-y-auto"
-                    onScroll={(e) => handleScroll(status.id, e)}
+                    onScroll={handleScroll}
                   >
                     {statusLeads.length === 0 ? (
                       <div className="text-center py-4 text-gray-500 italic text-sm">
-                        {loading[status.id] ? 'Loading...' : 'No leads'}
+                        {isLoadingMore ? 'Loading more...' : 'No leads'}
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -801,12 +930,11 @@ export default function LeadsPage() {
                             onAction={handleLeadAction}
                             isPinned={pinnedLeads.some(p => p.id === lead.id)}
                             onView={handleViewLead}
-                            tag={leadTags[lead.id] ?? null}
                           />
                         ))}
-                        {loading[status.id] && (
-                          <div className="text-center py-2">
-                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 mx-auto"></div>
+                        {isLoadingMore && (
+                          <div className="flex justify-center py-2">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
                           </div>
                         )}
                       </div>
@@ -834,13 +962,12 @@ export default function LeadsPage() {
                 onAction={handleLeadAction}
                 isPinned={pinnedLeads.some(p => p.id === lead.id)}
                 onView={handleViewLead}
-                tag={leadTags[lead.id]}
               />
             );
           })}
           
           {/* Load More Button */}
-          {hasMore[filters.status ?? 'new'] && activeTab !== 'pinned' && (
+          {hasMore && activeTab !== 'pinned' && (
             <div className="mt-6 text-center">
               <button
                 onClick={() => setFilters(prev => ({
@@ -873,7 +1000,9 @@ export default function LeadsPage() {
           setSelectedLead(null);
           setIsAssignModalOpen(false);
           // Refresh leads
-          void fetchLeadsWithFilters(filters, filters.status ?? 'new');
+          setAllLoadedLeads([]);
+          setPage(1);
+          void fetchLeadsWithFilters(1);
         }}
       />
 
@@ -963,16 +1092,120 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {/* Add the TagSelectionModal */}
-      <TagSelectionModal
-        isOpen={isTagModalOpen}
-        onClose={() => {
-          setIsTagModalOpen(false);
-          setPendingStatusChange(null);
-        }}
-        onConfirm={handleTagConfirm}
-        status={pendingStatusChange?.newStatus ?? ''}
-      />
+      {/* Export Leads Modal */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Export Leads to CSV</h2>
+              <button 
+                onClick={() => {
+                  setIsExportModalOpen(false);
+                  setExportStatus({ loading: false });
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="mb-6">
+              <p className="text-gray-600 mb-4">
+                Select the lead statuses you want to export. Separate CSV files will be created for each status.
+              </p>
+              
+              <div className="flex justify-between mb-2">
+                <button 
+                  onClick={selectAllStatuses}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  Select All
+                </button>
+                <button 
+                  onClick={deselectAllStatuses}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  Deselect All
+                </button>
+              </div>
+              
+              <div className="bg-gray-50 p-3 rounded-lg mb-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {LEAD_STATUSES.map(status => (
+                    <div key={status} className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id={`status-${status}`}
+                        checked={selectedExportStatuses[status] ?? false}
+                        onChange={() => toggleStatusSelection(status)}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <label htmlFor={`status-${status}`} className="text-sm text-gray-700">
+                        {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 p-3 rounded-lg text-xs text-gray-600 max-h-40 overflow-y-auto">
+                <p className="font-semibold mb-1">Exported columns:</p>
+                <p className="font-mono">
+                  id, firstName, lastName, email, city, company, country, industry, jobTitle, personalPhone, revenue, timezone, twitter, website, work, status, created_at, updated_at
+                </p>
+              </div>
+              
+              {exportStatus.error && (
+                <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-lg">
+                  {exportStatus.error}
+                </div>
+              )}
+              
+              {exportStatus.success && (
+                <div className="mt-4 p-3 bg-green-50 text-green-700 rounded-lg">
+                  {exportStatus.success}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex space-x-4 justify-end">
+              <button
+                onClick={() => {
+                  setIsExportModalOpen(false);
+                  setExportStatus({ loading: false });
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                disabled={exportStatus.loading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExportLeads}
+                disabled={exportStatus.loading || Object.values(selectedExportStatuses).every(v => !v)}
+                className={`px-4 py-2 ${
+                  exportStatus.loading 
+                    ? 'bg-teal-300 cursor-not-allowed' 
+                    : Object.values(selectedExportStatuses).every(v => !v)
+                      ? 'bg-gray-300 cursor-not-allowed'
+                      : 'bg-teal-500 hover:bg-teal-600'
+                } text-white rounded flex items-center`}
+              >
+                {exportStatus.loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

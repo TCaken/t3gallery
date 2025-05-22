@@ -34,7 +34,6 @@ interface LeadCardProps {
   onAction?: (action: string, leadId: number) => void;
   isPinned?: boolean;
   onView: (lead: Lead) => void;
-  tag?: { id: number; name: string } | null;
 }
 
 export default function LeadCard({ 
@@ -42,8 +41,7 @@ export default function LeadCard({
   statusInfo, 
   onAction,
   isPinned = false,
-  onView,
-  tag
+  onView
 }: LeadCardProps) {
   const [noteCount, setNoteCount] = useState(0);
   const [showNotesTooltip, setShowNotesTooltip] = useState(false);
@@ -115,17 +113,6 @@ export default function LeadCard({
     return statusMap[status] ?? "bg-gray-100 text-gray-800";
   };
 
-  const getTagColor = (status: string) => {
-    const tagColorMap: Record<string, string> = {
-      follow_up: "bg-indigo-50 text-indigo-700 border-indigo-200",
-      "miss/RS": "bg-pink-50 text-pink-700 border-pink-200",
-      give_up: "bg-red-50 text-red-700 border-red-200",
-      blacklisted: "bg-gray-50 text-gray-700 border-gray-200",
-      done: "bg-emerald-50 text-emerald-700 border-emerald-200"
-    };
-    return tagColorMap[status] ?? "bg-gray-50 text-gray-700 border-gray-200";
-  };
-
   const getEligibilityColor = (status: string) => {
     const colorMap: Record<string, string> = {
       eligible: "bg-green-100 text-green-800",
@@ -188,11 +175,6 @@ export default function LeadCard({
             {lead.eligibility_status && (
               <span className={`text-xs px-2 py-0.5 rounded-full ${getEligibilityColor(lead.eligibility_status)}`}>
                 {lead.eligibility_status}
-              </span>
-            )}
-            {tag && (
-              <span className={`text-xs px-2 py-0.5 rounded-full border ${getTagColor(lead.status)}`}>
-                {tag.name}
               </span>
             )}
           </div>

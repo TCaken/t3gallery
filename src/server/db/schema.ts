@@ -379,6 +379,7 @@ export const users = createTable(
     role: d.varchar({ length: 50 }).default('user'),
     team: d.varchar({ length: 100 }),
     is_verified: d.boolean().default(false),
+    status: d.varchar({ length: 50 }).default('active').notNull(), // Add status field
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
     created_by: d.varchar({ length: 256 }),
