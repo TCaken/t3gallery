@@ -894,7 +894,7 @@ export default function LeadsPage() {
               
               return (
                 <div 
-                  key={status.id} 
+                  key={`${status.id}-${status.name}`} 
                   className="flex-none w-80"
                   ref={(el) => {
                     if (el) {
@@ -920,7 +920,7 @@ export default function LeadsPage() {
                       <div className="space-y-3">
                         {statusLeads.map((lead) => (
                           <LeadCard
-                            key={lead.id}
+                            key={`kanban-${lead.id}`}
                             lead={lead}
                             statusInfo={allStatuses.find(s => s.id === lead.status) ?? {
                               id: 'new',
@@ -956,7 +956,7 @@ export default function LeadsPage() {
             };
             return (
               <LeadCard 
-                key={lead.id} 
+                key={`pinned-${lead.id}`} 
                 lead={lead} 
                 statusInfo={statusInfo}
                 onAction={handleLeadAction}

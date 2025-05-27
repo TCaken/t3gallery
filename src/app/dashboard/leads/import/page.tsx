@@ -26,33 +26,140 @@ export default function ImportLeadsPage() {
   const [validStatuses] = useState(['new', 'unqualified', 'give_up', 'blacklisted']);
   const [validLeadTypes] = useState(['new', 'reloan']);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importMode, setImportMode] = useState<'standard' | 'firebase'>('standard');
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualPhoneNumbers, setManualPhoneNumbers] = useState('');
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
-      parseExcel(selectedFile);
+      void parseFile(selectedFile);
     }
   };
 
   const validateSGPhoneNumber = (phone: string) => {
+    if (!phone) return false;
+    
+    // Remove spaces, dashes, and +65 prefix
+    const cleaned = phone.replace(/\s+|-|\(|\)|\+65|^65/g, '');
+    
     // Check if it's 8 digits and starts with 8 or 9 (mobile) or 6 (landline)
-    return /^[896]\d{7}$/.test(phone);
+    return /^[896]\d{7}$/.test(cleaned);
   };
   
-  const parseExcel = async (file: File) => {
+  const parseFile = async (file: File) => {
     setParsing(true);
     
     try {
+      // Determine file type
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        await parseCSV(file);
+      } else {
+        await parseExcel(file);
+      }
+    } catch (err) {
+      console.error('Error parsing file:', err);
+      alert('Could not parse the file. Please make sure it is a valid format.');
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const parseCSV = async (file: File) => {
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      
+      // Detect Firebase format (check first line for phone number)
+      const isFirebaseFormat = lines.length > 0 && lines[0] && /^65\d{8}/.test(lines[0]);
+      
+      if (isFirebaseFormat) {
+        setImportMode('firebase');
+        // Process Firebase format
+        const firebaseLeads: LeadImportRow[] = [];
+        
+        for (let i = 0; i < lines.length; i += 4) {
+          if (i >= lines.length) break;
+          
+          const phoneRow = lines[i]?.trim() ?? '';
+          // We'll skip the dates since they're not useful as mentioned
+          
+          if (phoneRow.match(/^65\d{8}/)) {
+            const phoneNumber = phoneRow.replace(/^65/, ''); // Remove 65 prefix
+            
+            firebaseLeads.push({
+              phone_number: phoneNumber,
+              first_name: 'AirConnect',
+              last_name: phoneNumber,
+              email: `airconnect${phoneNumber}@test.com`,
+              status: 'new',
+              source: 'Firebase Import',
+              lead_type: 'new'
+            });
+          }
+        }
+        
+        // Validate phone numbers
+        const errors: number[] = [];
+        firebaseLeads.forEach((lead, index) => {
+          if (!validateSGPhoneNumber(lead.phone_number)) {
+            errors.push(index);
+          }
+        });
+        
+        setErrorRows(errors);
+        setParsedData(firebaseLeads);
+        return;
+      } else {
+        // Standard CSV format - use XLSX to parse
+        const workbook = XLSX.read(text, { type: 'string' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0] || ''];
+        if (!worksheet) {
+          throw new Error('No worksheet found in CSV');
+        }
+        const jsonData = XLSX.utils.sheet_to_json<LeadImportRow>(worksheet);
+        
+        // Validate data
+        const errors: number[] = [];
+        jsonData.forEach((row, index) => {
+          if (!row.phone_number || !validateSGPhoneNumber(row.phone_number)) {
+            errors.push(index);
+          }
+          
+          if (row.status && !validStatuses.includes(row.status.toLowerCase())) {
+            errors.push(index);
+          }
+          
+          if (row.lead_type && !validLeadTypes.includes(row.lead_type.toLowerCase())) {
+            errors.push(index);
+          }
+        });
+        
+        setErrorRows(errors);
+        setParsedData(jsonData);
+        setImportMode('standard');
+      }
+    } catch (error) {
+      console.error('Error parsing CSV file:', error);
+      throw error;
+    }
+  };
+  
+  const parseExcel = async (file: File) => {
+    try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const worksheet = workbook.Sheets[workbook.SheetNames[0] || ''];
+      if (!worksheet) {
+        throw new Error('No worksheet found in Excel file');
+      }
       const jsonData = XLSX.utils.sheet_to_json<LeadImportRow>(worksheet);
       
       // Validate data
       const errors: number[] = [];
       jsonData.forEach((row, index) => {
-        if (!row.phone_number) {
+        if (!row.phone_number || !validateSGPhoneNumber(row.phone_number)) {
           errors.push(index);
         }
         
@@ -67,11 +174,10 @@ export default function ImportLeadsPage() {
       
       setErrorRows(errors);
       setParsedData(jsonData);
+      setImportMode('standard');
     } catch (error) {
       console.error('Error parsing Excel file:', error);
-      alert('Could not parse the Excel file. Please make sure it is a valid .xlsx file.');
-    } finally {
-      setParsing(false);
+      throw error;
     }
   };
   
@@ -130,28 +236,151 @@ export default function ImportLeadsPage() {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads Template');
     XLSX.writeFile(workbook, 'leads_import_template.xlsx');
   };
+
+  const useFirebaseTemplate = () => {
+    // This will load the Firebase template from public/templates folder
+    fetch('/templates/CopyPasteFromFirebase - Sheet1.csv')
+      .then(response => response.blob())
+      .then(blob => {
+        const file = new File([blob], 'firebase-template.csv', { type: 'text/csv' });
+        setFile(file);
+        void parseFile(file);
+      })
+      .catch(error => {
+        console.error('Error loading Firebase template:', error);
+        alert('Failed to load Firebase template');
+      });
+  };
+
+  const processManualPhoneNumbers = () => {
+    if (!manualPhoneNumbers.trim()) {
+      alert('Please enter some phone numbers');
+      return;
+    }
+
+    setParsing(true);
+    try {
+      // Split by any whitespace or commas
+      const phoneLines = manualPhoneNumbers
+        .split(/[\s,]+/)
+        .filter(line => line.trim() !== '');
+      
+      const firebaseLeads: LeadImportRow[] = [];
+      
+      phoneLines.forEach(line => {
+        // Remove any non-digit characters and handle 65 prefix
+        const cleanedLine = line.replace(/\D/g, '');
+        let phoneNumber = cleanedLine;
+        
+        // Remove 65 prefix if present
+        if (phoneNumber.startsWith('65') && phoneNumber.length > 8) {
+          phoneNumber = phoneNumber.substring(2);
+        }
+        
+        if (phoneNumber && phoneNumber.length === 8) {
+          firebaseLeads.push({
+            phone_number: phoneNumber,
+            first_name: 'AirConnect',
+            last_name: phoneNumber,
+            email: `airconnect${phoneNumber}@test.com`,
+            status: 'new',
+            source: 'Firebase Manual Import',
+            lead_type: 'new'
+          });
+        }
+      });
+      
+      // Validate phone numbers
+      const errors: number[] = [];
+      firebaseLeads.forEach((lead, index) => {
+        if (!validateSGPhoneNumber(lead.phone_number)) {
+          errors.push(index);
+        }
+      });
+      
+      setErrorRows(errors);
+      setParsedData(firebaseLeads);
+      setImportMode('firebase');
+      
+      // Hide the manual input now that we've processed it
+      setShowManualInput(false);
+    } catch (error) {
+      console.error('Error processing manual phone numbers:', error);
+      alert('Failed to process phone numbers');
+    } finally {
+      setParsing(false);
+    }
+  };
   
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-md">
-      <h1 className="text-2xl font-bold mb-6">Import Leads from Excel</h1>
+      <h1 className="text-2xl font-bold mb-6">Import Leads from Excel or CSV</h1>
       
       <div className="mb-8">
         <h2 className="text-lg font-medium mb-2">Instructions</h2>
         <ol className="list-decimal list-inside space-y-2 text-gray-700">
-          <li>Download the template Excel file</li>
-          <li>Fill in your lead data following the template format</li>
+          <li>Choose an import method:
+            <ul className="list-disc list-inside ml-6 mt-1">
+              <li>Standard: Download and use our template Excel file</li>
+              <li>Firebase: Use the Firebase CSV format with phone numbers</li>
+            </ul>
+          </li>
+          <li>For standard imports, fill in your lead data following the template format</li>
           <li>For phone numbers, you can either include +65 or just enter the 8 digits</li>
-          <li>Upload your filled Excel file</li>
+          <li>Upload your file or use the Firebase template directly</li>
           <li>Review the data before importing</li>
           <li>Click Import to add the leads to your database</li>
         </ol>
         
-        <button
-          onClick={downloadTemplate}
-          className="mt-4 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-        >
-          Download Template
-        </button>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            onClick={downloadTemplate}
+            className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+          >
+            Download Template
+          </button>
+          
+          <button
+            onClick={useFirebaseTemplate}
+            className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Use Firebase Template
+          </button>
+          
+          <button
+            onClick={() => setShowManualInput(!showManualInput)}
+            className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+          >
+            {showManualInput ? 'Hide Manual Input' : 'Enter Phone Numbers Manually'}
+          </button>
+        </div>
+        
+        {showManualInput && (
+          <div className="mt-4 p-4 border rounded-lg bg-gray-50">
+            <h3 className="text-sm font-semibold mb-2">Manual Phone Number Entry</h3>
+            <p className="text-xs text-gray-600 mb-2">
+              Paste phone numbers from Firebase or any source. 
+              Numbers can be separated by spaces, commas, or line breaks.
+              The system will automatically format and import them.
+            </p>
+            <textarea
+              value={manualPhoneNumbers}
+              onChange={(e) => setManualPhoneNumbers(e.target.value)}
+              className="w-full h-32 border border-gray-300 rounded-md p-2 mb-3 font-mono text-sm"
+              placeholder="Example:
+6590123456
+6581234567
+65 9876 5432
+65-9876-5432"
+            />
+            <button
+              onClick={processManualPhoneNumbers}
+              className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Process Phone Numbers
+            </button>
+          </div>
+        )}
       </div>
       
       <div className="mb-8">
@@ -160,7 +389,7 @@ export default function ImportLeadsPage() {
           type="file"
           ref={fileInputRef}
           onChange={handleFileChange}
-          accept=".xlsx,.xls"
+          accept=".xlsx,.xls,.csv"
           className="hidden"
         />
         <div className="flex items-center">
@@ -173,6 +402,11 @@ export default function ImportLeadsPage() {
           <span className="ml-3 text-gray-600">
             {file ? file.name : 'No file selected'}
           </span>
+          {importMode === 'firebase' && (
+            <span className="ml-3 text-blue-600 text-sm font-medium">
+              (Firebase Format Detected)
+            </span>
+          )}
         </div>
       </div>
       
@@ -216,9 +450,6 @@ export default function ImportLeadsPage() {
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Source
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Lead Type
-                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -250,15 +481,10 @@ export default function ImportLeadsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {validStatuses.includes(row.status?.toLowerCase() || '') 
                         ? row.status 
-                        : <span className="text-red-500">{row.status || 'Invalid'}</span>}
+                        : <span className="text-red-500">{row.status || importMode === 'firebase' ? 'new' : 'Invalid'}</span>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.source || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {validLeadTypes.includes(row.lead_type?.toLowerCase() || '') 
-                        ? row.lead_type 
-                        : <span className="text-red-500">{row.lead_type || 'Invalid'}</span>}
+                      {row.source || (importMode === 'firebase' ? 'Firebase Import' : '-')}
                     </td>
                   </tr>
                 ))}

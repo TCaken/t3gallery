@@ -202,6 +202,8 @@ export const leads = createTable(
   (d) => ({
     id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
     phone_number: d.varchar({ length: 20 }).notNull(),
+    phone_number_2: d.varchar({ length: 20 }).default(''),
+    phone_number_3: d.varchar({ length: 20 }).default(''),
     full_name: d.varchar({ length: 255 }),
     email: d.varchar({ length: 255 }),
     residential_status: d.varchar({ length: 50 }),
@@ -216,6 +218,9 @@ export const leads = createTable(
     eligibility_checked: d.boolean().default(false),
     eligibility_status: d.varchar({ length: 50 }),
     eligibility_notes: d.text(),
+    lead_score: d.integer().default(0),
+    contact_preference: d.varchar({ length: 50 }).default('UNKNOWN'),
+    communication_language: d.varchar({ length: 50 }).default('UNKNOWN'),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
     created_by: d.varchar({ length: 256 }).references(() => users.id),

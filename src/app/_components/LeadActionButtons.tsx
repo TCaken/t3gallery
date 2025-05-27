@@ -18,7 +18,8 @@ import {
   CalendarIcon,
   InformationCircleIcon,
   UserPlusIcon,
-  CalendarDaysIcon
+  CalendarDaysIcon,
+  PencilSquareIcon
 } from '@heroicons/react/24/outline';
 import {
   ChatBubbleLeftIcon as ChatBubbleLeftSolidIcon,
@@ -27,7 +28,8 @@ import {
   BookmarkIcon as BookmarkSolidIcon,
   CalendarDaysIcon as CalendarDaysSolidIcon,
   InformationCircleIcon as InformationCircleSolidIcon,
-  UserPlusIcon as UserPlusSolidIcon
+  UserPlusIcon as UserPlusSolidIcon,
+  PencilSquareIcon as PencilSquareSolidIcon
 } from '@heroicons/react/24/solid';
 import CustomWhatsAppModal from './CustomWhatsAppModal';
 import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
@@ -147,11 +149,11 @@ export default function LeadActionButtons({
 
   const buttons: ActionButton[] = [
     {
-      id: 'info',
-      icon: InformationCircleIcon,
-      solidIcon: InformationCircleSolidIcon,
-      title: 'View Lead Details',
-      onClick: () => window.open(`/dashboard/leads/${leadId}`, '_blank'),
+      id: 'edit',
+      icon: PencilSquareIcon,
+      solidIcon: PencilSquareSolidIcon,
+      title: 'Edit Lead',
+      onClick: () => handleAction('edit'),
       disabled: false,
     },
     {

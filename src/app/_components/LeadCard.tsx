@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { 
+  PencilSquareIcon,
   PhoneIcon,
   UserCircleIcon,
   DocumentTextIcon,
@@ -14,9 +15,10 @@ import {
 } from '@heroicons/react/24/outline';
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads } from "~/server/db/schema";
-import { fetchLeadNotes } from '~/app/_actions/leadActions';
+import { fetchLeadNotes, updateLead } from '~/app/_actions/leadActions';
 import LeadActionButtons from './LeadActionButtons';
 import LazyComment from './LazyComment';
+import LeadEditSlideOver from './LeadEditSlideOver';
 
 // Infer lead type from Drizzle schema
 type Lead = InferSelectModel<typeof leads>;
@@ -48,14 +50,38 @@ export default function LeadCard({
   const [notes, setNotes] = useState<string[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
   const handleAction = (action: string) => {
     console.log('LeadCard: Action clicked:', action);
     console.log('LeadCard: Lead data:', lead);
     
+    if (action === 'edit') {
+      setIsEditOpen(true);
+      return;
+    }
+    
     if (onAction && lead.id) {
       console.log('LeadCard: Calling onAction with:', action, lead.id);
       onAction(action, lead.id);
+    }
+  };
+
+  const handleSaveLead = async (updatedLead: Partial<Lead>) => {
+    try {
+      if (!lead.id) return;
+      
+      const result = await updateLead(lead.id, updatedLead);
+      
+      if (result.success) {
+        // Optionally refresh the lead data here
+        setIsEditOpen(false);
+      } else {
+        alert(result.message);
+      }
+    } catch (error) {
+      console.error('Error saving lead:', error);
+      alert('An error occurred while saving the lead');
     }
   };
 
@@ -135,65 +161,87 @@ export default function LeadCard({
   };
 
   return (
-    <div
-      className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
-        isPinned ? 'border-l-4 border-blue-400' : ''
-      }`}
-      onClick={() => onView(lead)}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h4 className="font-medium text-lg">
-              {lead.full_name}
-            </h4>
-            <div className="flex items-center text-sm text-gray-500">
-              <ClockIcon className="h-4 w-4 mr-1" />
-              {formatDate(lead.created_at)}
+    <>
+      <div
+        className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
+          isPinned ? 'border-l-4 border-blue-400' : ''
+        }`}
+        onClick={() => onView(lead)}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h4 className="font-medium text-lg">
+                <a 
+                  href={`/dashboard/leads/${lead.id}`} 
+                  target="_blank" 
+                  className="
+                    text-gray-600 
+                    hover:text-black-800
+                    hover:underline
+                    decoration-2
+                    underline-offset-2
+                    rounded-sm
+                  "
+                >
+                  {lead.full_name}
+                </a>
+              </h4>
+              <div className="flex items-center text-sm text-gray-500">
+                <ClockIcon className="h-4 w-4 mr-1" />
+                {formatDate(lead.created_at)}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <PhoneIcon className="h-4 w-4 text-gray-500" />
-            <p className="text-sm text-gray-600">{lead.phone_number}</p>
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <UserCircleIcon className="h-4 w-4 text-gray-500" />
-            <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              lead.assigned_to 
-                ? 'bg-purple-100 text-purple-800 border border-purple-200' 
-                : 'bg-gray-100 text-gray-800 border border-gray-200'
-            }`}>
-              {lead.assigned_to ?? 'Unassigned'}
+            <div className="flex items-center gap-2 mt-1">
+              <PhoneIcon className="h-4 w-4 text-gray-500" />
+              <p className="text-sm text-gray-600">{lead.phone_number}</p>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2 mt-2">
-            <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(lead.status)}`}>
-              {lead.status}
-            </span>
-            {lead.eligibility_status && (
-              <span className={`text-xs px-2 py-0.5 rounded-full ${getEligibilityColor(lead.eligibility_status)}`}>
-                {lead.eligibility_status}
+            <div className="flex items-center gap-2 mt-1">
+              <UserCircleIcon className="h-4 w-4 text-gray-500" />
+              <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                lead.assigned_to 
+                  ? 'bg-purple-100 text-purple-800 border border-purple-200' 
+                  : 'bg-gray-100 text-gray-800 border border-gray-200'
+              }`}>
+                {lead.assigned_to ?? 'Unassigned'}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(lead.status)}`}>
+                {lead.status}
               </span>
-            )}
+              {lead.eligibility_status && (
+                <span className={`text-xs px-2 py-0.5 rounded-full ${getEligibilityColor(lead.eligibility_status)}`}>
+                  {lead.eligibility_status}
+                </span>
+              )}
+            </div>
           </div>
+        </div>
+
+        <div onClick={(e) => e.stopPropagation()} className="mb-3 mt-3">
+          <LeadActionButtons
+            leadId={lead.id}
+            onAction={handleAction}
+            isPinned={isPinned}
+            currentStatus={lead.status}
+            phoneNumber={lead.phone_number}
+          />
+        </div>
+
+        <div onClick={(e) => e.stopPropagation()}>
+          <LazyComment leadId={lead.id} />
         </div>
       </div>
 
-      <div onClick={(e) => e.stopPropagation()} className="mb-3 mt-3">
-        <LeadActionButtons
-          leadId={lead.id}
-          onAction={handleAction}
-          isPinned={isPinned}
-          currentStatus={lead.status}
-          phoneNumber={lead.phone_number}
-        />
-      </div>
-
-      <div onClick={(e) => e.stopPropagation()}>
-        <LazyComment leadId={lead.id} />
-      </div>
-    </div>
+      <LeadEditSlideOver
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        lead={lead}
+        onSave={handleSaveLead}
+      />
+    </>
   );
 }
