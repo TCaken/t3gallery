@@ -2,7 +2,7 @@ import { Fragment, useMemo } from 'react'
 import { Dialog, Transition } from '@headlessui/react'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 import { type InferSelectModel } from 'drizzle-orm';
-import { leads } from "~/server/db/schema";
+import { type leads } from "~/server/db/schema";
 
 type Lead = InferSelectModel<typeof leads>;
 
@@ -148,7 +148,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                     <div className="px-4 sm:px-6">
                       <div className="flex items-start justify-between">
                         <Dialog.Title className="text-base font-semibold leading-6 text-gray-900">
-                          Edit Lead
+                          Questionnaire for {lead.full_name}
                         </Dialog.Title>
                         <div className="ml-3 flex h-7 items-center">
                           <button
@@ -163,7 +163,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                       </div>
                       
                       {/* Status Badge */}
-                      <div className="mt-2">
+                      {/* <div className="mt-2">
                         <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${
                           lead.status === 'done' ? 'bg-green-50 text-green-700' :
                           lead.status === 'blacklisted' ? 'bg-red-50 text-red-700' :
@@ -171,7 +171,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                         }`}>
                           {lead.status}
                         </span>
-                      </div>
+                      </div> */}
                     </div>
 
                     <div className="relative mt-6 flex-1 px-4 sm:px-6">

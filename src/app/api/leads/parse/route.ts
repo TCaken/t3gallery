@@ -305,28 +305,15 @@ function extractOMYData(message: string): {
   return result;
 }
 
-// Helper function to safely handle special characters in URLs
-function sanitizeUrlsWithJson(text: string): string {
-  // Find URL parameters that might contain JSON special characters
-  return text.replace(/([?&][^=]+)=([^&\s"]+)/g, (match: string, paramName: string, value: string) => {
-    try {
-      // URL decode the value first
-      const decodedValue = decodeURIComponent(value);
-      
-      // If it contains JSON special characters, encode them properly
-      if (decodedValue.includes('{') || 
-          decodedValue.includes('}') || 
-          decodedValue.includes('"') || 
-          decodedValue.includes('[') || 
-          decodedValue.includes(']')) {
-        // Re-encode the value with special characters properly escaped
-        return `${paramName}=${encodeURIComponent(decodedValue)}`;
-      }
-    } catch (e) {
-      console.warn('Failed to process URL parameter:', e);
-    }
-    return match;
-  });
+// Helper function to safely handle special JSON characters
+function sanitizeJsonCharacters(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')  // escape backslashes first
+    .replace(/\{/g, '\\{')   // escape curly braces
+    .replace(/\}/g, '\\}')
+    .replace(/"/g, '\\"')    // escape quotes
+    .replace(/\[/g, '\\[')   // escape square brackets
+    .replace(/\]/g, '\\]');
 }
 
 export async function POST(request: Request) {
@@ -337,21 +324,17 @@ export async function POST(request: Request) {
 
     let body;
     try {
-      // First sanitize any URLs containing JSON
-      const sanitizedText = sanitizeUrlsWithJson(rawText);
+      // First sanitize any special JSON characters
+      const sanitizedText = sanitizeJsonCharacters(rawText);
       
       // Then clean the JSON string before parsing
       const cleanedText = sanitizedText
-        // First escape any existing backslashes to prevent double escaping
-        .replace(/\\/g, '\\\\')
-        // Then handle the message content
+        // Handle the message content
         .replace(/"message":\s*"([^"]*)"/g, (match, message: string) => {
-          // First sanitize URLs in the message content
-          const sanitizedMessage = sanitizeUrlsWithJson(message);
-          // Then escape special characters
+          // Sanitize special characters in the message content
+          const sanitizedMessage = sanitizeJsonCharacters(message);
+          // Handle newlines and tabs
           const escapedMessage = sanitizedMessage
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"')
             .replace(/\n/g, '\\n')
             .replace(/\r/g, '\\r')
             .replace(/\t/g, '\\t');
