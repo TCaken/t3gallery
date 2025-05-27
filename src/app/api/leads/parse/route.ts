@@ -325,14 +325,17 @@ export async function POST(request: Request) {
     let body;
     try {
       // First sanitize any special JSON characters
-      const sanitizedText = sanitizeJsonCharacters(rawText);
+      // const sanitizedText = sanitizeJsonCharacters(rawText);
+      const sanitizedText = rawText;
       
       // Then clean the JSON string before parsing
       const cleanedText = sanitizedText
         // Handle the message content
         .replace(/"message":\s*"([^"]*)"/g, (match, message: string) => {
           // Sanitize special characters in the message content
-          const sanitizedMessage = sanitizeJsonCharacters(message);
+          // const sanitizedMessage = sanitizeJsonCharacters(message);
+          const sanitizedMessage = message;
+          
           // Handle newlines and tabs
           const escapedMessage = sanitizedMessage
             .replace(/\n/g, '\\n')
