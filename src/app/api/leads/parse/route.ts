@@ -305,19 +305,25 @@ function extractOMYData(message: string): {
   return result;
 }
 
-// Helper function to safely handle URLs with embedded JSON
+// Helper function to safely handle special characters in URLs
 function sanitizeUrlsWithJson(text: string): string {
-  // Replace any URL-encoded JSON in pcmsecuritytoken parameter
-  return text.replace(/pcmsecuritytoken=([^&\s"]+)/g, (match, token) => {
+  // Find URL parameters that might contain JSON special characters
+  return text.replace(/([?&][^=]+)=([^&\s"]+)/g, (match: string, paramName: string, value: string) => {
     try {
-      // URL decode the token first
-      const decodedToken = decodeURIComponent(token);
-      // If it looks like JSON, encode it properly
-      if (decodedToken.startsWith('{') && decodedToken.endsWith('}')) {
-        return `pcmsecuritytoken=${encodeURIComponent(decodedToken)}`;
+      // URL decode the value first
+      const decodedValue = decodeURIComponent(value);
+      
+      // If it contains JSON special characters, encode them properly
+      if (decodedValue.includes('{') || 
+          decodedValue.includes('}') || 
+          decodedValue.includes('"') || 
+          decodedValue.includes('[') || 
+          decodedValue.includes(']')) {
+        // Re-encode the value with special characters properly escaped
+        return `${paramName}=${encodeURIComponent(decodedValue)}`;
       }
     } catch (e) {
-      console.warn('Failed to process pcmsecuritytoken:', e);
+      console.warn('Failed to process URL parameter:', e);
     }
     return match;
   });
