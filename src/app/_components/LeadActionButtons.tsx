@@ -32,6 +32,7 @@ import {
   PencilSquareIcon as PencilSquareSolidIcon
 } from '@heroicons/react/24/solid';
 import CustomWhatsAppModal from './CustomWhatsAppModal';
+import CallModal from './CallModal';
 import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
 
 interface ActionButton {
@@ -51,6 +52,7 @@ interface LeadActionButtonsProps {
   currentStatus?: string;
   phoneNumber: string;
   userRole?: string;
+  leadName?: string;
 }
 
 export default function LeadActionButtons({
@@ -60,10 +62,12 @@ export default function LeadActionButtons({
   currentStatus,
   phoneNumber,
   userRole = 'user',
+  leadName,
 }: LeadActionButtonsProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  const [isCallModalOpen, setIsCallModalOpen] = useState(false);
   const { userId } = useAuth();
   const router = useRouter();
 
@@ -153,8 +157,7 @@ export default function LeadActionButtons({
       icon: PencilSquareIcon,
       solidIcon: PencilSquareSolidIcon,
       title: 'Edit Lead',
-      onClick: () => handleAction('edit'),
-      disabled: false,
+      onClick: () => handleAction('edit')
     },
     {
       id: 'assign',
@@ -162,15 +165,13 @@ export default function LeadActionButtons({
       solidIcon: UserPlusSolidIcon,
       title: 'Assign to Agent',
       onClick: () => handleAction('assign')
-      // disabled: userRole !== 'admin',
     },
     {
       id: 'call',
       icon: PhoneIcon,
       solidIcon: PhoneSolidIcon,
       title: 'Make Call',
-      onClick: () => handleAction('call'),
-      disabled: true,
+      onClick: () => setIsCallModalOpen(true),
     },
     {
       id: 'whatsapp',
@@ -262,6 +263,14 @@ export default function LeadActionButtons({
         onClose={() => setIsWhatsAppModalOpen(false)}
         onSend={handleWhatsAppSend}
         phoneNumber={phoneNumber}
+      />
+
+      <CallModal
+        isOpen={isCallModalOpen}
+        onClose={() => setIsCallModalOpen(false)}
+        onConfirm={() => handleAction('call')}
+        phoneNumber={phoneNumber}
+        leadName={leadName}
       />
     </>
   );

@@ -30,6 +30,8 @@ import { fetchUserData } from '~/app/_actions/userActions';
 import { checkInAgent, checkOutAgent, getAssignmentPreview, autoAssignLeads } from '~/app/_actions/agentActions';
 import AssignLeadModal from '~/app/_components/AssignLeadModal';
 import { exportAllLeadsToCSV } from '~/app/_actions/exportActions';
+import { makeCall } from '~/app/_actions/callActions';
+import LeadEditSlideOver from '~/app/_components/LeadEditSlideOver';
 
 
 // Infer Lead type from the schema
@@ -209,6 +211,8 @@ export default function LeadsPage() {
     blacklisted: false
   });
 
+  const [isEditOpen, setIsEditOpen] = useState(false);
+
   // Function to filter leads based on search query
   const filterLeads = (leads: Lead[], query: string) => {
     if (!query) return leads;
@@ -248,6 +252,7 @@ export default function LeadsPage() {
         page: pageNum,
         limit: 50
       });
+      console.log('result', result);
       
       if (result.success && result.leads) {
         setAllLoadedLeads(prev => [...prev, ...result.leads]);
@@ -457,6 +462,12 @@ export default function LeadsPage() {
       let needsRefresh = false;
 
       switch (action) {
+        case 'edit':
+          setSelectedLead(lead);
+          setIsEditOpen(true);
+          needsRefresh = true;
+          break;
+
         case 'pin':
           const pinResult = await togglePinLead(leadId);
           if (pinResult.success && pinResult.action === 'pinned') {
@@ -524,6 +535,24 @@ export default function LeadsPage() {
           );
           break;
 
+        case 'call':
+          try {
+            const callResult = await makeCall({
+              phoneNumber: lead.phone_number,
+              leadId: lead.id
+            });
+            
+            if (callResult.success) {
+              showNotification('Call initiated successfully', 'success');
+            } else {
+              showNotification(callResult.message || 'Failed to initiate call', 'error');
+            }
+          } catch (error) {
+            console.error('Error making call:', error);
+            showNotification('Failed to initiate call', 'error');
+          }
+          break;
+
         case 'schedule':
           break;
 
@@ -539,15 +568,42 @@ export default function LeadsPage() {
 
       // Refresh all leads if needed
       if (needsRefresh) {
-        // Reset to first page and clear current leads
         setAllLoadedLeads([]);
         setPage(1);
-        // Fetch fresh data
         await fetchLeadsWithFilters(1);
       }
     } catch (error) {
       console.error('Error in handleLeadAction:', error);
       showNotification('Failed to perform action', 'error');
+    }
+  };
+
+  const handleSaveLead = async (updatedLead: Partial<Lead>) => {
+    try {
+      if (!selectedLead?.id) return;
+      
+      const result = await updateLead(selectedLead.id, updatedLead);
+      if (result.success) {
+        // Update the lead in allLoadedLeads
+        setAllLoadedLeads(prevLeads => 
+          prevLeads.map(lead => 
+            lead.id === selectedLead.id ? { ...lead, ...updatedLead } : lead
+          )
+        );
+        
+        setIsEditOpen(false);
+        showNotification('Lead updated successfully', 'success');
+        
+        // Refresh leads to get latest data
+        setAllLoadedLeads([]);
+        setPage(1);
+        await fetchLeadsWithFilters(1);
+      } else {
+        showNotification(result.message || 'Failed to update lead', 'error');
+      }
+    } catch (error) {
+      console.error('Error saving lead:', error);
+      showNotification('An error occurred while saving the lead', 'error');
     }
   };
 
@@ -1205,6 +1261,19 @@ export default function LeadsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Add LeadEditSlideOver at the end of the component */}
+      {selectedLead && (
+        <LeadEditSlideOver
+          isOpen={isEditOpen}
+          onClose={() => {
+            setIsEditOpen(false);
+            setSelectedLead(null);
+          }}
+          lead={selectedLead}
+          onSave={handleSaveLead}
+        />
       )}
     </div>
   );

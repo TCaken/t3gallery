@@ -19,9 +19,11 @@ import { fetchLeadNotes, updateLead } from '~/app/_actions/leadActions';
 import LeadActionButtons from './LeadActionButtons';
 import LazyComment from './LazyComment';
 import LeadEditSlideOver from './LeadEditSlideOver';
+import { type Lead } from '~/app/types';
+import { formatDistanceToNow } from 'date-fns';
 
 // Infer lead type from Drizzle schema
-type Lead = InferSelectModel<typeof leads>;
+type LeadType = InferSelectModel<typeof leads>;
 
 // Simple type for status colors
 type StatusInfo = {
@@ -45,6 +47,7 @@ export default function LeadCard({
   isPinned = false,
   onView
 }: LeadCardProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [noteCount, setNoteCount] = useState(0);
   const [showNotesTooltip, setShowNotesTooltip] = useState(false);
   const [notes, setNotes] = useState<string[]>([]);
@@ -67,24 +70,6 @@ export default function LeadCard({
     }
   };
 
-  const handleSaveLead = async (updatedLead: Partial<Lead>) => {
-    try {
-      if (!lead.id) return;
-      
-      const result = await updateLead(lead.id, updatedLead);
-      
-      if (result.success) {
-        // Optionally refresh the lead data here
-        setIsEditOpen(false);
-      } else {
-        alert(result.message);
-      }
-    } catch (error) {
-      console.error('Error saving lead:', error);
-      alert('An error occurred while saving the lead');
-    }
-  };
-
   const loadNotes = async () => {
     if (!lead.id || loadingNotes || notes.length > 0) return;
     
@@ -101,7 +86,6 @@ export default function LeadCard({
       setLoadingNotes(false);
     }
   };
-
 
   // Load note count on initial render
   useEffect(() => {
@@ -121,127 +105,130 @@ export default function LeadCard({
     }
   }, [lead.id]);
 
-  const getStatusColor = (status: string) => {
-    const statusMap: Record<string, string> = {
-      new: "bg-blue-100 text-blue-800",
-      assigned: "bg-cyan-100 text-cyan-800",
-      no_answer: "bg-gray-100 text-gray-800",
-      follow_up: "bg-indigo-100 text-indigo-800",
-      P: "bg-emerald-100 text-emerald-800",
-      PRS: "bg-teal-100 text-teal-800",
-      R: "bg-violet-100 text-violet-800",
-      "miss/RS": "bg-pink-100 text-pink-800",
-      booked: "bg-green-100 text-green-800",
-      unqualified: "bg-orange-100 text-orange-800",
-      give_up: "bg-red-100 text-red-800",
-      blacklisted: "bg-black text-white",
-    };
-    return statusMap[status] ?? "bg-gray-100 text-gray-800";
-  };
-
-  const getEligibilityColor = (status: string) => {
-    const colorMap: Record<string, string> = {
-      eligible: "bg-green-100 text-green-800",
-      ineligible: "bg-red-100 text-red-800",
-      pending: "bg-yellow-100 text-yellow-800",
-      duplicate: "bg-gray-100 text-gray-800",
-      error: "bg-red-100 text-red-800"
-    };
-    return colorMap[status] ?? "bg-gray-100 text-gray-800";
-  };
-
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleDateString('en-SG', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const handleClick = () => {
+    setIsExpanded(!isExpanded);
+    if (onView) {
+      onView(lead);
+    }
   };
 
   return (
-    <>
-      <div
-        className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
-          isPinned ? 'border-l-4 border-blue-400' : ''
-        }`}
-        onClick={() => onView(lead)}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        <div className="flex justify-between items-start mb-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h4 className="font-medium text-lg">
-                <a 
-                  href={`/dashboard/leads/${lead.id}`} 
-                  target="_blank" 
-                  className="
-                    text-gray-600 
-                    hover:text-black-800
-                    hover:underline
-                    decoration-2
-                    underline-offset-2
-                    rounded-sm
-                  "
-                >
-                  {lead.full_name}
-                </a>
-              </h4>
-              <div className="flex items-center text-sm text-gray-500">
-                <ClockIcon className="h-4 w-4 mr-1" />
-                {formatDate(lead.created_at)}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <PhoneIcon className="h-4 w-4 text-gray-500" />
-              <p className="text-sm text-gray-600">{lead.phone_number}</p>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <UserCircleIcon className="h-4 w-4 text-gray-500" />
-              <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                lead.assigned_to 
-                  ? 'bg-purple-100 text-purple-800 border border-purple-200' 
-                  : 'bg-gray-100 text-gray-800 border border-gray-200'
-              }`}>
-                {lead.assigned_to ?? 'Unassigned'}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-2">
-              <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(lead.status)}`}>
-                {lead.status}
-              </span>
-              {lead.eligibility_status && (
-                <span className={`text-xs px-2 py-0.5 rounded-full ${getEligibilityColor(lead.eligibility_status)}`}>
-                  {lead.eligibility_status}
-                </span>
-              )}
-            </div>
-          </div>
+    <div
+      className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
+        isPinned ? 'border-l-4 border-blue-400' : ''
+      } ${isExpanded ? 'ring-2 ring-blue-500' : ''}`}
+      onClick={handleClick}
+    >
+      <div className="flex justify-between items-start mb-3">
+        <div>
+          <h3 className="text-lg font-medium text-gray-900">
+            <a href={`leads/${lead.id}`} target="_blank" className="hover:underline">
+              {lead.full_name ?? 'No Name'}
+            </a>
+          </h3>
+          <p className="text-sm text-gray-500">{lead.phone_number}</p>
         </div>
-
-        <div onClick={(e) => e.stopPropagation()} className="mb-3 mt-3">
-          <LeadActionButtons
-            leadId={lead.id}
-            onAction={handleAction}
-            isPinned={isPinned}
-            currentStatus={lead.status}
-            phoneNumber={lead.phone_number}
-          />
-        </div>
-
-        <div onClick={(e) => e.stopPropagation()}>
-          <LazyComment leadId={lead.id} />
+        <div className="flex items-center space-x-2">
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
+            {statusInfo.name}
+          </span>
         </div>
       </div>
 
-      <LeadEditSlideOver
-        isOpen={isEditOpen}
-        onClose={() => setIsEditOpen(false)}
-        lead={lead}
-        onSave={handleSaveLead}
-      />
-    </>
+      <div className="flex justify-between items-center">
+        <div className="flex flex-col text-sm text-gray-500">
+          <span>Created: {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}</span>
+          {lead.assigned_to && (
+            <span className="text-blue-600">Assigned to: {lead.assigned_to}</span>
+          )}
+        </div>
+        <LeadActionButtons
+          leadId={lead.id}
+          onAction={handleAction}
+          isPinned={isPinned}
+          currentStatus={lead.status}
+          phoneNumber={lead.phone_number}
+          userRole={lead.userRole}
+          leadName={lead.full_name ?? undefined}
+        />
+      </div>
+
+      {isExpanded && (
+        <div className="mt-4 border-t pt-4">
+          <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Email</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.email ?? 'Not provided'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Residential Status</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.residential_status ?? 'Not provided'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Employment Status</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.employment_status ?? 'Not provided'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Loan Purpose</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.loan_purpose ?? 'Not provided'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Existing Loans</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.existing_loans ?? 'Not provided'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Amount</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.amount ?? 'Not provided'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Source</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.source ?? 'Not provided'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Lead Type</dt>
+              <dd className="mt-1 text-sm text-gray-900">{lead.lead_type ?? 'Not provided'}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
+      <div 
+        className="relative"
+        onMouseEnter={() => {
+          setShowNotesTooltip(true);
+          void loadNotes();
+        }}
+        onMouseLeave={() => setShowNotesTooltip(false)}
+      >
+        <div className="flex items-center">
+          <span className="text-sm text-blue-600 hover:text-blue-800 cursor-pointer">
+            Hover to view notes ({noteCount})
+          </span>
+        </div>
+        
+        {/* Notes Tooltip */}
+        {showNotesTooltip && (
+          <div className="absolute right-0 mt-2 w-72 z-10 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+            <div className="p-4">
+              <h4 className="font-medium text-gray-900 mb-3">Lead Notes</h4>
+              {loadingNotes ? (
+                <div className="text-center py-3">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900 mx-auto"></div>
+                </div>
+              ) : notes.length > 0 ? (
+                <ul className="space-y-3">
+                  {notes.map((note, index) => (
+                    <li key={index} className="text-sm text-gray-600 border-b border-gray-100 last:border-b-0 pb-2 last:pb-0">
+                      {note}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500 py-2">No notes available</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

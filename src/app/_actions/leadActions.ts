@@ -440,6 +440,8 @@ export async function fetchFilteredLeads({
     const baseQuery = db.select({
       id: leads.id,
       phone_number: leads.phone_number,
+      phone_number_2: leads.phone_number_2,
+      phone_number_3: leads.phone_number_3,
       full_name: leads.full_name,
       email: leads.email,
       residential_status: leads.residential_status,
@@ -458,6 +460,9 @@ export async function fetchFilteredLeads({
       eligibility_checked: leads.eligibility_checked,
       eligibility_status: leads.eligibility_status,
       eligibility_notes: leads.eligibility_notes,
+      contact_preference: leads.contact_preference,
+      communication_language: leads.communication_language,
+      lead_score: leads.lead_score,
       assigned_user: {
         id: users.id,
         first_name: users.first_name,
