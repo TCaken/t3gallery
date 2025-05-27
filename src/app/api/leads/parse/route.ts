@@ -58,13 +58,12 @@ function cleanPhoneNumber(phone: string): string {
   return `+65${withoutPrefix}`;
 }
 
-// Helper function to safely extract amount
-function extractAmount(amount: string | undefined): string {
+// Helper function to extract amount
+function extractAmount(amount: string): string {
   if (!amount) return 'UNKNOWN';
   
   // Remove everything after the first occurrence of '---'
-  const parts = amount.split('---');
-  const cleanAmount = parts[0]?.trim() ?? '';
+  const cleanAmount = amount?.split('---')[0]?.trim() ?? amount.trim();
   
   // Check if amount contains "to" for range
   if (cleanAmount.toLowerCase().includes('to')) {
@@ -255,41 +254,6 @@ function cleanLoanPurpose(value: string): string {
   return cleaned || 'UNKNOWN';
 }
 
-// Helper function to safely decode URL parameters
-function decodeURLParams(url: string): Record<string, string> {
-  try {
-    const params: Record<string, string> = {};
-    // Extract URL parameters
-    const urlObj = new URL(url);
-    const searchParams = new URLSearchParams(urlObj.search);
-    
-    for (const [key, value] of searchParams.entries()) {
-      if (key === 'pcmsecuritytoken') {
-        try {
-          // Safely parse the security token
-          const decodedValue = decodeURIComponent(value);
-          const decodedToken = JSON.parse(decodedValue) as Record<string, unknown>;
-          // Store each credential field separately
-          if (typeof decodedToken === 'object' && decodedToken !== null) {
-            for (const [tokenKey, tokenValue] of Object.entries(decodedToken)) {
-              params[`pcmsecuritytoken_${tokenKey}`] = String(tokenValue);
-            }
-          }
-        } catch (e) {
-          console.warn('Failed to parse pcmsecuritytoken:', e);
-          params[key] = value;
-        }
-      } else {
-        params[key] = value;
-      }
-    }
-    return params;
-  } catch (e) {
-    console.warn('Failed to decode URL parameters:', e);
-    return {};
-  }
-}
-
 // Helper function to extract data from OMY.sg format
 function extractOMYData(message: string): { 
   full_name?: string;
@@ -311,10 +275,13 @@ function extractOMYData(message: string): {
   const citizenRegex = /(?:Citizenship|Nationality|Residential Status)[:\s]+([^\r\n,]+)/i;
   const amountRegex = /(?:Monthly Income|Loan Amount|Amount)[:\s]+([0-9\s+]+)/i;
   
-  // Extract values using optional chaining
+  // Extract name
   result.full_name = nameRegex.exec(message)?.[1]?.trim();
+  
+  // Extract phone number
   result.phone_number = phoneRegex.exec(message)?.[1]?.trim();
   
+  // Extract citizenship/residential status
   const citizenValue = citizenRegex.exec(message)?.[1]?.trim().toLowerCase();
   if (citizenValue) {
     if (citizenValue.includes('singapore') || 
@@ -332,15 +299,28 @@ function extractOMYData(message: string): {
     }
   }
 
+  // Extract amount
   result.amount = amountRegex.exec(message)?.[1]?.trim();
   
   return result;
 }
 
-// Helper function to extract URL from message
-function extractURL(message: string): string | undefined {
-  const urlRegex = /(?:Lead from page URL:|URL:)\s*(https?:\/\/[^\s\r\n]+)/i;
-  return urlRegex.exec(message)?.[1]?.trim();
+// Helper function to safely handle URLs with embedded JSON
+function sanitizeUrlsWithJson(text: string): string {
+  // Replace any URL-encoded JSON in pcmsecuritytoken parameter
+  return text.replace(/pcmsecuritytoken=([^&\s"]+)/g, (match, token) => {
+    try {
+      // URL decode the token first
+      const decodedToken = decodeURIComponent(token);
+      // If it looks like JSON, encode it properly
+      if (decodedToken.startsWith('{') && decodedToken.endsWith('}')) {
+        return `pcmsecuritytoken=${encodeURIComponent(decodedToken)}`;
+      }
+    } catch (e) {
+      console.warn('Failed to process pcmsecuritytoken:', e);
+    }
+    return match;
+  });
 }
 
 export async function POST(request: Request) {
@@ -349,24 +329,21 @@ export async function POST(request: Request) {
     const rawText = await request.text();
     console.log('Raw request text:', rawText);
 
-    let body: { message: string; subject?: string; received_time?: string };
+    let body;
     try {
-      // First, find and temporarily replace URLs with placeholders
-      const urls: string[] = [];
-      const textWithPlaceholders = rawText.replace(
-        /(https?:\/\/[^\s\r\n]+)/g,
-        (match) => {
-          urls.push(match);
-          return `__URL_${urls.length - 1}__`;
-        }
-      );
-
-      // Clean the JSON string before parsing
-      const cleanedText = textWithPlaceholders
+      // First sanitize any URLs containing JSON
+      const sanitizedText = sanitizeUrlsWithJson(rawText);
+      
+      // Then clean the JSON string before parsing
+      const cleanedText = sanitizedText
+        // First escape any existing backslashes to prevent double escaping
         .replace(/\\/g, '\\\\')
-        .replace(/"message":\s*"([^"]*)"/g, (_, message: string) => {
-          // Escape special characters in the message
-          const escapedMessage = message
+        // Then handle the message content
+        .replace(/"message":\s*"([^"]*)"/g, (match, message: string) => {
+          // First sanitize URLs in the message content
+          const sanitizedMessage = sanitizeUrlsWithJson(message);
+          // Then escape special characters
+          const escapedMessage = sanitizedMessage
             .replace(/\\/g, '\\\\')
             .replace(/"/g, '\\"')
             .replace(/\n/g, '\\n')
@@ -374,6 +351,7 @@ export async function POST(request: Request) {
             .replace(/\t/g, '\\t');
           return `"message":"${escapedMessage}"`;
         })
+        // Clean up any remaining issues
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r')
         .replace(/\t/g, '\\t')
@@ -381,19 +359,7 @@ export async function POST(request: Request) {
         .replace(/"\s*,\s*"/g, '","');
 
       console.log('Cleaned text:', cleanedText);
-      
-      // Parse the JSON with placeholders
-      const parsedBody = JSON.parse(cleanedText) as typeof body;
-
-      // Restore URLs in the message
-      body = {
-        ...parsedBody,
-        message: parsedBody.message.replace(
-          /__URL_(\d+)__/g,
-          (_, index) => urls[parseInt(index, 10)] ?? ''
-        )
-      };
-
+      body = JSON.parse(cleanedText);
     } catch (error) {
       console.error('Failed to parse JSON:', error);
       console.error('Raw text:', rawText);
@@ -401,8 +367,8 @@ export async function POST(request: Request) {
         { 
           success: false, 
           error: 'Invalid JSON format',
-          details: 'Could not parse request body as JSON',
-          receivedText: rawText.substring(0, 100) + '...'
+          details: error instanceof Error ? error.message : 'Unknown parsing error',
+          receivedText: rawText.substring(0, 100) + '...' // Log first 100 chars
         },
         { status: 400 }
       );
@@ -444,7 +410,9 @@ export async function POST(request: Request) {
       );
       if (line) {
         const parts = line.split(':');
-        return parts[1]?.trim();
+        if (parts.length > 1) {
+          return parts[1]?.trim() ?? undefined;
+        }
       }
       return undefined;
     }
@@ -550,14 +518,6 @@ export async function POST(request: Request) {
         { success: false, error: 'Invalid lead data', details: leadValidation.error },
         { status: 400 }
       );
-    }
-
-    // Extract URL and its parameters if present
-    const url = extractURL(message);
-    let urlParams: Record<string, string> = {};
-    if (url) {
-      urlParams = decodeURLParams(url);
-      console.log('Extracted URL parameters:', urlParams);
     }
 
     // Create the lead
