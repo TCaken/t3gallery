@@ -65,6 +65,7 @@ interface PageProps {
   };
 }
 
+
 export default function LeadDetailPage({ params }: PageProps) {
   const router = useRouter();
   const { id } = use(params);
