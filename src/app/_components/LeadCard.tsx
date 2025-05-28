@@ -47,7 +47,6 @@ export default function LeadCard({
   isPinned = false,
   onView
 }: LeadCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const [noteCount, setNoteCount] = useState(0);
   const [showNotesTooltip, setShowNotesTooltip] = useState(false);
   const [notes, setNotes] = useState<string[]>([]);
@@ -58,11 +57,6 @@ export default function LeadCard({
   const handleAction = (action: string) => {
     console.log('LeadCard: Action clicked:', action);
     console.log('LeadCard: Lead data:', lead);
-    
-    if (action === 'edit') {
-      setIsEditOpen(true);
-      return;
-    }
     
     if (onAction && lead.id) {
       console.log('LeadCard: Calling onAction with:', action, lead.id);
@@ -105,19 +99,11 @@ export default function LeadCard({
     }
   }, [lead.id]);
 
-  const handleClick = () => {
-    setIsExpanded(!isExpanded);
-    if (onView) {
-      onView(lead);
-    }
-  };
-
   return (
     <div
       className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
         isPinned ? 'border-l-4 border-blue-400' : ''
-      } ${isExpanded ? 'ring-2 ring-blue-500' : ''}`}
-      onClick={handleClick}
+      }`}
     >
       <div className="flex justify-between items-start mb-3">
         <div>
@@ -135,13 +121,14 @@ export default function LeadCard({
         </div>
       </div>
 
-      <div className="flex justify-between items-center">
-        <div className="flex flex-col text-sm text-gray-500">
-          <span>Created: {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}</span>
-          {lead.assigned_to && (
-            <span className="text-blue-600">Assigned to: {lead.assigned_to}</span>
-          )}
-        </div>
+      <div className="flex flex-col text-sm text-gray-500">
+        <span>Created: {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}</span>
+        {lead.assigned_to && (
+          <span className="text-blue-600">Agent: {lead.assigned_to}</span>
+        )}
+      </div>
+
+      <div className="flex justify-between items-center mb-2">
         <LeadActionButtons
           leadId={lead.id}
           onAction={handleAction}
@@ -153,44 +140,6 @@ export default function LeadCard({
         />
       </div>
 
-      {isExpanded && (
-        <div className="mt-4 border-t pt-4">
-          <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Email</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.email ?? 'Not provided'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Residential Status</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.residential_status ?? 'Not provided'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Employment Status</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.employment_status ?? 'Not provided'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Loan Purpose</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.loan_purpose ?? 'Not provided'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Existing Loans</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.existing_loans ?? 'Not provided'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Amount</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.amount ?? 'Not provided'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Source</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.source ?? 'Not provided'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Lead Type</dt>
-              <dd className="mt-1 text-sm text-gray-900">{lead.lead_type ?? 'Not provided'}</dd>
-            </div>
-          </dl>
-        </div>
-      )}
       <div 
         className="relative"
         onMouseEnter={() => {

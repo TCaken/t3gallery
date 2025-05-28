@@ -21,7 +21,7 @@ import {
 } from '@heroicons/react/24/outline';
 import LeadCard  from '~/app/_components/LeadCard';
 import { hasPermission } from '~/server/rbac/queries';
-import { updateLeadStatus, fetchFilteredLeads } from '~/app/_actions/leadActions';
+import { updateLead,updateLeadStatus, fetchFilteredLeads } from '~/app/_actions/leadActions';
 import { type InferSelectModel } from 'drizzle-orm';
 import { type leads, type leadStatusEnum } from "~/server/db/schema";
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
@@ -243,7 +243,7 @@ export default function LeadsPage() {
   const fetchLeadsWithFilters = async (pageNum = 1) => {
     try {
       setIsLoadingMore(true);
-      console.log('Fetching leads page:', pageNum);
+      // console.log('Fetching leads page:', pageNum);
       
       const result = await fetchFilteredLeads({
         search: '', // Don't send search to server
@@ -252,7 +252,7 @@ export default function LeadsPage() {
         page: pageNum,
         limit: 50
       });
-      console.log('result', result);
+      // console.log('result', result);
       
       if (result.success && result.leads) {
         setAllLoadedLeads(prev => [...prev, ...result.leads]);
@@ -446,8 +446,6 @@ export default function LeadsPage() {
 
   // Modify handleLeadAction to refresh leads after actions
   const handleLeadAction = async (action: string, leadId: number) => {
-    console.log('handleLeadAction:', action, leadId);
-    console.log('allLoadedLeads:', allLoadedLeads);
     try {
       // Find the lead in any column
       const allLeads = Object.values(allLoadedLeads).flat();
@@ -460,12 +458,13 @@ export default function LeadsPage() {
       }
 
       let needsRefresh = false;
+      console.log('lead', JSON.stringify(lead), action);
 
       switch (action) {
         case 'edit':
           setSelectedLead(lead);
           setIsEditOpen(true);
-          needsRefresh = true;
+          // needsRefresh = true;
           break;
 
         case 'pin':
@@ -563,7 +562,7 @@ export default function LeadsPage() {
           break;
 
         default:
-          console.log('Unknown action:', action);
+          // console.log('Unknown action:', action);
       }
 
       // Refresh all leads if needed
@@ -1264,17 +1263,15 @@ export default function LeadsPage() {
       )}
 
       {/* Add LeadEditSlideOver at the end of the component */}
-      {selectedLead && (
-        <LeadEditSlideOver
-          isOpen={isEditOpen}
-          onClose={() => {
-            setIsEditOpen(false);
-            setSelectedLead(null);
-          }}
-          lead={selectedLead}
-          onSave={handleSaveLead}
-        />
-      )}
+      {selectedLead && <LeadEditSlideOver
+        isOpen={isEditOpen}
+        onClose={() => {
+          setIsEditOpen(false);
+          setSelectedLead(null);
+        }}
+        lead={selectedLead}
+        onSave={handleSaveLead}
+      />}
     </div>
   );
 }

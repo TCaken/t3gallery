@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from "~/server/db";
-import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users } from "~/server/db/schema";
+import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import type { InferSelectModel } from "drizzle-orm";
 import { eq, desc, like, or, and, SQL, asc } from "drizzle-orm";
@@ -87,7 +87,7 @@ export async function createLead(input: CreateLeadInput) {
       amount: input.amount,
       source: input.source,
       lead_type: 'new',
-      status: eligibilityResult.status, // Use status from eligibility check
+      status: eligibilityResult.status,
       eligibility_checked: true,
       eligibility_status: eligibilityResult.isEligible ? 'eligible' : 'ineligible',
       eligibility_notes: eligibilityResult.notes,
@@ -95,11 +95,17 @@ export async function createLead(input: CreateLeadInput) {
       created_at: input.received_time ? new Date(input.received_time) : undefined,
     };
 
-    // Create the lead with or without the received_time
-    const [lead] = await db
-      .insert(leads)
-      .values(baseValues)
-      .returning();
+    // Create the lead
+    const [lead] = await db.insert(leads).values(baseValues).returning();
+
+    // Add log entry for lead creation
+    await db.insert(logs).values({
+      description: `Created new lead with phone ${input.phone_number}${input.full_name ? ` for ${input.full_name}` : ''}`,
+      entity_type: 'lead',
+      entity_id: lead?.id.toString() ?? '',
+      action: 'create',
+      performed_by: input.created_by,
+    });
 
     return { success: true, lead: lead };
   } catch (error) {
@@ -356,6 +362,21 @@ export async function updateLead(
       .where(eq(leads.id, leadId))
       .returning();
 
+    // Add log entry for lead update
+    console.log("leadData", leadData);
+    console.log("existingLead", existingLead);
+    const changedFields = Object.keys(leadData).filter(key => 
+      leadData[key as keyof typeof leadData] !== existingLead[0][key as keyof typeof existingLead[0]]
+    );
+
+    await db.insert(logs).values({
+      description: `Fields: ${changedFields.join(', ')}`,
+      entity_type: 'lead',
+      entity_id: leadId.toString(),
+      action: 'update',
+      performed_by: userId,
+    });
+
     return { 
       success: true, 
       lead: updated,
@@ -446,8 +467,13 @@ export async function fetchFilteredLeads({
       email: leads.email,
       residential_status: leads.residential_status,
       employment_status: leads.employment_status,
+      employment_salary: leads.employment_salary,
+      employment_length: leads.employment_length,
+      has_proof_of_residence: leads.has_proof_of_residence,
+      has_letter_of_consent: leads.has_letter_of_consent,
       loan_purpose: leads.loan_purpose,
       existing_loans: leads.existing_loans,
+      outstanding_loan_amount: leads.outstanding_loan_amount,
       amount: leads.amount,
       source: leads.source,
       status: leads.status,

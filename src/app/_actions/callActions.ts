@@ -1,7 +1,7 @@
 'use server';
 
 import { z } from "zod";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "~/server/db";
 import { lead_actions } from "~/server/db/schema";
 
@@ -24,18 +24,26 @@ export async function makeCall({ phoneNumber, leadId }: MakeCallParams) {
   }
 
   try {
+    // Get the user's email from Clerk
+    const user = await currentUser();
+    if (!user?.emailAddresses?.[0]?.emailAddress) {
+      return { success: false, message: "User email not found" };
+    }
+    const userEmail = user.emailAddresses[0].emailAddress;
+
     // Get the API key from environment variables
     const apiKey = process.env.SAMESPACE_API_KEY;
     if (!apiKey) {
       return { success: false, message: "Samespace API key not configured" };
     }
 
-    // Get the username from environment variables or use a default
-    const username = process.env.SAMESPACE_USERNAME ?? "cakent@capc.com.sg@capitalc";
+    // Construct the username with the user's email
+    const username = `${userEmail}@capitalc`;
+    // console.log('username', username);
 
     // Clean the phone number (remove any non-digit characters except +)
     const cleanedPhoneNumber = phoneNumber.replace(/[^\d+]/g, '');
-    console.log('cleanedPhoneNumber', cleanedPhoneNumber);
+    // console.log('cleanedPhoneNumber', cleanedPhoneNumber);
 
     // Make the API call to Samespace
     const response = await fetch('https://api.capcfintech.com/api/samespace/voice/v1', {
@@ -51,7 +59,12 @@ export async function makeCall({ phoneNumber, leadId }: MakeCallParams) {
     });
 
     if (!response.ok) {
-      throw new Error(`API call failed with status: ${response.status}`);
+      if (response.status === 422 && response.statusText === "Unprocessable Entity") {
+        throw new Error("Please check Samespace Wave and try again");
+      }
+      else{
+        throw new Error(`API call failed with status: ${response.status} : ${response.statusText}`);
+      }
     }
 
     const data = await response.json();

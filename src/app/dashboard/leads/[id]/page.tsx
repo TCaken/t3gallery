@@ -303,7 +303,7 @@ export default function LeadDetailPage({ params }: PageProps) {
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => router.back()} 
+              onClick={() => router.push(`/dashboard/leads`)} 
               className="flex items-center text-gray-600 hover:text-gray-900 transition-colors p-2 rounded-full hover:bg-gray-100"
             >
               <ArrowLeftIcon className="h-5 w-5" />

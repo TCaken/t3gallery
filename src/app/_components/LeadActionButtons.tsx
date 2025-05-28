@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { getUserRoles } from '~/server/rbac/queries';
@@ -34,6 +34,8 @@ import {
 import CustomWhatsAppModal from './CustomWhatsAppModal';
 import CallModal from './CallModal';
 import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
+import { Fragment } from 'react';
+import { Transition, Portal } from '@headlessui/react';
 
 interface ActionButton {
   id: string;
@@ -68,8 +70,28 @@ export default function LeadActionButtons({
   const [isLoading, setIsLoading] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isCallModalOpen, setIsCallModalOpen] = useState(false);
-  const { userId } = useAuth();
-  const router = useRouter();
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isMenuOpen &&
+        menuRef.current &&
+        menuButtonRef.current &&
+        !menuRef.current.contains(event.target as Node) &&
+        !menuButtonRef.current.contains(event.target as Node)
+      ) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isMenuOpen]);
 
   const handleAction = (action: string) => {
     setIsLoading(true);
@@ -160,18 +182,20 @@ export default function LeadActionButtons({
       onClick: () => handleAction('edit')
     },
     {
-      id: 'assign',
-      icon: UserPlusIcon,
-      solidIcon: UserPlusSolidIcon,
-      title: 'Assign to Agent',
-      onClick: () => handleAction('assign')
-    },
-    {
       id: 'call',
       icon: PhoneIcon,
       solidIcon: PhoneSolidIcon,
       title: 'Make Call',
       onClick: () => setIsCallModalOpen(true),
+    },
+    // Hidden buttons - keeping them in code but not rendering
+    /*
+    {
+      id: 'assign',
+      icon: UserPlusIcon,
+      solidIcon: UserPlusSolidIcon,
+      title: 'Assign to Agent',
+      onClick: () => handleAction('assign')
     },
     {
       id: 'whatsapp',
@@ -196,36 +220,44 @@ export default function LeadActionButtons({
       onClick: () => handleAction(isPinned ? 'unpin' : 'pin'),
       active: isPinned,
     },
+    */
   ];
 
   return (
     <>
       <div className="flex items-center space-x-1">
-        {buttons.map((button) => (
-          <button
-            key={button.id}
-            onClick={button.onClick}
-            disabled={button.disabled ?? isLoading}
-            title={button.title}
-            className={`p-2 rounded-full transition-all duration-200 ${
-              button.disabled
-                ? 'text-gray-400 cursor-not-allowed'
-                : button.active
-                ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-            }`}
-          >
-            {button.active ? (
-              <button.solidIcon className="h-4 w-4" />
-            ) : (
-              <button.solidIcon className="h-4 w-4" />
-            )}
-          </button>
-        ))}
+        {/* Only show Edit and Call buttons directly */}
+        <button
+          onClick={() => handleAction('edit')}
+          disabled={isLoading}
+          title="Edit Lead"
+          className="p-2 rounded-full transition-all duration-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+        >
+          <PencilSquareSolidIcon className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={() => setIsCallModalOpen(true)}
+          disabled={isLoading}
+          title="Make Call"
+          className="p-2 rounded-full transition-all duration-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+        >
+          <PhoneSolidIcon className="h-4 w-4" />
+        </button>
         
         <div className="relative">
           <button
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            ref={menuButtonRef}
+            onClick={() => {
+              if (!isMenuOpen && menuButtonRef.current) {
+                const rect = menuButtonRef.current.getBoundingClientRect();
+                setMenuPosition({
+                  top: rect.bottom,
+                  left: rect.right,
+                });
+              }
+              setIsMenuOpen(!isMenuOpen);
+            }}
             className={`p-2 rounded-full transition-all duration-200 ${
               isMenuOpen
                 ? 'text-blue-600 bg-blue-50'
@@ -237,21 +269,62 @@ export default function LeadActionButtons({
           </button>
 
           {isMenuOpen && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+            <div 
+              ref={menuRef}
+              className="fixed w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-[100]"
+              style={{
+                top: `${menuPosition.top}px`,
+                left: `${menuPosition.left}px`,
+              }}
+            >
               <div className="py-1">
-                <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100">
-                  Move to Status
-                </div>
-                {statusOptions.map((status) => (
-                  <button
-                    key={status.id}
-                    onClick={() => handleAction(`move_to_${status.id}`)}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                  >
-                    {getStatusIcon(status.id)}
-                    <span className="ml-2">{status.label}</span>
-                  </button>
-                ))}
+                {/* Assign to Agent */}
+                <button
+                  onClick={() => {
+                    handleAction('assign');
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                >
+                  <UserPlusSolidIcon className="h-4 w-4" />
+                  <span className="ml-2">Assign to Agent</span>
+                </button>
+
+                {/* Send WhatsApp */}
+                <button
+                  onClick={() => {
+                    setIsWhatsAppModalOpen(true);
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                >
+                  <ChatBubbleLeftSolidIcon className="h-4 w-4" />
+                  <span className="ml-2">Send WhatsApp</span>
+                </button>
+
+                {/* Schedule Appointment */}
+                <button
+                  onClick={() => {
+                    window.open(`/dashboard/leads/${leadId}/appointment`, '_blank');
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                >
+                  <CalendarDaysSolidIcon className="h-4 w-4" />
+                  <span className="ml-2">Schedule Appointment</span>
+                </button>
+
+                {/* Pin/Unpin Lead */}
+                <button
+                  onClick={() => {
+                    handleAction(isPinned ? 'unpin' : 'pin');
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                >
+                  <BookmarkSolidIcon className="h-4 w-4" />
+                  <span className="ml-2">{isPinned ? 'Unpin Lead' : 'Pin Lead'}</span>
+                </button>
               </div>
             </div>
           )}
