@@ -1,64 +1,104 @@
 "use server";
 
 import { db } from "~/server/db";
-import { leads } from "~/server/db/schema";
+import { leads, users } from "~/server/db/schema";
 import { desc, asc, sql, eq, inArray } from "drizzle-orm";
+import { type InferSelectModel } from 'drizzle-orm';
 
-export async function exportAllLeadsToCSV(selectedStatuses: string[] = []) {
+type Lead = InferSelectModel<typeof leads>;
+
+interface LeadWithAgent extends Lead {
+  assigned_user?: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+  } | null;
+}
+
+interface CSVData {
+  agentName: string;
+  csvData: string;
+}
+
+interface ExportResult {
+  success: boolean;
+  error?: string;
+  csvDataByStatusAndAgent?: Record<string, Record<string, CSVData>>;
+  totalExported?: number;
+  statusAgentCounts?: Record<string, Record<string, number>>;
+  agentNames?: Record<string, string>;
+}
+
+export async function exportAllLeadsToCSV(selectedStatuses: string[] = []): Promise<ExportResult> {
   try {
-    // Prepare the query based on selected statuses
-    let allLeads = [];
+    // Fetch leads with assigned user information
+    let allLeads: LeadWithAgent[] = [];
     
     if (selectedStatuses.length > 0) {
-      // Fetch leads with the selected statuses
       allLeads = await db.query.leads.findMany({
         where: inArray(leads.status, selectedStatuses),
         orderBy: [desc(leads.created_at)],
         with: {
-          // Include any relations you might need, like assigned agent, etc.
-        },
+          assigned_user: {
+            columns: {
+              id: true,
+              firstName: true,
+              lastName: true
+            }
+          }
+        }
       });
     } else {
-      // Fetch all leads if no statuses are selected
       allLeads = await db.query.leads.findMany({
         orderBy: [desc(leads.created_at)],
         with: {
-          // Include any relations you might need, like assigned agent, etc.
-        },
+          assigned_user: {
+            columns: {
+              id: true,
+              firstName: true,
+              lastName: true
+            }
+          }
+        }
       });
     }
 
-    // If no leads found, return an error
     if (!allLeads || allLeads.length === 0) {
       return {
         success: false,
         error: "No leads found to export",
-        csvData: null,
       };
     }
 
-    // Group leads by status for separate exports
-    const leadsByStatus: Record<string, typeof allLeads> = {};
+    // Group leads by status and assigned agent
+    const leadsByStatusAndAgent: Record<string, Record<string, LeadWithAgent[]>> = {};
+    const agentNames: Record<string, string> = {};
     
-    if (selectedStatuses.length > 0) {
-      // Initialize empty arrays for each selected status
-      selectedStatuses.forEach(status => {
-        leadsByStatus[status] = [];
-      });
+    // Initialize the structure for each status
+    selectedStatuses.forEach(status => {
+      leadsByStatusAndAgent[status] = {};
+    });
+    
+    // Group leads by status and agent
+    allLeads.forEach(lead => {
+      if (!lead.status || !selectedStatuses.includes(lead.status)) return;
       
-      // Group leads by status
-      allLeads.forEach(lead => {
-        if (lead.status && selectedStatuses.includes(lead.status)) {
-          // Use optional chaining to safely access and update
-          leadsByStatus[lead.status]?.push(lead);
-        }
-      });
-    } else {
-      // Create a single group with all leads
-      leadsByStatus.all = allLeads;
-    }
+      const agentId = lead.assigned_to || 'unassigned';
+      const agentName = lead.assigned_user 
+        ? `${lead.assigned_user.firstName || ''} ${lead.assigned_user.lastName || ''}`.trim() || 'Unknown'
+        : 'Unassigned';
+      
+      // Store agent name for later use
+      agentNames[agentId] = agentName;
+      
+      // Initialize agent group if it doesn't exist
+      leadsByStatusAndAgent[lead.status][agentId] ??= [];
+      
+      // Add lead to appropriate group
+      leadsByStatusAndAgent[lead.status][agentId].push(lead);
+    });
 
-    // Define the columns for the CSV based on the provided fields
+    // Define CSV columns
     const columns = [
       "firstName",
       "lastName",
@@ -69,63 +109,69 @@ export async function exportAllLeadsToCSV(selectedStatuses: string[] = []) {
     // Create CSV header row
     const csvHeader = columns.join(",");
 
-    // Generate CSV data for each status group
-    const csvDataByStatus: Record<string, string> = {};
+    // Generate CSV data for each status and agent combination
+    const csvDataByStatusAndAgent: Record<string, Record<string, CSVData>> = {};
+    const statusAgentCounts: Record<string, Record<string, number>> = {};
     
-    for (const [status, statusLeads] of Object.entries(leadsByStatus)) {
-      if (statusLeads.length === 0) continue;
+    for (const [status, agentGroups] of Object.entries(leadsByStatusAndAgent)) {
+      csvDataByStatusAndAgent[status] = {};
+      statusAgentCounts[status] = {};
       
-      // Map leads to CSV rows
-      const csvRows = statusLeads.map(lead => {
-        // Map each lead to the columns
-        return columns.map(column => {
-          // Get the value for the current column
-          let value = "";
-          
-          // Special handling for name fields (split from full_name)
-          if (column === "firstName") {
-            // value = lead.full_name ? lead.full_name.split(" ")[0] ?? "" : "";
-            value = "AirConnect"
-          } else if (column === "lastName") {
-            value = lead.full_name ?? "AirConnect";
-          } else if (column === "personalPhone") {
-            // Remove "65" prefix if it exists and format the phone number
-            const phoneNumber = lead.phone_number || "";
-            value = phoneNumber.startsWith("+65") ? phoneNumber.substring(1) : phoneNumber
-            // value = lead.phone_number || "";
-          } else if (column === "email") {
-            value = lead.email !== null && lead.email !== "UNKNOWN" ? lead.email : `notimportant${lead.phone_number}@test.com`;
-          } else if (lead[column as keyof typeof lead] !== undefined) {
-            value = String(lead[column as keyof typeof lead] ?? "");
-          }
-          
-          // Escape quotes and wrap values with commas in double quotes
-          if (value.includes(",") || value.includes("\"")) {
-            value = `"${value.replace(/"/g, '""')}"`;
-          }
-          
-          return value;
-        }).join(",");
-      });
+      for (const [agentId, agentLeads] of Object.entries(agentGroups)) {
+        if (agentLeads.length === 0) continue;
+        
+        // Map leads to CSV rows
+        const csvRows = agentLeads.map(lead => {
+          return columns.map(column => {
+            let value = "";
+            
+            if (column === "firstName") {
+              value = "AirConnect";
+            } else if (column === "lastName") {
+              value = lead.full_name ?? "AirConnect";
+            } else if (column === "personalPhone") {
+              const phoneNumber = lead.phone_number || "";
+              value = phoneNumber.startsWith("+65") ? phoneNumber.substring(1) : phoneNumber;
+            } else if (column === "email") {
+              value = lead.email !== null && lead.email !== "UNKNOWN" 
+                ? lead.email 
+                : `notimportant${lead.phone_number}@test.com`;
+            } else if (lead[column as keyof typeof lead] !== undefined) {
+              value = String(lead[column as keyof typeof lead] ?? "");
+            }
+            
+            if (value.includes(",") || value.includes("\"")) {
+              value = `"${value.replace(/"/g, '""')}"`;
+            }
+            
+            return value;
+          }).join(",");
+        });
 
-      // Combine header and rows
-      csvDataByStatus[status] = [csvHeader, ...csvRows].join("\n");
+        // Store CSV data with agent name
+        const agentName = agentNames[agentId];
+        csvDataByStatusAndAgent[status][agentId] = {
+          agentName,
+          csvData: [csvHeader, ...csvRows].join("\n")
+        };
+        
+        // Store counts
+        statusAgentCounts[status][agentId] = agentLeads.length;
+      }
     }
 
     return {
       success: true,
-      csvDataByStatus,
+      csvDataByStatusAndAgent,
       totalExported: allLeads.length,
-      statusCounts: Object.fromEntries(
-        Object.entries(leadsByStatus).map(([status, leads]) => [status, leads.length])
-      ),
+      statusAgentCounts,
+      agentNames
     };
   } catch (error) {
     console.error("Error exporting leads to CSV:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "An unknown error occurred",
-      csvData: null,
     };
   }
 } 

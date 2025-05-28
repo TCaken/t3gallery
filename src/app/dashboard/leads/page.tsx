@@ -670,22 +670,30 @@ export default function LeadsPage() {
       
       // Create and download each CSV file
       const date = new Date().toISOString().slice(0, 10);
-      const downloadCount = Object.entries(result.csvDataByStatus).length;
+      let totalFiles = 0;
       
-      // Process each status CSV
-      Object.entries(result.csvDataByStatus).forEach(([status, csvData]) => {
+      // Process each status and agent combination
+      if (result.csvDataByStatusAndAgent) {
+        Object.entries(result.csvDataByStatusAndAgent).forEach(([status, agentGroups]) => {
+          Object.entries(agentGroups).forEach(([agentId, data]) => {
+            // Skip if no data
+            if (!data.csvData) return;
+            
         // Create a Blob from the CSV data
-        const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8' });
+            const blob = new Blob([data.csvData], { type: 'text/csv;charset=utf-8' });
         
         // Create a download link element
         const downloadLink = document.createElement('a');
         
         // Create a URL for the blob
         const url = URL.createObjectURL(blob);
+            
+            // Format agent name for filename (remove spaces and special characters)
+            const safeAgentName = data.agentName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         
         // Set attributes for the download link
         downloadLink.href = url;
-        downloadLink.download = `leads_${date}_${status}.csv`;
+            downloadLink.download = `${safeAgentName}_${status}_${date}.csv`;
         
         // Append to the document, click it to trigger download, then remove it
         document.body.appendChild(downloadLink);
@@ -694,16 +702,31 @@ export default function LeadsPage() {
         
         // Release the URL object
         URL.revokeObjectURL(url);
+            
+            totalFiles++;
       });
+        });
+      }
       
-      // Prepare the success message with counts
-      const statusCounts = Object.entries(result.statusCounts ?? {})
-        .map(([status, count]) => `${status}: ${count}`)
+      // Prepare the success message with counts by agent and status
+      let countsByAgent = '';
+      if (result.statusAgentCounts && result.agentNames) {
+        countsByAgent = Object.entries(result.statusAgentCounts)
+          .map(([status, agentCounts]) => {
+            const agentDetails = Object.entries(agentCounts)
+              .map(([agentId, count]) => {
+                const agentName = result.agentNames?.[agentId] || 'Unknown';
+                return `${agentName}: ${count}`;
+              })
         .join(', ');
+            return `${status} (${agentDetails})`;
+          })
+          .join('\n');
+      }
       
       setExportStatus({ 
         loading: false, 
-        success: `Successfully exported ${result.totalExported} leads in ${downloadCount} files (${statusCounts}).` 
+        success: `Successfully exported ${result.totalExported ?? 0} leads in ${totalFiles} files:\n\n${countsByAgent}` 
       });
     } catch (error) {
       console.error("Error in handleExportLeads:", error);

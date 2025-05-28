@@ -469,6 +469,8 @@ export async function fetchFilteredLeads({
       employment_status: leads.employment_status,
       employment_salary: leads.employment_salary,
       employment_length: leads.employment_length,
+      has_work_pass_expiry: leads.has_work_pass_expiry,
+      has_payslip_3months: leads.has_payslip_3months,
       has_proof_of_residence: leads.has_proof_of_residence,
       has_letter_of_consent: leads.has_letter_of_consent,
       loan_purpose: leads.loan_purpose,

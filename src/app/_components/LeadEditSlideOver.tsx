@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState, useEffect } from 'react'
 import { Dialog, Transition } from '@headlessui/react'
-import { XMarkIcon, QuestionMarkCircleIcon, ExclamationTriangleIcon, CalendarIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon, QuestionMarkCircleIcon, ExclamationTriangleIcon, CalendarIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 import { type InferSelectModel } from 'drizzle-orm';
 import { type leads } from "~/server/db/schema";
 
@@ -13,6 +13,7 @@ interface BaseField {
   type: string;
   disabled?: boolean;
   showIf?: (values: Partial<Lead>) => boolean;
+  note?: string | ((values: Partial<Lead>) => string);
 }
 
 interface TextField extends BaseField {
@@ -33,6 +34,7 @@ type Field = TextField | SelectField | CheckboxField;
 interface Section {
   title: string;
   fields: Field[];
+  icon?: React.ComponentType<{ className?: string }>;
 }
 
 // Type guard functions
@@ -97,6 +99,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [initialValues, setInitialValues] = useState<FormValues>(lead);
+  const [currentStep, setCurrentStep] = useState(0);
 
   // console.log("LeadEditSlideOver", lead);
   
@@ -109,6 +112,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
     setFormValues(newValues);
     setInitialValues(newValues);
     setHasUnsavedChanges(false);
+    setCurrentStep(0);
   }, [lead]);
 
   // Check for unsaved changes
@@ -349,14 +353,14 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
     {
       id: 'save',
       label: 'Save Changes',
-      color: 'bg-blue-600 hover:bg-blue-700',
+      color: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
       textColor: 'text-white',
       enabled: true
     },
     {
       id: 'book',
       label: 'Book Appointment',
-      color: 'bg-green-600 hover:bg-green-700',
+      color: 'bg-green-600 hover:bg-green-700 focus:ring-green-500',
       textColor: 'text-white',
       icon: CalendarIcon,
       enabled: true,
@@ -365,64 +369,86 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
     {
       id: 'follow_up',
       label: 'Schedule Follow-up',
-      color: 'bg-purple-600 hover:bg-purple-700',
+      color: 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500',
       textColor: 'text-white',
       enabled: true
     },
     {
       id: 'no_answer',
       label: 'No Answer',
-      color: 'bg-gray-600 hover:bg-gray-700',
+      color: 'bg-gray-600 hover:bg-gray-700 focus:ring-gray-500',
       textColor: 'text-white',
       enabled: true
     },
     {
       id: 'give_up',
       label: 'Give Up',
-      color: 'bg-red-600 hover:bg-red-700',
+      color: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
       textColor: 'text-white',
       enabled: true
     },
     {
       id: 'blacklist',
       label: 'Blacklist',
-      color: 'bg-black hover:bg-gray-900',
+      color: 'bg-black hover:bg-gray-900 focus:ring-gray-500',
       textColor: 'text-white',
       enabled: true
     }
   ];
 
+  // Navigation functions for multi-step
+  const nextStep = () => {
+    if (currentStep < questionnaireSections.length - 1) {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  const prevStep = () => {
+    if (currentStep > 0) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
   const renderField = (field: Field) => {
     if (isSelectField(field)) {
       return (
-        <select
-          id={field.name.toString()}
-          name={field.name.toString()}
-          value={formValues[field.name]?.toString() ?? ''}
-          onChange={handleFieldChange}
-          className="mt-1 block w-full rounded-lg border-2 border-gray-300 py-2.5 px-3 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-base"
-        >
-          <option value="">Select...</option>
-          {field.options.map((option: string) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
+        <div className="space-y-2">
+          <select
+            id={field.name.toString()}
+            name={field.name.toString()}
+            value={formValues[field.name]?.toString() ?? ''}
+            onChange={handleFieldChange}
+            className="w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base shadow-sm transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 focus:outline-none hover:border-gray-300"
+          >
+            <option value="">Select an option...</option>
+            {field.options.map((option: string) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        </div>
       );
     }
 
     if (isCheckboxField(field)) {
       return (
-        <div className="mt-2 flex items-center">
-          <input
-            type="checkbox"
-            id={field.name.toString()}
-            name={field.name.toString()}
-            checked={!!formValues[field.name]}
-            onChange={handleFieldChange}
-            className="h-5 w-5 rounded border-2 border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
-          />
-          <label htmlFor={field.name.toString()} className="ml-3 text-base text-gray-700">
-            Yes
+        <div className="space-y-2">
+          <label className="flex items-start space-x-3 cursor-pointer group">
+            <div className="relative">
+              <input
+                type="checkbox"
+                id={field.name.toString()}
+                name={field.name.toString()}
+                checked={!!formValues[field.name]}
+                onChange={handleFieldChange}
+                className="h-5 w-5 rounded-lg border-2 border-gray-300 text-blue-600 transition-all duration-200 focus:ring-4 focus:ring-blue-100 focus:ring-offset-0 group-hover:border-blue-400"
+              />
+              {formValues[field.name] && (
+                <CheckCircleIcon className="absolute -top-0.5 -left-0.5 h-6 w-6 text-blue-600 pointer-events-none" />
+              )}
+            </div>
+            <span className="text-base text-gray-700 leading-relaxed">
+              Yes, I confirm this
+            </span>
           </label>
         </div>
       );
@@ -430,144 +456,448 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
 
     if (isTextField(field)) {
       return (
-        <input
-          type={field.type}
-          id={field.name.toString()}
-          name={field.name.toString()}
-          value={formValues[field.name]?.toString() ?? ''}
-          onChange={handleFieldChange}
-          disabled={field.disabled}
-          className={`mt-1 block w-full rounded-lg border-2 py-2.5 px-3 shadow-sm text-base ${
-            field.disabled 
-              ? 'bg-gray-50 border-gray-200 text-gray-500'
-              : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500'
-          }`}
-        />
+        <div className="space-y-2">
+          <input
+            type={field.type}
+            id={field.name.toString()}
+            name={field.name.toString()}
+            value={formValues[field.name]?.toString() ?? ''}
+            onChange={handleFieldChange}
+            disabled={field.disabled}
+            className={`w-full rounded-xl border-2 px-4 py-3 text-base shadow-sm transition-all duration-200 focus:outline-none ${
+              field.disabled 
+                ? 'bg-gray-50 border-gray-200 text-gray-500 cursor-not-allowed'
+                : 'bg-white border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 hover:border-gray-300'
+            }`}
+            placeholder={field.type === 'tel' ? '+65 XXXX XXXX' : 'Enter your answer...'}
+          />
+        </div>
       );
     }
 
     return null;
   };
 
+  const currentSection = questionnaireSections[currentStep];
+  const progress = ((currentStep + 1) / questionnaireSections.length) * 100;
+
+  // Add this new function to create lead details sections
+  const createLeadDetailsSections = (): Section[] => [
+    {
+      title: "Lead Information",
+      icon: QuestionMarkCircleIcon,
+      fields: [
+        { name: "source", label: "Lead Source", type: "text", disabled: true } as TextField,
+        { name: "full_name", label: "Full Name", type: "text" } as TextField,
+        { name: "email", label: "Email", type: "text" } as TextField,
+        { name: "phone_number", label: "Primary Phone", type: "tel", disabled: true } as TextField,
+        { name: "phone_number_2", label: "Secondary Phone", type: "tel" } as TextField,
+        { name: "phone_number_3", label: "Additional Phone", type: "tel" } as TextField,
+      ]
+    },
+    {
+      title: "Residential Information",
+      icon: QuestionMarkCircleIcon,
+      fields: [
+        { 
+          name: "residential_status", 
+          label: "Residential Status", 
+          type: "select",
+          options: ["Local", "Foreigner", "UNKNOWN"]
+        } as SelectField,
+        { 
+          name: "has_work_pass_expiry", 
+          label: "Has Valid Work Pass", 
+          type: "checkbox",
+          showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
+          note: "⚠️ Must have at least 6 months validity from today"
+        } as CheckboxField,
+        { 
+          name: "has_proof_of_residence", 
+          label: "Has Proof of Residence", 
+          type: "checkbox",
+          showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
+          note: "📄 Accepted documents:\n\t• Bank statement\n\t• Utility Bill\n\t• Handphone Bill\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
+        } as CheckboxField,
+        { 
+          name: "has_letter_of_consent", 
+          label: "Has Letter of Consent", 
+          type: "checkbox",
+          showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
+          note: "📝 Required for LTVP and LTVP+ pass holders only"
+        } as CheckboxField
+      ]
+    },
+    {
+      title: "Employment Information",
+      icon: QuestionMarkCircleIcon,
+      fields: [
+        { 
+          name: "employment_status", 
+          label: "Employment Status", 
+          type: "select",
+          options: ["Full-Time", "Part-Time", "Self-Employed", "Unemployed", "UNKNOWN"]
+        } as SelectField,
+        { 
+          name: "employment_salary", 
+          label: "Monthly Income", 
+          type: "text"
+        } as TextField,
+        { 
+          name: "employment_length", 
+          label: "Length of Employment", 
+          type: "text",
+          showIf: (values: Partial<Lead>) => values.employment_status !== "Unemployed"
+        } as TextField,
+        {
+          name: "has_payslip_3months",
+          label: "Has Latest 3 Months Payslips",
+          type: "checkbox",
+          showIf: (values: Partial<Lead>) => {
+            const salary = parseFloat(values.employment_salary?.toString() ?? '0');
+            return (
+              values.residential_status === "Foreigner" ||
+              (values.residential_status === "Local" && (
+                (values.employment_status === "Full-Time" && salary >= 7400) ||
+                values.employment_status === "Self-Employed"
+              ))
+            );
+          },
+          note: (values: Partial<Lead>) => {
+            const salary = parseFloat(values.employment_salary?.toString() ?? '0');
+            const isHighIncome = values.employment_status === "Full-Time" && salary >= 7400;
+            const isSelfEmployed = values.employment_status === "Self-Employed";
+            
+            let note = "📄 Requirements:\n• Must be latest 3 months\n• No payment vouchers\n• No handwritten payslips\n\n⚠️ From 6th of the month onwards, must include last month's payslip";
+            
+            if (values.residential_status === "Local") {
+              if (isHighIncome) {
+                note += "\n💡 Required for high-income verification (>= $7,400)";
+              } else if (isSelfEmployed) {
+                note += "\n💡 Required for PHV Drivers (Private Hire Vehicle) income verification";
+              }
+            }
+            
+            return note;
+          }
+        } as CheckboxField
+      ]
+    },
+    {
+      title: "Loan Information",
+      icon: QuestionMarkCircleIcon,
+      fields: [
+        { 
+          name: "amount", 
+          label: "Requested Loan Amount", 
+          type: "text" 
+        } as TextField,
+        { 
+          name: "loan_purpose", 
+          label: "Purpose of Loan", 
+          type: "text" 
+        } as TextField,
+        { 
+          name: "existing_loans", 
+          label: "Has Existing Loans", 
+          type: "select", 
+          options: ["Yes", "No", "UNKNOWN"] 
+        } as SelectField,
+        { 
+          name: "outstanding_loan_amount", 
+          label: "Outstanding Loan Amount", 
+          type: "text",
+          showIf: (values: Partial<Lead>) => values.existing_loans === "Yes"
+        } as TextField
+      ]
+    },
+    {
+      title: "Communication Preferences",
+      icon: QuestionMarkCircleIcon,
+      fields: [
+        { 
+          name: "contact_preference", 
+          label: "Preferred Contact Method", 
+          type: "select",
+          options: ["No Preferences", "WhatsApp", "Call", "SMS", "Email"]
+        } as SelectField,
+        { 
+          name: "communication_language", 
+          label: "Preferred Language", 
+          type: "select",
+          options: ["No Preferences", "English", "Mandarin", "Malay", "Tamil", "Others"]
+        } as SelectField
+      ]
+    }
+  ];
+
   return (
     <>
-      <Transition.Root show={isOpen} as={Fragment}>
+    <Transition.Root show={isOpen} as={Fragment}>
         <Dialog as="div" className="relative z-50" onClose={handleCloseAttempt}>
-          <Transition.Child
-            as={Fragment}
-            enter="ease-out duration-200"
-            enterFrom="opacity-0"
-            enterTo="opacity-100"
-            leave="ease-in duration-200"
-            leaveFrom="opacity-100"
-            leaveTo="opacity-0"
-          >
-            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity" />
-          </Transition.Child>
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity" />
+        </Transition.Child>
 
-          <div className="fixed inset-0 overflow-hidden">
-            <div className="absolute inset-0 overflow-hidden">
-              <div className="pointer-events-none fixed inset-y-0 right-0 flex max-w-full pl-10">
-                <Transition.Child
-                  as={Fragment}
-                  enter="transform transition ease-out duration-400"
-                  enterFrom="translate-x-full"
-                  enterTo="translate-x-0"
-                  leave="transform transition ease-in duration-400"
-                  leaveFrom="translate-x-0"
-                  leaveTo="translate-x-full"
-                >
-                  <Dialog.Panel className="pointer-events-auto relative w-screen max-w-3xl">
-                    <div className="flex h-full flex-col overflow-y-scroll bg-white pt-6 shadow-xl">
-                      <div className="px-4 sm:px-6">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <Dialog.Title className="text-xl font-semibold leading-6 text-gray-900">
-                              {isQuestionnaireMode ? "Lead Questionnaire" : "Edit Lead"}
-                            </Dialog.Title>
-                            <p className="mt-2 text-base text-gray-600">
-                              {isQuestionnaireMode 
-                                ? "Please help us understand your requirements better" 
-                                : "Update lead information"}
-                            </p>
+        <div className="fixed inset-0 overflow-hidden">
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="pointer-events-none fixed inset-y-0 right-0 flex max-w-full pl-4 sm:pl-6 lg:pl-8">
+              <Transition.Child
+                as={Fragment}
+                enter="transform transition ease-out duration-500"
+                enterFrom="translate-x-full"
+                enterTo="translate-x-0"
+                leave="transform transition ease-in duration-300"
+                leaveFrom="translate-x-0"
+                leaveTo="translate-x-full"
+              >
+                <Dialog.Panel className="pointer-events-auto relative w-screen max-w-2xl">
+                    <div className="flex h-full flex-col bg-white shadow-2xl">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-6 text-white">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                            <Dialog.Title className="text-xl font-semibold">
+                            {isQuestionnaireMode ? "Lead Questionnaire" : "Edit Lead"}
+                          </Dialog.Title>
+                            <p className="mt-1 text-blue-100 text-sm">
+                            {isQuestionnaireMode 
+                                ? "Help us understand your requirements better" 
+                              : "Update lead information and status"}
+                          </p>
+                        </div>
+                          <button
+                            type="button"
+                          className="rounded-lg p-2 text-blue-100 hover:bg-blue-600 hover:text-white transition-colors duration-200"
+                            onClick={handleCloseAttempt}
+                          >
+                            <span className="sr-only">Close panel</span>
+                            <XMarkIcon className="h-6 w-6" aria-hidden="true" />
+                          </button>
+                      </div>
+                      
+                      {/* Progress Bar - Only show in questionnaire mode */}
+                      {isQuestionnaireMode && (
+                        <div className="mt-4">
+                          <div className="flex items-center justify-between text-sm text-blue-100 mb-2">
+                            <span>Step {currentStep + 1} of {questionnaireSections.length}</span>
+                            <span>{Math.round(progress)}% complete</span>
                           </div>
-                          <div className="ml-3 flex h-7 items-center">
-                            <button
-                              type="button"
-                              className="rounded-md bg-white text-gray-400 hover:text-gray-500"
-                              onClick={handleCloseAttempt}
-                            >
-                              <span className="sr-only">Close panel</span>
-                              <XMarkIcon className="h-6 w-6" aria-hidden="true" />
-                            </button>
+                          <div className="w-full bg-blue-500/30 rounded-full h-2">
+                            <div 
+                              className="bg-white rounded-full h-2 transition-all duration-500 ease-out"
+                              style={{ width: `${progress}%` }}
+                            />
                           </div>
                         </div>
-                      </div>
+                      )}
+                    </div>
 
-                      <div className="relative mt-6 flex-1 px-4 sm:px-6">
-                        <form onSubmit={handleSubmit} className="space-y-8 pb-32">
-                          {questionnaireSections.map((section, sectionIndex) => (
-                            <div key={section.title} className="border-b border-gray-200 pb-8">
-                              <h3 className="text-lg font-medium text-gray-900 mb-6">
-                                {section.title}
-                              </h3>
-                              <div className="grid grid-cols-1 gap-y-8 gap-x-4 sm:grid-cols-2">
-                                {section.fields.map((field, fieldIndex) => {
-                                  const shouldShow = !field.showIf || field.showIf(formValues);
-                                  if (!shouldShow) return null;
+                    {/* Form Content */}
+                    <div className="flex-1 overflow-y-auto">
+                        <form onSubmit={handleSubmit} className="h-full flex flex-col">
+                        <div className="flex-1 px-6 py-8">
+                          {isQuestionnaireMode ? (
+                            // Questionnaire View
+                            currentSection && (
+                              <div className="space-y-8">
+                                <div className="text-center">
+                                  <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                    {currentSection.title}
+                                  </h2>
+                                  <div className="w-16 h-1 bg-blue-600 mx-auto rounded-full"></div>
+                                </div>
 
-                                  return (
-                                    <div key={field.name} className={field.type === 'checkbox' ? 'col-span-2' : undefined}>
-                                      <label htmlFor={field.name} className="block text-base font-medium text-gray-700 mb-2">
-                                        {field.label}
-                                      </label>
-                                      {renderField(field)}
+                                <div className="space-y-8 max-w-lg mx-auto">
+                                  {currentSection.fields.map((field) => {
+                                    const shouldShow = !field.showIf || field.showIf(formValues);
+                                    if (!shouldShow) return null;
+
+                                    return (
+                                      <div key={field.name} className="space-y-3">
+                                        <label htmlFor={field.name} className="block text-lg font-medium text-gray-900 leading-relaxed">
+                                          {field.label}
+                                        </label>
+                                        {field.note && (
+                                          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+                                            <div className="text-sm text-blue-800 whitespace-pre-line leading-relaxed">
+                                              {typeof field.note === 'function' ? field.note(formValues) : field.note}
+                                            </div>
+                                          </div>
+                                        )}
+                                        {renderField(field)}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          ) : (
+                            // Lead Details View
+                            <div className="max-w-4xl mx-auto">
+                              {createLeadDetailsSections().map((section, sectionIndex) => (
+                                <div key={section.title} className="mb-8 last:mb-0">
+                                  <div className="flex items-center space-x-3 mb-6">
+                                    {section.icon && (
+                                      <section.icon className="h-6 w-6 text-blue-600" />
+                                    )}
+                                    <h2 className="text-xl font-semibold text-gray-900">
+                              {section.title}
+                                    </h2>
+                                  </div>
+                                  
+                                  <div className="bg-white rounded-xl border border-gray-200 p-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                      {section.fields.map((field) => {
+                                        const shouldShow = !field.showIf || field.showIf(formValues);
+                                        if (!shouldShow) return null;
+
+                                        return (
+                                          <div key={field.name} className="space-y-2">
+                                  <label htmlFor={field.name} className="block text-sm font-medium text-gray-700">
+                                    {field.label}
+                                  </label>
+                                            {field.note && (
+                                              <div className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded-r-lg mb-2">
+                                                <div className="text-xs text-blue-800 whitespace-pre-line leading-relaxed">
+                                                  {typeof field.note === 'function' ? field.note(formValues) : field.note}
+                                                </div>
+                                              </div>
+                                            )}
+                                            {renderField(field)}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                  );
-                                })}
-                              </div>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          )}
+                          </div>
 
-                          {/* Action Buttons */}
-                          <div className="sticky bottom-0 bg-white/80 backdrop-blur-sm border-t-2 border-gray-200 px-4 py-4 shadow-lg">
-                            <div className="flex flex-col space-y-4">
-                              <div className="flex flex-wrap gap-2">
-                                {actionButtons.map(button => (
+                        {/* Navigation */}
+                        <div className="border-t border-gray-200 bg-gray-50 px-6 py-4">
+                          <div className="flex items-center justify-between">
+                            {isQuestionnaireMode ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={prevStep}
+                                  disabled={currentStep === 0}
+                                  className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 ${
+                                    currentStep === 0
+                                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                      : 'bg-white border-2 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:ring-4 focus:ring-gray-100'
+                                  }`}
+                                >
+                                  Previous
+                                </button>
+
+                                {currentStep === questionnaireSections.length - 1 ? (
+                                  <div className="flex space-x-3">
+                                    {actionButtons.slice(0, 2).map(button => (
+                                      <button
+                                        key={button.id}
+                                        type={button.id === 'save' ? 'submit' : 'button'}
+                                        onClick={() => {
+                                          if (button.onClick) {
+                                            void button.onClick();
+                                          } else if (button.id !== 'save') {
+                                            handleActionClick(button.id);
+                                          }
+                                        }}
+                                        disabled={!button.enabled}
+                                        className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-4 ${button.color} ${button.textColor}
+                                        ${!button.enabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                          flex items-center space-x-2
+                                      `}
+                                      >
+                                        {button.icon && <button.icon className="h-5 w-5" />}
+                                        <span>{button.label}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : (
                                   <button
-                                    key={button.id}
-                                    type={button.id === 'save' ? 'submit' : 'button'}
-                                    onClick={() => {
-                                      if (button.onClick) {
-                                        void button.onClick();
-                                      } else if (button.id !== 'save') {
-                                        handleActionClick(button.id);
-                                      }
-                                    }}
-                                    disabled={!button.enabled}
-                                    className={`px-6 py-2.5 rounded-lg text-base font-medium ${button.color} ${button.textColor}
-                                      ${!button.enabled ? 'opacity-50 cursor-not-allowed' : ''}
-                                      ${selectedAction === button.id ? 'ring-2 ring-offset-2 ring-blue-500' : ''}
-                                      flex items-center gap-2
-                                    `}
+                                    type="button"
+                                    onClick={nextStep}
+                                    className="px-8 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 focus:ring-4 focus:ring-blue-100 transition-all duration-200 focus:outline-none"
                                   >
-                                    {button.icon && <button.icon className="h-5 w-5" />}
-                                    {button.label}
+                                    Continue
                                   </button>
-                                ))}
+                                )}
+                              </>
+                            ) : (
+                              // Lead Details View Actions
+                              <div className="flex items-center justify-between w-full">
+                                <div className="flex space-x-3">
+                                  {actionButtons.slice(0, 2).map(button => (
+                                    <button
+                                      key={button.id}
+                                      type={button.id === 'save' ? 'submit' : 'button'}
+                                      onClick={() => {
+                                        if (button.onClick) {
+                                          void button.onClick();
+                                        } else if (button.id !== 'save') {
+                                          handleActionClick(button.id);
+                                        }
+                                      }}
+                                      disabled={!button.enabled}
+                                      className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-4 ${button.color} ${button.textColor}
+                                      ${!button.enabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                        flex items-center space-x-2
+                                    `}
+                                    >
+                                      {button.icon && <button.icon className="h-5 w-5" />}
+                                      <span>{button.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Additional Actions (only on last step for questionnaire or always for lead details) */}
+                        {(!isQuestionnaireMode || currentStep === questionnaireSections.length - 1) && (
+                          <div className="border-t border-gray-200 bg-white px-6 py-4">
+                            <div className="text-sm text-gray-600 mb-3">Additional Actions:</div>
+                            <div className="flex flex-wrap gap-2">
+                              {actionButtons.slice(2).map(button => (
+                                <button
+                                  key={button.id}
+                                  type="button"
+                                  onClick={() => handleActionClick(button.id)}
+                                  disabled={!button.enabled}
+                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-4 ${button.color} ${button.textColor}
+                                    ${!button.enabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                  `}
+                                >
+                                  {button.label}
+                                </button>
+                              ))}
                             </div>
                           </div>
-                        </form>
-                      </div>
+                        )}
+                      </form>
                     </div>
-                  </Dialog.Panel>
-                </Transition.Child>
-              </div>
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
             </div>
           </div>
-        </Dialog>
-      </Transition.Root>
+        </div>
+      </Dialog>
+    </Transition.Root>
 
       {/* Confirmation Modal */}
       <Transition.Root show={showConfirmationModal} as={Fragment}>
@@ -583,17 +913,17 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                 leaveFrom="opacity-100 translate-y-0 sm:scale-100"
                 leaveTo="opacity-70 translate-y-4 sm:translate-y-0 sm:scale-95"
               >
-                <Dialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6 border-2 border-gray-200">
+                <Dialog.Panel className="relative transform overflow-hidden rounded-2xl bg-white px-6 pb-6 pt-6 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-200">
                   <div className="sm:flex sm:items-start">
                     <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
                       <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" aria-hidden="true" />
                     </div>
                     <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-                      <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
+                      <Dialog.Title as="h3" className="text-lg font-semibold leading-6 text-gray-900">
                         Confirm Action
                       </Dialog.Title>
                       <div className="mt-2">
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-gray-600">
                           {getConfirmationMessage(selectedAction)}
                         </p>
                         {selectedAction === 'follow_up' && (
@@ -610,7 +940,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                                 onChange={(e) => setFollowUpDate(e.target.value)}
                                 min={new Date().toISOString().split('T')[0]}
                                 max={getMaxFollowUpDate()}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                                className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                 required
                               />
                             </div>
@@ -624,7 +954,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                                 name="follow-up-time"
                                 value={followUpTime}
                                 onChange={(e) => setFollowUpTime(e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                                className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                               />
                               <p className="mt-1 text-xs text-gray-500">
                                 Leave empty to automatically set to 00:00
@@ -648,18 +978,18 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                   <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                     <button
                       type="button"
-                      className={`inline-flex w-full justify-center rounded-md px-3 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto ${
+                      className={`inline-flex w-full justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto transition-all duration-200 ${
                         selectedAction === 'blacklist' 
-                          ? 'bg-red-600 hover:bg-red-500'
-                          : 'bg-yellow-600 hover:bg-yellow-500'
-                      }`}
+                          ? 'bg-red-600 hover:bg-red-500 focus:ring-red-500'
+                          : 'bg-yellow-600 hover:bg-yellow-500 focus:ring-yellow-500'
+                      } focus:ring-4 focus:ring-offset-2`}
                       onClick={handleConfirmedAction}
                     >
                       Confirm
                     </button>
                     <button
                       type="button"
-                      className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+                      className="mt-3 inline-flex w-full justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto transition-all duration-200 focus:ring-4 focus:ring-gray-100"
                       onClick={() => setShowConfirmationModal(false)}
                     >
                       Cancel
@@ -686,17 +1016,17 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                 leaveFrom="opacity-100 translate-y-0 sm:scale-100"
                 leaveTo="opacity-70 translate-y-4 sm:translate-y-0 sm:scale-95"
               >
-                <Dialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6 border-2 border-gray-200">
+                <Dialog.Panel className="relative transform overflow-hidden rounded-2xl bg-white px-6 pb-6 pt-6 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-200">
                   <div className="sm:flex sm:items-start">
                     <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
                       <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" aria-hidden="true" />
                     </div>
                     <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-                      <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
+                      <Dialog.Title as="h3" className="text-lg font-semibold leading-6 text-gray-900">
                         Unsaved Changes
                       </Dialog.Title>
                       <div className="mt-2">
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-gray-600">
                           You have unsaved changes. Are you sure you want to leave? Your changes will be lost.
                         </p>
                       </div>
@@ -705,14 +1035,14 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                   <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                     <button
                       type="button"
-                      className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto"
+                      className="inline-flex w-full justify-center rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto transition-all duration-200 focus:ring-4 focus:ring-red-100"
                       onClick={handleConfirmedClose}
                     >
                       Leave without saving
                     </button>
                     <button
                       type="button"
-                      className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto"
+                      className="mt-3 inline-flex w-full justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto transition-all duration-200 focus:ring-4 focus:ring-gray-100"
                       onClick={handleCancelClose}
                     >
                       Continue editing
@@ -750,16 +1080,31 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
         options: ["Local", "Foreigner", "UNKNOWN"]
       } as SelectField,
       { 
-        name: "has_proof_of_residence", 
-        label: isQuestionnaireMode ? "Can you provide proof of residence?" : "Has Proof of Residence", 
+        name: "has_work_pass_expiry", 
+        label: isQuestionnaireMode 
+          ? "When does your work pass expiry?" 
+          : "Has Valid Work Pass", 
         type: "checkbox",
-        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner"
+        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
+        note: "⚠️ Must have at least 6 months validity from today"
+      } as CheckboxField,
+      { 
+        name: "has_proof_of_residence", 
+        label: isQuestionnaireMode 
+          ? "Can you provide proof of residence?" 
+          : "Has Proof of Residence", 
+        type: "checkbox",
+        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
+        note: "📄 Accepted documents:\n\t• Bank statement\n\t• Utility Bill\n\t• Handphone Bill\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
       } as CheckboxField,
       { 
         name: "has_letter_of_consent", 
-        label: isQuestionnaireMode ? "Do you have a letter of consent?" : "Has Letter of Consent", 
+        label: isQuestionnaireMode 
+          ? "Do you have a letter of consent from ICA?" 
+          : "Has Letter of Consent", 
         type: "checkbox",
-        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner"
+        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
+        note: "📝 Required for LTVP and LTVP+ pass holders only"
       } as CheckboxField
     ]
   },
@@ -782,7 +1127,41 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
         label: isQuestionnaireMode ? "How long have you been employed?" : "Length of Employment", 
         type: "text",
         showIf: (values: Partial<Lead>) => values.employment_status !== "Unemployed"
-      }
+      },
+      {
+        name: "has_payslip_3months",
+        label: isQuestionnaireMode 
+          ? "Do you have the latest 3 months payslips from your employer?" 
+          : "Has Latest 3 Months Payslips",
+        type: "checkbox",
+        showIf: (values: Partial<Lead>) => {
+          const salary = parseFloat(values.employment_salary?.toString() ?? '0');
+          return (
+            values.residential_status === "Foreigner" ||
+            (values.residential_status === "Local" && (
+              (values.employment_status === "Full-Time" && salary >= 7400) ||
+              values.employment_status === "Self-Employed"
+            ))
+          );
+        },
+        note: (values: Partial<Lead>) => {
+          const salary = parseFloat(values.employment_salary?.toString() ?? '0');
+          const isHighIncome = values.employment_status === "Full-Time" && salary >= 7400;
+          const isSelfEmployed = values.employment_status === "Self-Employed";
+          
+          let note = "📄 Requirements:\n• Must be latest 3 months\n• No payment vouchers\n• No handwritten payslips\n\n⚠️ From 6th of the month onwards, must include last month's payslip";
+          
+          if (values.residential_status === "Local") {
+            if (isHighIncome) {
+              note += "\n💡 Required for high-income verification (>= $7,400)";
+            } else if (isSelfEmployed) {
+              note += "\n💡 Required for PHV Drivers (Private Hire Vehicle) income verification";
+            }
+          }
+          
+          return note;
+        }
+      } as CheckboxField
     ] as Field[]
   },
   {
@@ -819,13 +1198,13 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
         name: "contact_preference", 
         label: isQuestionnaireMode ? "What's your preferred way of communication?" : "Preferred Contact Method", 
         type: "select",
-        options: ["No Preference", "WhatsApp", "Call", "SMS", "Email", "UNKNOWN"]
+        options: ["No Preferences", "WhatsApp", "Call", "SMS", "Email"]
       },
       { 
         name: "communication_language", 
         label: isQuestionnaireMode ? "Which language would you prefer?" : "Preferred Language", 
         type: "select",
-        options: ["No Preference", "English", "Mandarin", "Malay", "Tamil", "Others", "UNKNOWN"]
+        options: ["No Preferences", "English", "Mandarin", "Malay", "Tamil", "Others"]
       }
     ] as Field[]
   }

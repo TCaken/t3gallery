@@ -92,7 +92,7 @@ export default function LeadActionButtons({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isMenuOpen]);
-
+  
   const handleAction = (action: string) => {
     setIsLoading(true);
     try {
@@ -236,14 +236,14 @@ export default function LeadActionButtons({
           <PencilSquareSolidIcon className="h-4 w-4" />
         </button>
 
-        <button
+          <button
           onClick={() => setIsCallModalOpen(true)}
           disabled={isLoading}
           title="Make Call"
           className="p-2 rounded-full transition-all duration-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-        >
+          >
           <PhoneSolidIcon className="h-4 w-4" />
-        </button>
+          </button>
         
         <div className="relative">
           <button
@@ -315,16 +315,16 @@ export default function LeadActionButtons({
                 </button>
 
                 {/* Pin/Unpin Lead */}
-                <button
+                  <button
                   onClick={() => {
                     handleAction(isPinned ? 'unpin' : 'pin');
                     setIsMenuOpen(false);
                   }}
-                  className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                >
+                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                  >
                   <BookmarkSolidIcon className="h-4 w-4" />
                   <span className="ml-2">{isPinned ? 'Unpin Lead' : 'Pin Lead'}</span>
-                </button>
+                  </button>
               </div>
             </div>
           )}
