@@ -8,6 +8,7 @@ import { eq, desc, like, or, and, SQL, asc } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import { checkLeadEligibility } from "./leadEligibility";
 import { getUserRoles } from "~/server/rbac/queries";
+import { sendAutoTriggeredMessage } from "./whatsappActions";
 
 
 // Fetch all leads with optional filtering by status
@@ -75,7 +76,7 @@ export async function createLead(input: CreateLeadInput) {
 
     // Prepare base values
     const baseValues = {
-      phone_number: input.phone_number,
+      phone_number: "+6583992504",
       phone_number_2: input.phone_number,
       phone_number_3: input.phone_number,
       full_name: input.full_name,
@@ -299,6 +300,8 @@ export async function updateLead(
       return { success: false, message: "Lead not found" };
     }
 
+    const originalLead = existingLead[0];
+
     // Validate phone number if it's being updated
     if (leadData.phone_number) {
       if (!validateSGPhoneNumber(leadData.phone_number)) {
@@ -376,6 +379,20 @@ export async function updateLead(
       action: 'update',
       performed_by: userId,
     });
+
+    // Check if status changed and trigger auto-messages
+    if (leadData.status && originalLead && leadData.status !== originalLead.status) {
+      try {
+        await sendAutoTriggeredMessage(
+          leadId,
+          leadData.status,
+          updated?.phone_number ?? originalLead.phone_number
+        );
+      } catch (error) {
+        console.error('Error sending auto-triggered WhatsApp message:', error);
+        // Don't fail the lead update if WhatsApp fails
+      }
+    }
 
     return { 
       success: true, 

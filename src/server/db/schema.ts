@@ -447,6 +447,93 @@ export const checkedInAgents = createTable(
   ]
 );
 
+// WhatsApp Templates table
+export const whatsappTemplates = createTable(
+  "whatsapp_templates",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    template_id: d.varchar({ length: 100 }).default('WIP'),
+    name: d.varchar({ length: 255 }).notNull(),
+    description: d.text(),
+    workspace_id: d.varchar({ length: 255 }).notNull(),
+    channel_id: d.varchar({ length: 255 }).notNull(),
+    project_id: d.varchar({ length: 255 }).notNull(),
+    is_active: d.boolean().default(true),
+    trigger_on_status: d.json(), // Array of lead statuses that trigger this template
+    auto_send: d.boolean().default(false), // Whether to auto-send when status changes
+    supported_methods: d.json().notNull(), // Array: ['sms', 'whatsapp', 'both']
+    default_method: d.varchar({ length: 20 }).default('whatsapp'),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+    created_by: d.varchar({ length: 256 }).references(() => users.id),
+    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+  }),
+  (t) => [
+    index("whatsapp_template_id_idx").on(t.template_id),
+  ]
+);
+
+// Template Variables table
+export const templateVariables = createTable(
+  "template_variables",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    template_id: d.integer().references(() => whatsappTemplates.id, { onDelete: "cascade" }).notNull(),
+    variable_key: d.varchar({ length: 100 }).notNull(), // e.g., "Date", "Account_ID"
+    variable_type: d.varchar({ length: 50 }).default('string'), // string, number, date
+    data_source: d.varchar({ length: 100 }).notNull(), // e.g., "lead.full_name", "user.email", "system.date"
+    default_value: d.text(), // Fallback value if data source is null
+    format_pattern: d.varchar({ length: 255 }), // For date/number formatting
+    is_required: d.boolean().default(true),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("template_var_template_idx").on(t.template_id),
+    index("template_var_key_idx").on(t.variable_key)
+  ]
+);
+
+// Template Usage Log table
+export const templateUsageLog = createTable(
+  "template_usage_log",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    template_id: d.integer().references(() => whatsappTemplates.id).notNull(),
+    lead_id: d.integer().references(() => leads.id), // Made nullable
+    sent_to: d.varchar({ length: 20 }).notNull(), // Phone number
+    delivery_method: d.varchar({ length: 20 }).notNull(), // sms, whatsapp, both
+    status: d.varchar({ length: 50 }).default('pending'), // pending, sent, failed, delivered
+    trigger_type: d.varchar({ length: 50 }).notNull(), // manual, auto_status_change, scheduled
+    parameters_used: d.json(), // Store the actual parameters sent
+    api_response: d.json(), // Store API response for debugging
+    error_message: d.text(),
+    sent_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    sent_by: d.varchar({ length: 256 }).references(() => users.id),
+  }),
+  (t) => [
+    index("template_usage_template_idx").on(t.template_id),
+    index("template_usage_lead_idx").on(t.lead_id),
+    index("template_usage_date_idx").on(t.sent_at)
+  ]
+);
+
+// Add this new enum for delivery methods
+export const deliveryMethodEnum = pgEnum('delivery_method', [
+  'sms',
+  'whatsapp', 
+  'both'
+]);
+
+// Add this new enum for template trigger types
+export const templateTriggerEnum = pgEnum('template_trigger', [
+  'manual',
+  'auto_status_change',
+  'scheduled',
+  'appointment_booked',
+  'appointment_reminder'
+]);
+
 // Add these relations after all table definitions
 export const checkedInAgentsRelations = relations(checkedInAgents, ({ one }) => ({
   agent: one(users, {
