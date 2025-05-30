@@ -104,17 +104,6 @@ export default function LeadActionButtons({
     }
   };
 
-  const handleWhatsAppSend = async (
-    templateId: string, 
-    parameters: Record<string, string>,
-    deliveryMethod: 'sms' | 'whatsapp' | 'both' = 'whatsapp'
-  ) => {
-    // Actually send the WhatsApp message
-    const result = await sendWhatsAppMessage(phoneNumber, templateId, parameters, deliveryMethod);
-    console.log('Message send result:', result);
-    // Optionally, you can show a toast or call onAction if you want to update UI
-  };
-
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'new':
@@ -335,7 +324,6 @@ export default function LeadActionButtons({
       <CustomWhatsAppModal
         isOpen={isWhatsAppModalOpen}
         onClose={() => setIsWhatsAppModalOpen(false)}
-        onSend={handleWhatsAppSend}
         phoneNumber={phoneNumber}
       />
 
