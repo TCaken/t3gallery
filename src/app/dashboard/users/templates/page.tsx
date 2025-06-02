@@ -304,110 +304,114 @@ export default function WhatsAppTemplatesPage() {
 
       {/* Templates List */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Template
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Configuration
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Triggers
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {templates.map((template) => (
-              <tr key={template.id}>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {template.name}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      ID: {template.template_id}
-                    </div>
-                    {template.description && (
-                      <div className="text-xs text-gray-400 mt-1">
-                        {template.description}
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
-                    <div>Project: {template.project_id}</div>
-                    <div>Methods: {template.supported_methods.join(', ')}</div>
-                    <div>Default: {template.default_method}</div>
-                    <div>Variables: {template.variables?.length ?? 0}</div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
-                    {template.auto_send ? (
-                      <div>
-                        <div className="text-green-600 font-medium">Auto-send enabled</div>
-                        {template.trigger_on_status && template.trigger_on_status.length > 0 && (
-                          <div className="text-xs text-gray-500">
-                            On: {template.trigger_on_status.join(', ')}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-gray-500">Manual only</div>
-                    )}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <button
-                    onClick={() => handleToggleStatus(template.id, !template.is_active)}
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      template.is_active
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}
-                  >
-                    {template.is_active ? (
-                      <>
-                        <CheckCircleIcon className="h-3 w-3 mr-1" />
-                        Active
-                      </>
-                    ) : (
-                      <>
-                        <XCircleIcon className="h-3 w-3 mr-1" />
-                        Inactive
-                      </>
-                    )}
-                  </button>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => startEdit(template)}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      <PencilIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteTemplate(template.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
+                  Template
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
+                  Configuration
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">
+                  Triggers
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                  Actions
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {templates.map((template) => (
+                <tr key={template.id}>
+                  <td className="px-6 py-4 w-1/4">
+                    <div className="max-w-xs">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {template.name}
+                      </div>
+                      <div className="text-sm text-gray-500 truncate">
+                        ID: {template.template_id}
+                      </div>
+                      {template.description && (
+                        <div className="text-xs text-gray-400 mt-1 line-clamp-2">
+                          {template.description}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 w-1/4">
+                    <div className="text-sm text-gray-900">
+                      <div className="truncate">Project: {template.project_id}</div>
+                      <div>Methods: {template.supported_methods.join(', ')}</div>
+                      <div>Default: {template.default_method}</div>
+                      <div>Variables: {template.variables?.length ?? 0}</div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 w-1/5">
+                    <div className="text-sm text-gray-900">
+                      {template.auto_send ? (
+                        <div>
+                          <div className="text-green-600 font-medium">Auto-send enabled</div>
+                          {template.trigger_on_status && template.trigger_on_status.length > 0 && (
+                            <div className="text-xs text-gray-500 truncate">
+                              On: {template.trigger_on_status.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-gray-500">Manual only</div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 w-1/6">
+                    <button
+                      onClick={() => handleToggleStatus(template.id, !template.is_active)}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        template.is_active
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      {template.is_active ? (
+                        <>
+                          <CheckCircleIcon className="h-3 w-3 mr-1" />
+                          Active
+                        </>
+                      ) : (
+                        <>
+                          <XCircleIcon className="h-3 w-3 mr-1" />
+                          Inactive
+                        </>
+                      )}
+                    </button>
+                  </td>
+                  <td className="px-6 py-4 w-1/6 text-sm font-medium">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => startEdit(template)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="Edit template"
+                      >
+                        <PencilIcon className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTemplate(template.id)}
+                        className="text-red-600 hover:text-red-900"
+                        title="Delete template"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Template Form Modal */}
