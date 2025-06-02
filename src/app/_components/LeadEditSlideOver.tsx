@@ -430,6 +430,39 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
     }
 
     if (isCheckboxField(field)) {
+      // Special handling for residential_status field
+      if (field.name === 'residential_status') {
+        return (
+          <div className="space-y-2">
+            <label className="flex items-start space-x-3 cursor-pointer group">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  id={field.name.toString()}
+                  name={field.name.toString()}
+                  checked={formValues[field.name] === "Foreigner"}
+                  onChange={(e) => {
+                    const newValue = e.target.checked ? "Foreigner" : "Local";
+                    setFormValues(prev => ({
+                      ...prev,
+                      [field.name]: newValue
+                    }));
+                  }}
+                  className="h-5 w-5 rounded-lg border-2 border-gray-300 text-blue-600 transition-all duration-200 focus:ring-4 focus:ring-blue-100 focus:ring-offset-0 group-hover:border-blue-400"
+                />
+                {formValues[field.name] === "Foreigner" && (
+                  <CheckCircleIcon className="absolute -top-0.5 -left-0.5 h-6 w-6 text-blue-600 pointer-events-none" />
+                )}
+              </div>
+              <span className="text-base text-gray-700 leading-relaxed">
+                Yes, I am a foreigner
+              </span>
+            </label>
+          </div>
+        );
+      }
+      
+      // Regular checkbox handling for other fields
       return (
         <div className="space-y-2">
           <label className="flex items-start space-x-3 cursor-pointer group">
@@ -501,10 +534,10 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
       fields: [
         { 
           name: "residential_status", 
-          label: "Residential Status", 
-          type: "select",
-          options: ["Local", "Foreigner", "UNKNOWN"]
-        } as SelectField,
+          label: "Are you a foreigner?", 
+          type: "checkbox",
+          note: "Check if you are a foreigner, leave unchecked if you are a local resident"
+        } as CheckboxField,
         { 
           name: "has_work_pass_expiry", 
           label: "Has Valid Work Pass", 
@@ -696,8 +729,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                               className="bg-white rounded-full h-2 transition-all duration-500 ease-out"
                               style={{ width: `${progress}%` }}
                             />
-                          </div>
                         </div>
+                      </div>
                       )}
                     </div>
 
@@ -1075,10 +1108,10 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
     fields: [
       { 
         name: "residential_status", 
-        label: isQuestionnaireMode ? "Are you a local resident or foreigner?" : "Residential Status", 
-        type: "select",
-        options: ["Local", "Foreigner", "UNKNOWN"]
-      } as SelectField,
+        label: "Are you a foreigner?", 
+        type: "checkbox",
+        note: "Check if you are a foreigner, leave unchecked if you are a local resident"
+      } as CheckboxField,
       { 
         name: "has_work_pass_expiry", 
         label: isQuestionnaireMode 

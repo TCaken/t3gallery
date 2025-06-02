@@ -93,7 +93,7 @@ export default function CustomWhatsAppModal({
       if (result.success) {
         alert('Message sent successfully!');
         onClose();
-      } else {
+    } else {
         alert(`Failed to send message: ${result.error}`);
       }
     } catch (error) {
@@ -136,35 +136,35 @@ export default function CustomWhatsAppModal({
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
             </div>
           ) : (
-            <div className="max-h-60 overflow-y-auto border rounded-lg divide-y">
+          <div className="max-h-60 overflow-y-auto border rounded-lg divide-y">
               {templates.length > 0 ? (
                 templates.map((template) => (
-                  <div
-                    key={template.id}
+              <div
+                key={template.id}
                     onClick={() => handleTemplateSelect(template.id)}
-                    className={`p-4 ${
-                      selectedTemplate === template.id 
-                        ? 'bg-blue-50 border-l-4 border-blue-500' 
-                        : 'hover:bg-gray-50'
+                className={`p-4 ${
+                  selectedTemplate === template.id 
+                    ? 'bg-blue-50 border-l-4 border-blue-500' 
+                    : 'hover:bg-gray-50'
                     } cursor-pointer transition-colors`}
-                  >
-                    <div className="flex justify-between">
-                      <h4 className="font-medium text-gray-900">{template.name}</h4>
-                      <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">Active</span>
-                    </div>
+              >
+                <div className="flex justify-between">
+                  <h4 className="font-medium text-gray-900">{template.name}</h4>
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">Active</span>
+                </div>
                     {template.description && (
-                      <p className="text-sm text-gray-500 mt-1">{template.description}</p>
+                <p className="text-sm text-gray-500 mt-1">{template.description}</p>
                     )}
-                    <div className="flex gap-2 mt-2">
+                <div className="flex gap-2 mt-2">
                       {template.supported_methods.map(method => (
-                        <span 
-                          key={method} 
-                          className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full"
-                        >
-                          {getMethodLabel(method)}
-                        </span>
-                      ))}
-                    </div>
+                    <span 
+                      key={method} 
+                      className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full"
+                    >
+                      {getMethodLabel(method)}
+                    </span>
+                  ))}
+                </div>
                   </div>
                 ))
               ) : (
@@ -172,8 +172,8 @@ export default function CustomWhatsAppModal({
                   <p>No active templates found</p>
                   <p className="text-xs mt-1">Please create and activate templates first</p>
                 </div>
-              )}
-            </div>
+                )}
+              </div>
           )}
         </div>
         
