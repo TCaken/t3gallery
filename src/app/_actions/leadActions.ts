@@ -489,6 +489,7 @@ export async function fetchFilteredLeads({
       has_work_pass_expiry: leads.has_work_pass_expiry,
       has_payslip_3months: leads.has_payslip_3months,
       has_proof_of_residence: leads.has_proof_of_residence,
+      proof_of_residence_type: leads.proof_of_residence_type,
       has_letter_of_consent: leads.has_letter_of_consent,
       loan_purpose: leads.loan_purpose,
       existing_loans: leads.existing_loans,
@@ -508,6 +509,8 @@ export async function fetchFilteredLeads({
       contact_preference: leads.contact_preference,
       communication_language: leads.communication_language,
       lead_score: leads.lead_score,
+      is_contactable: leads.is_contactable,
+      is_deleted: leads.is_deleted,
       assigned_user: {
         id: users.id,
         first_name: users.first_name,

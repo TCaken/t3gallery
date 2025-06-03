@@ -210,6 +210,7 @@ export const leads = createTable(
     has_work_pass_expiry: d.varchar({ length: 255 }).default(''),
     has_payslip_3months: d.boolean().default(false),
     has_proof_of_residence: d.boolean().default(false),
+    proof_of_residence_type: d.varchar({ length: 50 }).default(''),
     has_letter_of_consent: d.boolean().default(false),
     employment_status: d.varchar({ length: 50 }).default(''),
     employment_salary: d.varchar({ length: 50 }).default(''),
@@ -233,6 +234,8 @@ export const leads = createTable(
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
     created_by: d.varchar({ length: 256 }).references(() => users.id),
     updated_by: d.varchar({ length: 256 }).references(() => users.id),
+    is_contactable: d.boolean().default(false),
+    is_deleted: d.boolean().default(false),
   }),
   (t) => [
     index("lead_phone_idx").on(t.phone_number),
@@ -499,8 +502,8 @@ export const templateUsageLog = createTable(
   "template_usage_log",
   (d) => ({
     id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
-    template_id: d.integer().references(() => whatsappTemplates.id).notNull(),
-    lead_id: d.integer().references(() => leads.id), // Made nullable
+    template_id: d.integer(),
+    lead_id: d.integer(), // Made nullable
     sent_to: d.varchar({ length: 20 }).notNull(), // Phone number
     delivery_method: d.varchar({ length: 20 }).notNull(), // sms, whatsapp, both
     status: d.varchar({ length: 50 }).default('pending'), // pending, sent, failed, delivered
@@ -509,7 +512,7 @@ export const templateUsageLog = createTable(
     api_response: d.json(), // Store API response for debugging
     error_message: d.text(),
     sent_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-    sent_by: d.varchar({ length: 256 }).references(() => users.id),
+    sent_by: d.varchar({ length: 256 }),
   }),
   (t) => [
     index("template_usage_template_idx").on(t.template_id),

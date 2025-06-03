@@ -29,7 +29,17 @@ interface CheckboxField extends BaseField {
   type: 'checkbox';
 }
 
-type Field = TextField | SelectField | CheckboxField;
+interface RadioField extends BaseField {
+  type: 'radio';
+  options: string[];
+}
+
+interface CheckboxGroupField extends BaseField {
+  type: 'checkbox-group';
+  options: string[];
+}
+
+type Field = TextField | SelectField | CheckboxField | RadioField | CheckboxGroupField;
 
 interface Section {
   title: string;
@@ -48,6 +58,14 @@ const isCheckboxField = (field: Field): field is CheckboxField => {
 
 const isTextField = (field: Field): field is TextField => {
   return field.type === 'text' || field.type === 'tel';
+};
+
+const isRadioField = (field: Field): field is RadioField => {
+  return field.type === 'radio';
+};
+
+const isCheckboxGroupField = (field: Field): field is CheckboxGroupField => {
+  return field.type === 'checkbox-group';
 };
 
 interface EditableFields {
@@ -77,7 +95,8 @@ interface EditableFields {
 interface FormValues extends Partial<Lead> {
   follow_up_date?: Date | null;
   follow_up_time?: string;
-  [key: string]: string | boolean | Date | number | null | undefined;
+  proof_of_residence_documents?: string[];
+  [key: string]: string | boolean | Date | number | null | undefined | string[];
 }
 
 interface LeadEditSlideOverProps {
@@ -429,37 +448,80 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
       );
     }
 
-    if (isCheckboxField(field)) {
-      // Special handling for residential_status field
-      if (field.name === 'residential_status') {
-        return (
-          <div className="space-y-2">
-            <label className="flex items-start space-x-3 cursor-pointer group">
+    if (isRadioField(field)) {
+      return (
+        <div className="space-y-3">
+          {field.options.map((option: string) => (
+            <label key={option} className="flex items-center space-x-3 cursor-pointer group">
+              <div className="relative">
+                <input
+                  type="radio"
+                  id={`${field.name}-${option}`}
+                  name={field.name.toString()}
+                  value={option}
+                  checked={formValues[field.name] === option}
+                  onChange={handleFieldChange}
+                  className="h-5 w-5 border-2 border-gray-300 text-blue-600 transition-all duration-200 focus:ring-4 focus:ring-blue-100 focus:ring-offset-0 group-hover:border-blue-400"
+                />
+              </div>
+              <span className="text-base text-gray-700 leading-relaxed">
+                {option}
+              </span>
+            </label>
+          ))}
+        </div>
+      );
+    }
+
+    if (isCheckboxGroupField(field)) {
+      // Handle checkbox group fields - store as comma-separated string in existing fields
+      let currentValues: string[] = [];
+      const fieldValue = formValues[field.name];
+      
+      if (typeof fieldValue === 'string' && fieldValue) {
+        currentValues = fieldValue.split(',').map(v => v.trim()).filter(Boolean);
+      }
+
+      return (
+        <div className="space-y-3">
+          {field.options.map((option: string) => (
+            <label key={option} className="flex items-start space-x-3 cursor-pointer group">
               <div className="relative">
                 <input
                   type="checkbox"
-                  id={field.name.toString()}
-                  name={field.name.toString()}
-                  checked={formValues[field.name] === "Foreigner"}
+                  id={`${field.name}-${option}`}
+                  name={`${field.name}-${option}`}
+                  checked={currentValues.includes(option)}
                   onChange={(e) => {
-                    const newValue = e.target.checked ? "Foreigner" : "Local";
+                    const isChecked = e.target.checked;
+                    const newValues = isChecked
+                      ? [...currentValues, option]
+                      : currentValues.filter(val => val !== option);
+                    
                     setFormValues(prev => ({
                       ...prev,
-                      [field.name]: newValue
+                      [field.name]: newValues.join(', ')
                     }));
                   }}
                   className="h-5 w-5 rounded-lg border-2 border-gray-300 text-blue-600 transition-all duration-200 focus:ring-4 focus:ring-blue-100 focus:ring-offset-0 group-hover:border-blue-400"
                 />
-                {formValues[field.name] === "Foreigner" && (
+                {currentValues.includes(option) && (
                   <CheckCircleIcon className="absolute -top-0.5 -left-0.5 h-6 w-6 text-blue-600 pointer-events-none" />
                 )}
               </div>
               <span className="text-base text-gray-700 leading-relaxed">
-                Yes, I am a foreigner
+                {option}
               </span>
             </label>
-          </div>
-        );
+          ))}
+        </div>
+      );
+    }
+
+    if (isCheckboxField(field)) {
+      // Special handling for residential_status field (now handled by radio buttons)
+      if (field.name === 'residential_status') {
+        return null; // This field is now handled as radio buttons
       }
       
       // Regular checkbox handling for other fields
@@ -534,24 +596,26 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
       fields: [
         { 
           name: "residential_status", 
-          label: "Are you a foreigner?", 
-          type: "checkbox",
-          note: "Check if you are a foreigner, leave unchecked if you are a local resident"
-        } as CheckboxField,
+          label: "Are you a local or foreigner?", 
+          type: "radio",
+          options: ["Local", "Foreigner"],
+          note: "Please select your residency status"
+        } as RadioField,
         { 
           name: "has_work_pass_expiry", 
-          label: "Has Valid Work Pass", 
-          type: "checkbox",
+          label: "When does your work pass expire?", 
+          type: "text",
           showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-          note: "⚠️ Must have at least 6 months validity from today"
-        } as CheckboxField,
+          note: "⚠️ Must have at least 6 months validity from today (DD/MM/YYYY format)"
+        } as TextField,
         { 
-          name: "has_proof_of_residence", 
-          label: "Has Proof of Residence", 
-          type: "checkbox",
+          name: "proof_of_residence_type", 
+          label: "Proof of Residence Documents", 
+          type: "checkbox-group",
+          options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
           showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-          note: "📄 Accepted documents:\n\t• Bank statement\n\t• Utility Bill\n\t• Handphone Bill\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
-        } as CheckboxField,
+          note: "📄 Select all documents you can provide:\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
+        } as CheckboxGroupField,
         { 
           name: "has_letter_of_consent", 
           label: "Has Letter of Consent", 
@@ -569,7 +633,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
           name: "employment_status", 
           label: "Employment Status", 
           type: "select",
-          options: ["Full-Time", "Part-Time", "Self-Employed", "Unemployed", "UNKNOWN"]
+          options: ["Full-Time", "Part-Time", "Self-Employed", "Self-Employed (Platform Worker)", "Unemployed", "UNKNOWN"]
         } as SelectField,
         { 
           name: "employment_salary", 
@@ -592,14 +656,15 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
               values.residential_status === "Foreigner" ||
               (values.residential_status === "Local" && (
                 (values.employment_status === "Full-Time" && salary >= 7400) ||
-                values.employment_status === "Self-Employed"
+                values.employment_status === "Self-Employed" ||
+                values.employment_status === "Self-Employed (Platform Worker)"
               ))
             );
           },
           note: (values: Partial<Lead>) => {
             const salary = parseFloat(values.employment_salary?.toString() ?? '0');
             const isHighIncome = values.employment_status === "Full-Time" && salary >= 7400;
-            const isSelfEmployed = values.employment_status === "Self-Employed";
+            const isSelfEmployed = values.employment_status === "Self-Employed" || values.employment_status === "Self-Employed (Platform Worker)";
             
             let note = "📄 Requirements:\n• Must be latest 3 months\n• No payment vouchers\n• No handwritten payslips\n\n⚠️ From 6th of the month onwards, must include last month's payslip";
             
@@ -607,7 +672,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
               if (isHighIncome) {
                 note += "\n💡 Required for high-income verification (>= $7,400)";
               } else if (isSelfEmployed) {
-                note += "\n💡 Required for PHV Drivers (Private Hire Vehicle) income verification";
+                note += "\n💡 Required for Self-Employed and Platform Workers income verification";
               }
             }
             
@@ -1108,28 +1173,30 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
     fields: [
       { 
         name: "residential_status", 
-        label: "Are you a foreigner?", 
-        type: "checkbox",
-        note: "Check if you are a foreigner, leave unchecked if you are a local resident"
-      } as CheckboxField,
+        label: "Are you a local or foreigner?", 
+        type: "radio",
+        options: ["Local", "Foreigner"],
+        note: "Please select your residency status"
+      } as RadioField,
       { 
         name: "has_work_pass_expiry", 
         label: isQuestionnaireMode 
-          ? "When does your work pass expiry?" 
-          : "Has Valid Work Pass", 
-        type: "checkbox",
+          ? "When does your work pass expire?" 
+          : "When does your work pass expire?", 
+        type: "text",
         showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-        note: "⚠️ Must have at least 6 months validity from today"
-      } as CheckboxField,
+        note: "⚠️ Must have at least 6 months validity from today (DD/MM/YYYY format)"
+      } as TextField,
       { 
-        name: "has_proof_of_residence", 
+        name: "proof_of_residence_type", 
         label: isQuestionnaireMode 
-          ? "Can you provide proof of residence?" 
-          : "Has Proof of Residence", 
-        type: "checkbox",
+          ? "What proof of residence documents can you provide?" 
+          : "Proof of Residence Documents", 
+        type: "checkbox-group",
+        options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
         showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-        note: "📄 Accepted documents:\n\t• Bank statement\n\t• Utility Bill\n\t• Handphone Bill\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
-      } as CheckboxField,
+        note: "📄 Select all documents you can provide:\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
+      } as CheckboxGroupField,
       { 
         name: "has_letter_of_consent", 
         label: isQuestionnaireMode 
@@ -1148,7 +1215,7 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
         name: "employment_status", 
         label: isQuestionnaireMode ? "What is your current employment situation?" : "Employment Status", 
         type: "select",
-        options: ["Full-Time", "Part-Time", "Self-Employed", "Unemployed", "UNKNOWN"]
+        options: ["Full-Time", "Part-Time", "Self-Employed", "Self-Employed (Platform Worker)", "Unemployed", "UNKNOWN"]
       },
       { 
         name: "employment_salary", 
@@ -1173,14 +1240,15 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
             values.residential_status === "Foreigner" ||
             (values.residential_status === "Local" && (
               (values.employment_status === "Full-Time" && salary >= 7400) ||
-              values.employment_status === "Self-Employed"
+              values.employment_status === "Self-Employed" ||
+              values.employment_status === "Self-Employed (Platform Worker)"
             ))
           );
         },
         note: (values: Partial<Lead>) => {
           const salary = parseFloat(values.employment_salary?.toString() ?? '0');
           const isHighIncome = values.employment_status === "Full-Time" && salary >= 7400;
-          const isSelfEmployed = values.employment_status === "Self-Employed";
+          const isSelfEmployed = values.employment_status === "Self-Employed" || values.employment_status === "Self-Employed (Platform Worker)";
           
           let note = "📄 Requirements:\n• Must be latest 3 months\n• No payment vouchers\n• No handwritten payslips\n\n⚠️ From 6th of the month onwards, must include last month's payslip";
           
@@ -1188,7 +1256,7 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
             if (isHighIncome) {
               note += "\n💡 Required for high-income verification (>= $7,400)";
             } else if (isSelfEmployed) {
-              note += "\n💡 Required for PHV Drivers (Private Hire Vehicle) income verification";
+              note += "\n💡 Required for Self-Employed and Platform Workers income verification";
             }
           }
           

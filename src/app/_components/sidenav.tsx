@@ -97,6 +97,12 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       href: "/dashboard/users",
       icon: <UserGroupIcon className="h-5 w-5" />,
       roles: ["admin"] // Only admin can access user management
+    },
+    {
+      title: "WhatsApp Templates",
+      href: "/dashboard/users/templates",
+      icon: <DocumentTextIcon className="h-5 w-5" />,
+      roles: ["admin"]
     }
   ];
 
@@ -125,8 +131,8 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
         <div className="space-y-2">
           {filteredNavItems.length > 0 ? (
             filteredNavItems.map((item) => {
-              const isActive = pathname === item.href || 
-                (pathname.startsWith(item.href) && item.href !== "/dashboard");
+              const isActive = pathname === item.href;
+                // (pathname.startsWith(item.href) && item.href !== "/dashboard");
                 
               return (
                 <Link

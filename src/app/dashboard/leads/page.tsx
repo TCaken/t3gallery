@@ -17,7 +17,9 @@ import {
   PaperAirplaneIcon,
   UserPlusIcon,
   ArrowDownOnSquareIcon,
-  DocumentArrowDownIcon
+  DocumentArrowDownIcon,
+  AdjustmentsHorizontalIcon,
+  ChevronDownIcon
 } from '@heroicons/react/24/outline';
 import LeadCard  from '~/app/_components/LeadCard';
 import { hasPermission } from '~/server/rbac/queries';
@@ -114,6 +116,35 @@ const SafeDate = ({ date }: { date: Date | string | null }) => {
   }
 };
 
+// Enhanced filter interface
+interface LeadFilters {
+  status?: LeadStatus;
+  search?: string;
+  sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number' | 'employment_salary' | 'lead_score';
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
+  // Frontend filters
+  amountRange?: [number, number];
+  source?: string[];
+  employmentStatus?: string[];
+  loanPurpose?: string[];
+  residentialStatus?: string[];
+  dateRange?: [Date, Date];
+  assignedTo?: string[];
+}
+
+// Helper interface for dynamic filter options
+interface FilterOptions {
+  sources: string[];
+  employmentStatuses: string[];
+  loanPurposes: string[];
+  residentialStatuses: string[];
+  assignedUsers: string[];
+  amountRange: [number, number];
+  dateRange: [Date, Date];
+}
+
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Record<string, Lead[]>>({});
   const [pinnedLeads, setPinnedLeads] = useState<Lead[]>([]);
@@ -149,14 +180,7 @@ export default function LeadsPage() {
   const [leadTags, setLeadTags] = useState<Record<number, { id: number, name: string }>>({});
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [filters, setFilters] = useState<{
-    status?: LeadStatus;
-    search?: string;
-    sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number';
-    sortOrder?: 'asc' | 'desc';
-    page?: number;
-    limit?: number;
-  }>({
+  const [filters, setFilters] = useState<LeadFilters>({
     status: 'new',
     search: '',
     sortBy: 'created_at',
@@ -213,6 +237,19 @@ export default function LeadsPage() {
 
   const [isEditOpen, setIsEditOpen] = useState(false);
 
+  // New state for advanced filtering
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    sources: [],
+    employmentStatuses: [],
+    loanPurposes: [],
+    residentialStatuses: [],
+    assignedUsers: [],
+    amountRange: [0, 0],
+    dateRange: [new Date(), new Date()]
+  });
+  const [activeFilters, setActiveFilters] = useState<LeadFilters>({});
+
   // Function to filter leads based on search query
   const filterLeads = (leads: Lead[], query: string) => {
     if (!query) return leads;
@@ -239,24 +276,142 @@ export default function LeadsPage() {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  // Enhanced function to apply frontend filters
+  const applyFrontendFilters = (leads: Lead[]) => {
+    let filteredLeads = [...leads];
+
+    // Apply search filter
+    if (filters.search) {
+      filteredLeads = filterLeads(filteredLeads, filters.search);
+    }
+
+    // Apply amount range filter
+    if (activeFilters.amountRange) {
+      const [min, max] = activeFilters.amountRange;
+      filteredLeads = filteredLeads.filter(lead => {
+        const amount = parseFloat(lead.amount ?? '0');
+        return amount >= min && amount <= max;
+      });
+    }
+
+    // Apply source filter
+    if (activeFilters.source && activeFilters.source.length > 0) {
+      filteredLeads = filteredLeads.filter(lead => 
+        lead.source && activeFilters.source!.includes(lead.source)
+      );
+    }
+
+    // Apply employment status filter
+    if (activeFilters.employmentStatus && activeFilters.employmentStatus.length > 0) {
+      filteredLeads = filteredLeads.filter(lead => 
+        lead.employment_status && activeFilters.employmentStatus!.includes(lead.employment_status)
+      );
+    }
+
+    // Apply loan purpose filter
+    if (activeFilters.loanPurpose && activeFilters.loanPurpose.length > 0) {
+      filteredLeads = filteredLeads.filter(lead => 
+        lead.loan_purpose && activeFilters.loanPurpose!.includes(lead.loan_purpose)
+      );
+    }
+
+    // Apply residential status filter
+    if (activeFilters.residentialStatus && activeFilters.residentialStatus.length > 0) {
+      filteredLeads = filteredLeads.filter(lead => 
+        lead.residential_status && activeFilters.residentialStatus!.includes(lead.residential_status)
+      );
+    }
+
+    // Apply assigned user filter
+    if (activeFilters.assignedTo && activeFilters.assignedTo.length > 0) {
+      filteredLeads = filteredLeads.filter(lead => 
+        lead.assigned_to && activeFilters.assignedTo!.includes(lead.assigned_to)
+      );
+    }
+
+    // Apply date range filter
+    if (activeFilters.dateRange) {
+      const [startDate, endDate] = activeFilters.dateRange;
+      filteredLeads = filteredLeads.filter(lead => {
+        const createdDate = new Date(lead.created_at);
+        return createdDate >= startDate && createdDate <= endDate;
+      });
+    }
+
+    return filteredLeads;
+  };
+
+  // Function to extract filter options from loaded leads
+  const updateFilterOptions = (leads: Lead[]) => {
+    const sources: string[] = [...new Set(leads.map(lead => lead.source).filter((s): s is string => Boolean(s)))];
+    const employmentStatuses: string[] = [...new Set(leads.map(lead => lead.employment_status).filter((s): s is string => Boolean(s)))];
+    const loanPurposes: string[] = [...new Set(leads.map(lead => lead.loan_purpose).filter((s): s is string => Boolean(s)))];
+    const residentialStatuses: string[] = [...new Set(leads.map(lead => lead.residential_status).filter((s): s is string => Boolean(s)))];
+    const assignedUsers: string[] = [...new Set(leads.map(lead => lead.assigned_to).filter((s): s is string => Boolean(s)))];
+    
+    const amounts = leads.map(lead => parseFloat(lead.amount ?? '0')).filter(amount => amount > 0);
+    const amountRange: [number, number] = amounts.length > 0 
+      ? [Math.min(...amounts), Math.max(...amounts)]
+      : [0, 0];
+    
+    const dates = leads.map(lead => new Date(lead.created_at));
+    const dateRange: [Date, Date] = dates.length > 0
+      ? [new Date(Math.min(...dates.map(d => d.getTime()))), new Date(Math.max(...dates.map(d => d.getTime())))]
+      : [new Date(), new Date()];
+
+    setFilterOptions({
+      sources,
+      employmentStatuses,
+      loanPurposes,
+      residentialStatuses,
+      assignedUsers,
+      amountRange,
+      dateRange
+    });
+  };
+
+  // Enhanced sorting options
+  const sortOptions = [
+    { value: 'created_at', label: 'Created Date' },
+    { value: 'updated_at', label: 'Updated Date' },
+    { value: 'full_name', label: 'Name' },
+    { value: 'amount', label: 'Amount' },
+    { value: 'phone_number', label: 'Phone Number' },
+    { value: 'employment_salary', label: 'Employment Salary' },
+    { value: 'lead_score', label: 'Lead Score' },
+    { value: 'id', label: 'ID' }
+  ];
+
+  // Function to refresh data with new sort/filter parameters
+  const refreshDataWithFilters = async () => {
+    setAllLoadedLeads([]);
+    setPage(1);
+    await fetchLeadsWithFilters(1);
+  };
+
   // Modify fetchLeadsWithFilters to load more leads when needed
   const fetchLeadsWithFilters = async (pageNum = 1) => {
     try {
       setIsLoadingMore(true);
-      // console.log('Fetching leads page:', pageNum);
       
       const result = await fetchFilteredLeads({
-        search: '', // Don't send search to server
+        search: '', // Don't send search to server, handle it frontend
         sortBy: filters.sortBy ?? "created_at",
         sortOrder: filters.sortOrder ?? "desc",
         page: pageNum,
         limit: 50
       });
-      // console.log('result', result);
       
       if (result.success && result.leads) {
-        setAllLoadedLeads(prev => [...prev, ...result.leads]);
+        const newLeads = [...(pageNum === 1 ? [] : allLoadedLeads), ...result.leads.map(lead => ({
+          ...lead,
+          follow_up_date: null // Add missing property to match Lead type
+        }))];
+        setAllLoadedLeads(newLeads);
         setHasMore(result.hasMore ?? false);
+        
+        // Update filter options based on all loaded leads
+        updateFilterOptions(newLeads);
       } else {
         throw new Error(result.error ?? 'Failed to fetch leads');
       }
@@ -266,21 +421,6 @@ export default function LeadsPage() {
       setIsLoadingMore(false);
     }
   };
-
-  // Effect to load more leads if search has no results
-  useEffect(() => {
-    const loadMoreIfNeeded = async () => {
-      if (!filters.search) return;
-      
-      const filteredLeads = filterLeads(allLoadedLeads, filters.search);
-      if (filteredLeads.length === 0 && hasMore && !isLoadingMore) {
-        const nextPage = Math.ceil(allLoadedLeads.length / 50) + 1;
-        await fetchLeadsWithFilters(nextPage);
-      }
-    };
-
-    void loadMoreIfNeeded();
-  }, [filters.search, allLoadedLeads, hasMore, isLoadingMore]);
 
   // Initial data loading
   useEffect(() => {
@@ -761,6 +901,41 @@ export default function LeadsPage() {
     setSelectedExportStatuses(allDeselected);
   };
 
+  // Function to clear all filters
+  const clearAllFilters = () => {
+    setActiveFilters({});
+    setFilters(prev => ({
+      ...prev,
+      search: '',
+      status: 'new'
+    }));
+  };
+
+  // Function to get filtered leads for display
+  const getFilteredLeadsForDisplay = () => {
+    let leadsToFilter = allLoadedLeads;
+    
+    // Apply status filter first
+    if (filters.status && activeTab === 'kanban') {
+      leadsToFilter = allLoadedLeads; // In kanban, we show all statuses
+    } else if (filters.status) {
+      leadsToFilter = allLoadedLeads.filter(lead => lead.status === filters.status);
+    }
+    
+    // Apply frontend filters
+    return applyFrontendFilters(leadsToFilter);
+  };
+
+  // Update the visibleStatuses to work with filtered leads
+  const getLeadsForStatus = (statusId: string) => {
+    if (statusId === 'pinned') {
+      return applyFrontendFilters(pinnedLeads);
+    }
+    
+    const statusLeads = allLoadedLeads.filter(lead => lead.status === statusId);
+    return applyFrontendFilters(statusLeads);
+  };
+
   // Modify the Kanban board view
   return (
     <div className="container mx-auto px-4 py-8">
@@ -883,8 +1058,9 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="mb-6">
+      {/* Enhanced Search and Filter Bar */}
+      <div className="mb-6 space-y-4">
+        {/* Search Bar */}
         <div className="flex gap-2 items-center">
           <div className="relative flex-1">
             <input
@@ -900,75 +1076,290 @@ export default function LeadsPage() {
                   page: 1
                 }));
                 
-                // Scroll to results after a short delay to allow filtering
                 setTimeout(() => scrollToResults(value), 100);
               }}
             />
             <SearchIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
           </div>
           
+          {/* Toggle Advanced Filters */}
+          <button
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${
+              showAdvancedFilters 
+                ? 'bg-blue-500 text-white border-blue-500' 
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <AdjustmentsHorizontalIcon className="h-5 w-5" />
+            Filters
+            <ChevronDownIcon className={`h-4 w-4 transform transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} />
+          </button>
+          
           {/* Search Results Count */}
           {filters.search && (
             <div className="text-sm text-gray-500">
-              {filterLeads(allLoadedLeads, filters.search).length} results
+              {getFilteredLeadsForDisplay().length} results
               {isLoadingMore && ' (loading more...)'}
             </div>
           )}
         </div>
+
+        {/* Basic Filters Row */}
+        <div className="flex flex-wrap gap-4 items-center">
+          {/* Status Filter */}
+          <select
+            value={filters.status ?? 'new'}
+            onChange={(e) => {
+              setFilters(prev => ({
+                ...prev,
+                status: e.target.value as LeadStatus
+              }));
+              void refreshDataWithFilters();
+            }}
+            className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
+          >
+            {LEAD_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+
+          {/* Enhanced Sort Options */}
+          <select
+            value={filters.sortBy ?? 'created_at'}
+            onChange={(e) => {
+              setFilters(prev => ({
+                ...prev,
+                sortBy: e.target.value as LeadFilters['sortBy']
+              }));
+              void refreshDataWithFilters();
+            }}
+            className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                Sort by {option.label}
+              </option>
+            ))}
+          </select>
+
+          {/* Sort Order */}
+          <button
+            className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none hover:bg-gray-50"
+            onClick={() => {
+              setFilters(prev => ({
+                ...prev,
+                sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc'
+              }));
+              void refreshDataWithFilters();
+            }}
+          >
+            {filters.sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
+          </button>
+
+          {/* Clear Filters Button */}
+          {Object.keys(activeFilters).length > 0 && (
+            <button
+              onClick={clearAllFilters}
+              className="px-4 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+            >
+              Clear Filters ({Object.keys(activeFilters).length})
+            </button>
+          )}
+        </div>
+
+        {/* Advanced Filters Panel */}
+        {showAdvancedFilters && (
+          <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+            <h3 className="font-medium text-gray-900 mb-3">Advanced Filters</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Amount Range Filter */}
+              {filterOptions.amountRange[1] > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Amount Range (${filterOptions.amountRange[0]} - ${filterOptions.amountRange[1]})
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      className="flex-1 rounded border border-gray-300 px-3 py-1 text-sm"
+                      onChange={(e) => {
+                        const min = parseFloat(e.target.value) || filterOptions.amountRange[0];
+                        setActiveFilters(prev => ({
+                          ...prev,
+                          amountRange: [min, activeFilters.amountRange?.[1] || filterOptions.amountRange[1]]
+                        }));
+                      }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      className="flex-1 rounded border border-gray-300 px-3 py-1 text-sm"
+                      onChange={(e) => {
+                        const max = parseFloat(e.target.value) || filterOptions.amountRange[1];
+                        setActiveFilters(prev => ({
+                          ...prev,
+                          amountRange: [activeFilters.amountRange?.[0] || filterOptions.amountRange[0], max]
+                        }));
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Source Filter */}
+              {filterOptions.sources.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Source</label>
+                  <select
+                    multiple
+                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      setActiveFilters(prev => ({ ...prev, source: selected }));
+                    }}
+                  >
+                    {filterOptions.sources.map(source => (
+                      <option key={source} value={source}>{source}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Employment Status Filter */}
+              {filterOptions.employmentStatuses.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Employment Status</label>
+                  <select
+                    multiple
+                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      setActiveFilters(prev => ({ ...prev, employmentStatus: selected }));
+                    }}
+                  >
+                    {filterOptions.employmentStatuses.map(status => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Loan Purpose Filter */}
+              {filterOptions.loanPurposes.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Loan Purpose</label>
+                  <select
+                    multiple
+                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      setActiveFilters(prev => ({ ...prev, loanPurpose: selected }));
+                    }}
+                  >
+                    {filterOptions.loanPurposes.map(purpose => (
+                      <option key={purpose} value={purpose}>{purpose}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Residential Status Filter */}
+              {filterOptions.residentialStatuses.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Residential Status</label>
+                  <select
+                    multiple
+                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      setActiveFilters(prev => ({ ...prev, residentialStatus: selected }));
+                    }}
+                  >
+                    {filterOptions.residentialStatuses.map(status => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Assigned User Filter */}
+              {filterOptions.assignedUsers.length > 0 && userRole === 'admin' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Assigned To</label>
+                  <select
+                    multiple
+                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      setActiveFilters(prev => ({ ...prev, assignedTo: selected }));
+                    }}
+                  >
+                    {filterOptions.assignedUsers.map(user => (
+                      <option key={user} value={user}>{user}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Active Filters Summary */}
+            {Object.keys(activeFilters).length > 0 && (
+              <div className="border-t pt-3 mt-4">
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm font-medium text-gray-700">Active filters:</span>
+                  {Object.entries(activeFilters).map(([key, value]) => {
+                    if (!value || (Array.isArray(value) && value.length === 0)) return null;
+                    
+                    let displayValue = '';
+                    if (Array.isArray(value)) {
+                      displayValue = value.join(', ');
+                    } else if (key === 'amountRange') {
+                      const range = value as [number, number];
+                      displayValue = `$${range[0]} - $${range[1]}`;
+                    } else {
+                      displayValue = String(value);
+                    }
+                    
+                    return (
+                      <span
+                        key={key}
+                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                      >
+                        {key}: {displayValue}
+                        <button
+                          onClick={() => {
+                            setActiveFilters(prev => {
+                              const newFilters = { ...prev };
+                              delete newFilters[key as keyof LeadFilters];
+                              return newFilters;
+                            });
+                          }}
+                          className="ml-1 text-blue-600 hover:text-blue-800"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-4">
-        <select
-          value={filters.status ?? 'new'}
-          onChange={(e) => setFilters(prev => ({
-            ...prev,
-            status: e.target.value as LeadStatus
-          }))}
-          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
-        >
-          {LEAD_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={filters.sortBy ?? 'created_at'}
-          onChange={(e) => setFilters(prev => ({
-            ...prev,
-            sortBy: e.target.value as 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number'
-          }))}
-          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
-        >
-          <option value="created_at">Created Date</option>
-          <option value="updated_at">Updated Date</option>
-          <option value="full_name">Name</option>
-          <option value="amount">Amount</option>
-        </select>
-
-        <button
-          className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
-          onClick={() => setFilters(prev => ({
-            ...prev,
-            sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc'
-          }))}
-        >
-          {filters.sortOrder === 'asc' ? '↑' : '↓'}
-        </button>
-      </div>
-
-      {/* Main Content - Kanban Board or List depending on active tab */}
+      {/* Main Content - Updated to use filtered leads */}
       {activeTab === 'kanban' ? (
-        // Kanban board view
+        // Kanban board view with filtered leads
         <div className="overflow-x-auto pb-4">
           <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
             {visibleStatuses.map((status) => {
-              const statusLeads = status.id === 'pinned'
-                ? pinnedLeads
-                : filterLeads(allLoadedLeads, filters.search ?? '')
-                    .filter(lead => lead.status === status.id);
+              const statusLeads = getLeadsForStatus(status.id);
               
               return (
                 <div 
@@ -987,7 +1378,7 @@ export default function LeadsPage() {
                     </span>
                   </div>
                   <div 
-                    className="bg-gray-50 rounded-b-lg p-2 h-[calc(100vh-320px)] overflow-y-auto"
+                    className="bg-gray-50 rounded-b-lg p-2 h-[calc(100vh-420px)] overflow-y-auto"
                     onScroll={handleScroll}
                   >
                     {statusLeads.length === 0 ? (
@@ -1024,9 +1415,9 @@ export default function LeadsPage() {
           </div>
         </div>
       ) : (
-        // List view for All or Pinned tabs
+        // List view for All or Pinned tabs with filtered leads
         <div className="space-y-4">
-          {getCurrentLeads().map((lead) => {
+          {getFilteredLeadsForDisplay().map((lead) => {
             const statusInfo = allStatuses.find(s => s.id === lead.status) ?? {
               id: 'new',
               name: 'New',
@@ -1034,7 +1425,7 @@ export default function LeadsPage() {
             };
             return (
               <LeadCard 
-                key={`pinned-${lead.id}`} 
+                key={`filtered-${lead.id}`} 
                 lead={lead} 
                 statusInfo={statusInfo}
                 onAction={handleLeadAction}
@@ -1048,14 +1439,15 @@ export default function LeadsPage() {
           {hasMore && activeTab !== 'pinned' && (
             <div className="mt-6 text-center">
               <button
-                onClick={() => setFilters(prev => ({
-                  ...prev,
-                  page: (prev.page ?? 1) + 1
-                }))}
-                disabled={loading[filters.status ?? 'new']}
+                onClick={() => {
+                  const nextPage = page + 1;
+                  setPage(nextPage);
+                  void fetchLeadsWithFilters(nextPage);
+                }}
+                disabled={isLoadingMore}
                 className="rounded-lg bg-blue-500 px-6 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
               >
-                {loading[filters.status ?? 'new'] ? 'Loading...' : 'Load More'}
+                {isLoadingMore ? 'Loading...' : 'Load More'}
               </button>
             </div>
           )}

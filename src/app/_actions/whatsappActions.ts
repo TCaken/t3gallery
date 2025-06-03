@@ -217,7 +217,7 @@ export async function sendAutoTriggeredMessage(
 
     const applicableTemplates = templates.filter(template => {
       const triggerStatuses = template.trigger_on_status as string[];
-      return triggerStatuses && triggerStatuses.includes(newStatus);
+      return triggerStatuses?.includes(newStatus);
     });
 
     if (applicableTemplates.length === 0) {
@@ -226,6 +226,7 @@ export async function sendAutoTriggeredMessage(
 
     const results = [];
     for (const template of applicableTemplates) {
+      console.log('Sending auto-trigger template:', template.name);
       try {
         const result = await sendWhatsAppMessage(
           phone,
