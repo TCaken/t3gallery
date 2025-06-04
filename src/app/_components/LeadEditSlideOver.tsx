@@ -614,7 +614,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
           type: "checkbox-group",
           options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
           showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-          note: "📄 Select all documents you can provide:\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
+          note: "📄 Select all documents you can provide:\n\n⚠️ Important: Must provide either current month or last month statement"
         } as CheckboxGroupField,
         { 
           name: "has_letter_of_consent", 
@@ -1195,7 +1195,7 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
         type: "checkbox-group",
         options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
         showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-        note: "📄 Select all documents you can provide:\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
+        note: "📄 Select all documents you can provide:\n\n⚠️ Important: Must provide either current month or last month statement"
       } as CheckboxGroupField,
       { 
         name: "has_letter_of_consent", 

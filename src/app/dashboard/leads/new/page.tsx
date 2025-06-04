@@ -152,7 +152,7 @@ export default function NewLeadPage() {
           type: "checkbox-group",
           options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
           showIf: (values) => values.residential_status === "Foreigner",
-          note: "📄 Select all documents you can provide:\n\n⚠️ Important: From 6th of the Month onwards, must provide current month statement"
+          note: "📄 Select all documents you can provide:\n\n⚠️ Important: Must provide either current month or last month statement"
         } as CheckboxGroupField,
         { 
           name: "has_letter_of_consent", 

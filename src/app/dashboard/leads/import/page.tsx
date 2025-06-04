@@ -1,15 +1,12 @@
 "use client";
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import * as XLSX from 'xlsx';
 import { importLeads } from '~/app/_actions/leadActions';
 import { 
-  DocumentArrowUpIcon, 
   ExclamationTriangleIcon, 
   CheckCircleIcon, 
   ArrowLeftIcon,
-  ClipboardDocumentIcon,
   DocumentTextIcon
 } from '@heroicons/react/24/outline';
 
@@ -40,15 +37,12 @@ interface ImportResult {
 
 export default function ImportLeadsPage() {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [manualInput, setManualInput] = useState('');
-  const [showManualInput, setShowManualInput] = useState(false);
 
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type });
@@ -121,7 +115,6 @@ export default function ImportLeadsPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      setFile(selectedFile);
       void parseFile(selectedFile);
     }
   };
@@ -202,7 +195,7 @@ export default function ImportLeadsPage() {
     
     try {
       const lines = manualInput.split('\n').filter(line => line.trim() !== '');
-      const rawData: any[] = [];
+      const rawData: RawDataRow[] = [];
 
       lines.forEach(line => {
         const trimmed = line.trim();
@@ -223,23 +216,22 @@ export default function ImportLeadsPage() {
             rawData.push({
               phone_number: parts[0],
               full_name: parts[1],
-              email: parts[2] || '',
+              email: parts[2] ?? '',
               source: 'Firebase'
             });
           } else {
             // Treat as just a phone number
             rawData.push({
-              phone_number: parts[0] || '',
-              full_name: `Lead ${(parts[0] || '').replace(/^65/, '')}`,
+              phone_number: parts[0] ?? '',
+              full_name: `Lead ${(parts[0] ?? '').replace(/^65/, '')}`,
               source: 'Firebase'
             });
           }
         }
       });
 
-      const result = validateAndProcessData(rawData as RawDataRow[]);
+      const result = validateAndProcessData(rawData);
       setImportResult(result);
-      setShowManualInput(false);
       
       if (result.valid.length > 0) {
         showNotification(`Processed ${result.valid.length} valid leads from manual input`, 'success');
@@ -378,97 +370,71 @@ export default function ImportLeadsPage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Instructions */}
         <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Requirements</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-sm font-medium text-gray-900 mb-2">Required Fields</h3>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>• <strong>Phone Number</strong> - Singapore mobile number (8 digits)</li>
-              </ul>
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Firebase Import Instructions</h2>
+          <div className="space-y-4">
+            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-md">
+              <div className="text-sm text-blue-800">
+                <p className="font-medium mb-2">📋 How to Import from Firebase:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Copy the phone numbers from your Firebase console</li>
+                  <li>Paste them directly into the text area below</li>
+                  <li>The system will automatically process and validate the data</li>
+                  <li>Review the results and click Import to add the leads</li>
+                </ol>
+              </div>
             </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-900 mb-2">Optional Fields</h3>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>• <strong>Full Name</strong> - Lead&apos;s complete name</li>
-                <li>• Email address</li>
-                <li>• Lead source</li>
-                <li>• Loan amount</li>
-              </ul>
-            </div>
-          </div>
-          
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              onClick={downloadTemplate}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-200 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200 flex items-center space-x-2"
-            >
-              <DocumentArrowUpIcon className="h-4 w-4" />
-              <span>Download Template</span>
-            </button>
             
-            <button
-              onClick={() => setShowManualInput(!showManualInput)}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-200 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200 flex items-center space-x-2"
-            >
-              <ClipboardDocumentIcon className="h-4 w-4" />
-              <span>{showManualInput ? 'Hide Manual Entry' : 'Manual Entry'}</span>
-            </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-sm font-medium text-gray-900 mb-2">Required Fields</h3>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  <li>• <strong>Phone Number</strong> - Singapore mobile number (8 digits)</li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-gray-900 mb-2">Optional Fields</h3>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  <li>• <strong>Full Name</strong> - Lead's complete name</li>
+                  <li>• Email address</li>
+                  <li>• Loan amount</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Manual Input */}
-        {showManualInput && (
-          <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Manual Entry</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Paste data from Firebase or enter manually. Format: phone_number, full_name, email (one per line)
-            </p>
-            <div className="space-y-4">
-              <textarea
-                value={manualInput}
-                onChange={(e) => setManualInput(e.target.value)}
-                className="w-full h-32 border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-gray-500 focus:border-gray-500"
-                placeholder="Examples:
+        {/* Manual Input - Always Visible */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Paste Firebase Data</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Paste your Firebase phone numbers below. You can paste just phone numbers or include additional data like: phone_number, full_name, email (one per line)
+          </p>
+          <div className="space-y-4">
+            <textarea
+              value={manualInput}
+              onChange={(e) => setManualInput(e.target.value)}
+              className="w-full h-48 border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-gray-500 focus:border-gray-500 resize-y"
+              placeholder="Paste your Firebase data here. Examples:
+
+6591234567
+6589876543
+6581111111
+
+Or with additional details:
 6591234567, John Doe, john@example.com
 6589876543, Jane Smith
-6581111111"
-              />
-              <button
-                onClick={processManualInput}
-                disabled={parsing}
-                className="px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200 disabled:opacity-50"
-              >
-                {parsing ? 'Processing...' : 'Process Data'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* File Upload */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">File Upload</h3>
-          <div className="space-y-4">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
+6581111111, Alice Wong, alice@email.com"
             />
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200"
-              >
-                Choose File
-              </button>
-              <span className="text-sm text-gray-600">
-                {file ? file.name : 'No file selected'}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500">
-              Supported formats: Excel (.xlsx, .xls) and CSV files
-            </p>
+            <button
+              onClick={processManualInput}
+              disabled={parsing || !manualInput.trim()}
+              className="px-6 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              {parsing && (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              )}
+              <span>{parsing ? 'Processing...' : 'Process Data'}</span>
+            </button>
           </div>
         </div>
 
