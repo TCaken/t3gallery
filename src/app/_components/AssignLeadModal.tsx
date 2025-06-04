@@ -5,6 +5,7 @@ import { XMarkIcon } from '@heroicons/react/24/outline';
 import { assignLeadToAgent } from '~/app/_actions/agentActions';
 import { fetchUsers } from '~/app/_actions/userActions';
 
+
 interface AssignLeadModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -47,6 +48,7 @@ export default function AssignLeadModal({
         setLoading(true);
         // Fetch users with role 'agent'
         const result = await fetchUsers();
+        console.log('fetchUsers inside loadAgents result:', result);
         if (result.success) {
           const agentUsers = result.users
             .filter(user => Array.isArray(user.roles) && user.roles.some((role: UserRole) => role.roleName === 'agent'))
@@ -57,6 +59,7 @@ export default function AssignLeadModal({
             }));
             
           setAgents(agentUsers);
+          console.log('agentUsers:', agentUsers);
           
           // Auto-select the first agent if available
           if (agentUsers && agentUsers.length > 0 && agentUsers[0]?.id) {

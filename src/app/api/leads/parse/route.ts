@@ -6,6 +6,7 @@ import { createLead } from '~/app/_actions/leadActions';
 const RequestSchema = z.object({
   message: z.string(),
   subject: z.string().optional(),
+  received_time: z.string().optional(),
 });
 
 // Define the lead schema
@@ -21,26 +22,40 @@ const LeadSchema = z.object({
   ideal_tenure: z.string().max(50).optional(),
   assigned_to: z.string().max(256).optional(),
   source: z.string().max(100).optional(),
+  created_at: z.string().optional(),
 });
 
 // Helper function to clean phone number
 function cleanPhoneNumber(phone: string): string {
-  if (!phone) return '';
+  if (!phone) return '+65unknown';
   
-  // Remove all non-digit characters
-  const cleaned = phone.replace(/\D/g, '');
+  // First, standardize by removing any invisible characters or formatting
+  const standardized = phone.replace(/\s+/g, '').replace(/[^\d+]/g, '');
   
-  // If it starts with 65, remove it and add +65
-  if (cleaned.startsWith('65')) {
-    return `+65${cleaned.slice(2)}`;
+  // Remove any existing +65 prefix to avoid duplication
+  const withoutPrefix = standardized.startsWith('+65') 
+    ? standardized.substring(3) 
+    : standardized.startsWith('65') 
+      ? standardized.substring(2) 
+      : standardized;
+  
+  // Check if the remaining number is a valid Singapore mobile number (8 digits starting with 8 or 9)
+  const isValidSingaporeNumber = /^[89]\d{7}$/.test(withoutPrefix);
+  
+  if (isValidSingaporeNumber) {
+    // Return a properly formatted number with +65 prefix
+    return `+65${withoutPrefix}`;
   }
   
-  // If it doesn't start with +65, add it
-  if (!cleaned.startsWith('+65')) {
-    return `+65${cleaned}`;
+  // For invalid numbers, attempt to extract any 8-digit sequence starting with 8 or 9
+  const numberRegex = /[89]\d{7}/;
+  const numberMatch = numberRegex.exec(withoutPrefix);
+  if (numberMatch) {
+    return `+65${numberMatch[0]}`;
   }
   
-  return cleaned;
+  // If we can't extract a valid number, return unknown
+  return `+65${withoutPrefix}`;
 }
 
 // Helper function to extract amount
@@ -48,7 +63,7 @@ function extractAmount(amount: string): string {
   if (!amount) return 'UNKNOWN';
   
   // Remove everything after the first occurrence of '---'
-  const cleanAmount = amount.split('---')[0].trim();
+  const cleanAmount = amount?.split('---')[0]?.trim() ?? amount.trim();
   
   // Check if amount contains "to" for range
   if (cleanAmount.toLowerCase().includes('to')) {
@@ -144,13 +159,11 @@ function determineResidentialStatus(nationality: string | undefined): string {
       nationalityLower.includes('s pass') || 
       nationalityLower.includes('work permit') ||
       nationalityLower.includes('ep') ||
-      nationalityLower.includes('employment pass')) {
+      nationalityLower.includes('employment pass') ||
+      nationalityLower.includes('work pass') ||
+      nationalityLower.includes('others')) {
     console.log('Matched as Foreigner');
     return 'Foreigner';
-  }
-  if (nationalityLower.includes('others')) {
-    console.log('Matched as Others');
-    return 'Others';
   }
   console.log('No match found, returning UNKNOWN');
   return 'UNKNOWN';
@@ -194,18 +207,18 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (subjectLower.includes('omy.sg') || subjectLower.includes('omy')) return 'OMY.sg';
     if (subjectLower.includes('moneyright') || subjectLower.includes('1% interest')) return 'MoneyRight';
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
-    if (subjectLower.includes('loanable') || subjectLower.includes('clientsuccessemail.com')) return 'Loanable';
+    if (subjectLower.includes('loanable')) return 'Loanable';
     if (subjectLower.includes('crawfort')) return 'Crawfort';
     if (subjectLower.includes('moneyiq')) return 'MoneyIQ SG';
   }
 
   // Then check message content
   const sourceChecks = [
-    { source: 'OMY.sg', keywords: ['OMY.sg', 'OMY', 'get-personal-loan'] },
+    { source: 'OMY.sg', keywords: ['OMY.sg', 'OMY'] },
     { source: '1% Loan', keywords: ['1% Loan', '1%', 'One Percent'] },
     { source: 'MoneyRight', keywords: ['MoneyRight', '1% Interest'] },
-    { source: 'Loanable', keywords: ['Loanable', 'loanable.sg', 'clientsuccessemail.com'] },
-    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com', 'personal-loan-singapore'] },
+    { source: 'Loanable', keywords: ['Loanable', 'loanable.sg'] },
+    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com'] },
     { source: 'MoneyIQ SG', keywords: ['MoneyIQ', 'moneyiq.sg'] }
   ];
 
@@ -225,7 +238,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
       if (domain.includes('omy.sg')) return 'OMY.sg';
       if (domain.includes('1percent.sg')) return '1% Loan';
       if (domain.includes('moneyright.sg')) return 'MoneyRight';
-      if (domain.includes('loanable.sg') || domain.includes('clientsuccessemail.com')) return 'Loanable';
+      if (domain.includes('loanable.sg')) return 'Loanable';
       if (domain.includes('crawfort.com')) return 'Crawfort';
     }
     return fromValue;
@@ -246,35 +259,31 @@ function extractOMYData(message: string): {
   full_name?: string;
   phone_number?: string; 
   residential_status?: string;
+  amount?: string;
 } {
   // Initialize result object
   const result: { 
     full_name?: string;
     phone_number?: string; 
     residential_status?: string;
+    amount?: string;
   } = {};
   
   // Common patterns in OMY.sg leads
   const nameRegex = /(?:Name|Full Name|Customer Name)[:\s]+([^\r\n,]+)/i;
   const phoneRegex = /(?:Phone|Mobile|Contact|Phone Number|HP)[:\s]+([0-9\s+]+)/i;
   const citizenRegex = /(?:Citizenship|Nationality|Residential Status)[:\s]+([^\r\n,]+)/i;
+  const amountRegex = /(?:Monthly Income|Loan Amount|Amount)[:\s]+([0-9\s+]+)/i;
   
   // Extract name
-  const nameMatch = nameRegex.exec(message);
-  if (nameMatch && nameMatch[1]) {
-    result.full_name = nameMatch[1].trim();
-  }
+  result.full_name = nameRegex.exec(message)?.[1]?.trim();
   
   // Extract phone number
-  const phoneMatch = phoneRegex.exec(message);
-  if (phoneMatch && phoneMatch[1]) {
-    result.phone_number = phoneMatch[1].trim();
-  }
+  result.phone_number = phoneRegex.exec(message)?.[1]?.trim();
   
   // Extract citizenship/residential status
-  const citizenMatch = citizenRegex.exec(message);
-  if (citizenMatch && citizenMatch[1]) {
-    const citizenValue = citizenMatch[1].trim().toLowerCase();
+  const citizenValue = citizenRegex.exec(message)?.[1]?.trim().toLowerCase();
+  if (citizenValue) {
     if (citizenValue.includes('singapore') || 
         citizenValue.includes('local') || 
         citizenValue.includes('citizen') || 
@@ -289,8 +298,22 @@ function extractOMYData(message: string): {
       result.residential_status = 'Foreigner';
     }
   }
+
+  // Extract amount
+  result.amount = amountRegex.exec(message)?.[1]?.trim();
   
   return result;
+}
+
+// Helper function to safely handle special JSON characters
+function sanitizeJsonCharacters(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')  // escape backslashes first
+    .replace(/\{/g, '\\{')   // escape curly braces
+    .replace(/\}/g, '\\}')
+    .replace(/"/g, '\\"')    // escape quotes
+    .replace(/\[/g, '\\[')   // escape square brackets
+    .replace(/\]/g, '\\]');
 }
 
 export async function POST(request: Request) {
@@ -301,16 +324,20 @@ export async function POST(request: Request) {
 
     let body;
     try {
-      // Clean the JSON string before parsing
-      const cleanedText = rawText
-        // First escape any existing backslashes to prevent double escaping
-        .replace(/\\/g, '\\\\')
-        // Then handle the message content
-        .replace(/"message":\s*"([^"]*)"/g, (match, message) => {
-          // Escape special characters in the message
-          const escapedMessage = message
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"')
+      // First sanitize any special JSON characters
+      // const sanitizedText = sanitizeJsonCharacters(rawText);
+      const sanitizedText = rawText;
+      
+      // Then clean the JSON string before parsing
+      const cleanedText = sanitizedText
+        // Handle the message content
+        .replace(/"message":\s*"([^"]*)"/g, (match, message: string) => {
+          // Sanitize special characters in the message content
+          // const sanitizedMessage = sanitizeJsonCharacters(message);
+          const sanitizedMessage = message;
+          
+          // Handle newlines and tabs
+          const escapedMessage = sanitizedMessage
             .replace(/\n/g, '\\n')
             .replace(/\r/g, '\\r')
             .replace(/\t/g, '\\t');
@@ -332,7 +359,7 @@ export async function POST(request: Request) {
         { 
           success: false, 
           error: 'Invalid JSON format',
-          details: 'Could not parse request body as JSON',
+          details: error instanceof Error ? error.message : 'Unknown parsing error',
           receivedText: rawText.substring(0, 100) + '...' // Log first 100 chars
         },
         { status: 400 }
@@ -358,7 +385,7 @@ export async function POST(request: Request) {
 
     console.log('Processing request...', validationResult.data);
 
-    const { message, subject } = validationResult.data;
+    const { message, subject, received_time } = validationResult.data;
 
     // First split the message into tokens by newlines and clean them
     const tokens = message
@@ -376,7 +403,7 @@ export async function POST(request: Request) {
       if (line) {
         const parts = line.split(':');
         if (parts.length > 1) {
-          return parts[1].trim();
+          return parts[1]?.trim() ?? undefined;
         }
       }
       return undefined;
@@ -430,6 +457,7 @@ export async function POST(request: Request) {
       full_name?: string;
       phone_number?: string; 
       residential_status?: string;
+      amount?: string;
     } = {};
     if (source === 'OMY.sg') {
       console.log('Detected OMY.sg lead, applying specialized extraction');
@@ -444,9 +472,9 @@ export async function POST(request: Request) {
     const leadData = {
       full_name: (omyData?.full_name?.trim() ?? fullName?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
       phone_number: omyData?.phone_number ? cleanPhoneNumber(omyData.phone_number).substring(0, 20) : 
-                    phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '',
+                    phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '+65unknown',
       residential_status: omyData?.residential_status ?? (determineResidentialStatus(nationality?.trim()) || 'UNKNOWN'),
-      amount: amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
+      amount: omyData?.amount ? extractAmount(omyData.amount).substring(0, 50) : amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
       email: emailToUse.substring(0, 255),
       employment_status: determineEmploymentStatus(employment?.trim()) || 'UNKNOWN',
       loan_purpose: purpose ? cleanLoanPurpose(purpose).substring(0, 100) : 'UNKNOWN',
@@ -455,6 +483,7 @@ export async function POST(request: Request) {
       date_time: dateTime?.trim(),
       assigned_to: assignedTo?.trim()?.substring(0, 256) ?? 'UNKNOWN',
       source: source,
+      created_at: received_time,
     };
 
     console.log('Extracted values:', {
@@ -488,6 +517,21 @@ export async function POST(request: Request) {
     console.log('Lead creation result:', createResult);
 
     if (!createResult.success) {
+      // Check if the error is about phone number validation
+      if (createResult.error && 
+          typeof createResult.error === 'string' && 
+          createResult.error.includes('Invalid phone number format')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Invalid phone number format',
+            details: 'The provided phone number is not a valid Singapore phone number.',
+            phone_number: leadData.phone_number 
+          },
+          { status: 400 }
+        );
+      }
+      
       return NextResponse.json(
         { success: false, error: createResult.error },
         { status: 500 }
@@ -502,7 +546,8 @@ export async function POST(request: Request) {
         created: true,
         lead_id: createResult.lead?.id,
         status: createResult.lead?.status,
-        eligibility_status: createResult.lead?.eligibility_status
+        eligibility_status: createResult.lead?.eligibility_status,
+        eligibility_notes: createResult.lead?.eligibility_notes
       }
     });
 

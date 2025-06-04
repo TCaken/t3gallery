@@ -1,6 +1,6 @@
 import { db } from "~/server/db";
 import { leads } from "~/server/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, not } from "drizzle-orm";
 
 interface EligibilityResponse {
   isEligible: boolean;
@@ -8,8 +8,38 @@ interface EligibilityResponse {
   notes: string;
 }
 
+// Validate Singapore phone number
+function validateSGPhoneNumber(phone: string): boolean {
+  if (!phone) return false;
+  
+  // Remove spaces, dashes, and parentheses
+  const cleaned = phone.replace(/\s+|-|\(|\)/g, '');
+  
+  // Check for international format with +65
+  if (cleaned.startsWith('+65')) {
+    return /^\+65[896]\d{7}$/.test(cleaned);
+  }
+  
+  // Check for local format with 65 prefix
+  if (cleaned.startsWith('65')) {
+    return /^65[896]\d{7}$/.test(cleaned);
+  }
+  
+  // Check for local format without country code (8 digits)
+  return /^[896]\d{7}$/.test(cleaned);
+}
+
 async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityResponse> {
   try {
+    // First, validate phone number format
+    if (!validateSGPhoneNumber(phoneNumber)) {
+      return {
+        isEligible: false,
+        status: 'unqualified',
+        notes: 'Invalid phone number format. Must be a valid Singapore phone number.'
+      };
+    }
+    
     // Clean phone number to remove +65 if present
     const cleanPhone = phoneNumber.replace(/^\+65/, '');
     
@@ -29,19 +59,23 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
 
     const lists = await response.json() as string[];
     
-    // Check if phone exists in leads
+    // Check if phone exists in leads with status other than unqualified
+    console.log('phoneNumber', phoneNumber);
     const existingLead = await db.query.leads.findFirst({
-      where: eq(leads.phone_number, phoneNumber)
+      where: and(
+        eq(leads.phone_number, phoneNumber),
+        not(eq(leads.status, 'unqualified'))
+      )
     });
 
-    // If phone exists in our leads or in any CAPC lists, mark as unqualified
-    if (existingLead || lists.length > 0) {
+    // If phone exists in our leads (non-unqualified) or in any CAPC lists, mark as unqualified
+    if (lists.length > 0 || existingLead) {
       return {
         isEligible: false,
         status: 'unqualified',
-        notes: existingLead 
-          ? 'Phone number already exists in leads'
-          : `Found in CAPC lists: ${lists.join(', ')}`
+        notes: lists.length > 0
+          ? `Found in CAPC lists: ${lists.join(', ')}`
+          : `Phone number already exists in leads ${existingLead?.id} with status ${existingLead?.status}`
       };
     }
 

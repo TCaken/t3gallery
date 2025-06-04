@@ -102,7 +102,7 @@ export async function fetchAvailableTimeslots(date: string) {
 }
 
 /**
- * Create a new appointment and update lead status to booked
+ * Create a new appointment (without updating lead status)
  */
 export async function createAppointment(data: {
   leadId: number;
@@ -142,7 +142,7 @@ export async function createAppointment(data: {
 
     // Use a transaction to ensure all operations succeed or fail together
     return await db.transaction(async (tx) => {
-      // Create the appointment first
+      // Create the appointment
       const [newAppointment] = await tx
         .insert(appointments)
         .values({
@@ -161,7 +161,7 @@ export async function createAppointment(data: {
         throw new Error("Failed to create appointment");
       }
 
-      // Then create the appointment_timeslot relationship
+      // Create the appointment_timeslot relationship
       await tx
         .insert(appointment_timeslots)
         .values({
@@ -180,15 +180,7 @@ export async function createAppointment(data: {
         })
         .where(eq(timeslots.id, data.timeslotId));
       
-      // Update lead status to "booked"
-      await tx
-        .update(leads)
-        .set({
-          status: 'booked',
-          updated_at: new Date(),
-          updated_by: userId
-        })
-        .where(eq(leads.id, data.leadId));
+      // Note: Lead status update is now handled separately by updateLead function
       
       return { success: true, appointment: newAppointment };
     });

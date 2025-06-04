@@ -75,15 +75,15 @@ export async function fetchUsers() {
         }
       }
     });
+    // console.log('fetchUsers users:', users);
     
     return { 
       success: true, 
       users: users.map(user => ({
         id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
+        firstName: user.first_name,
+        lastName: user.last_name,
         email: user.email,
-        imageUrl: user.imageUrl,
         roles: user.roles.map(role => ({
           id: role.role.id,
           roleName: role.role.name

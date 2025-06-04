@@ -19,11 +19,11 @@ import { fetchLeadById } from '~/app/_actions/leadActions';
 import { 
   checkExistingAppointment, 
   fetchAvailableTimeslots, 
-  createAppointment, 
   cancelAppointment,
   type AppointmentWithLead,
   type Timeslot
 } from '~/app/_actions/appointmentAction';
+import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads } from "~/server/db/schema";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, addDays, isSameMonth, isSameDay, parseISO } from 'date-fns';
@@ -142,19 +142,24 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
     setLoading(true);
     
     try {
-      const result = await createAppointment({
+      const result = await createAppointmentWorkflow({
         leadId,
         timeslotId: selectedTimeslot,
         notes,
-        isUrgent
+        isUrgent,
+        phone: lead?.phone_number ?? ''
       });
       
       if (result.success) {
-        alert('Appointment scheduled successfully!');
-        // Lead status will be updated to "booked" by the server action
+        alert(`Appointment scheduled successfully! Executed ${result.results.length} actions.`);
+        // Orchestrator handles: 1) create appointment, 2) update lead status to "booked" 
+        // (which automatically triggers WhatsApp via updateLead)
         router.push(`/dashboard/leads/${leadId}`);
       } else {
-        alert(`Failed to schedule appointment: ${result.message}`);
+        alert(`Failed to schedule appointment: ${result.error}`);
+        if (result.rollbackAttempted) {
+          console.log('Rollback was attempted due to failure');
+        }
       }
     } catch (error) {
       console.error('Error scheduling appointment:', error);

@@ -1,3 +1,4 @@
+'use server';
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import type { WebhookEvent } from '@clerk/nextjs/server';
@@ -14,6 +15,10 @@ export async function POST(req: Request) {
   const svix_timestamp = headerPayload.get('svix-timestamp');
   const svix_signature = headerPayload.get('svix-signature');
 
+  console.log('svix_id:', svix_id);
+  console.log('svix_timestamp:', svix_timestamp);
+  console.log('svix_signature:', svix_signature);
+
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
     console.log('Webhook Error: Missing headers');
@@ -25,12 +30,13 @@ export async function POST(req: Request) {
   // Get the body
   const payload = await req.json();
   const body = JSON.stringify(payload);
+  console.log('Body:', body);
 
   // Create a new Svix instance with your webhook secret
-  const wh = new Webhook(process.env.NEXT_PUBLIC_CLERK_WEBHOOK_SECRET ?? '');
+  const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET ?? '');
 
   let evt: WebhookEvent;
-
+  
   // Verify the payload with the headers
   try {
     evt = wh.verify(body, {
@@ -87,15 +93,24 @@ export async function POST(req: Request) {
     console.log('Updating user:', { id, email: email_addresses[0]?.email_address, first_name, last_name });
 
     try {
-      // Update user
-      await db.update(users)
-        .set({
+      // Upsert user
+      await db.insert(users)
+        .values({
+          id,
           email: email_addresses[0]?.email_address ?? null,
           first_name: first_name ?? null,
           last_name: last_name ?? null,
+          is_verified: false,
         })
-        .where(eq(users.id, id));
-      console.log('Successfully updated user:', id);
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            email: email_addresses[0]?.email_address ?? null,
+            first_name: first_name ?? null,
+            last_name: last_name ?? null,
+          }
+        });
+      console.log('Successfully upserted user:', id);
     } catch (error) {
       console.error('Error updating user:', error);
       return new Response('Error updating user', {
@@ -123,5 +138,16 @@ export async function POST(req: Request) {
 
   return new Response('Webhook processed successfully', {
     status: 200
+  });
+}
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, svix-id, svix-timestamp, svix-signature',
+    },
   });
 } 
