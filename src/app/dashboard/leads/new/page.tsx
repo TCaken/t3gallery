@@ -114,7 +114,9 @@ export default function NewLeadPage() {
             "SEO",
             "Lendela",
             "LendingPoint",
-            "MoneyIQ"
+            "MoneyIQ",
+            "Firebase",
+            "Other"
           ]
         } as SelectField,
         { name: "full_name", label: "Full Name", type: "text", required: true } as TextField,

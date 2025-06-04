@@ -97,7 +97,7 @@ export async function createLead(input: CreateLeadInput) {
       phone_number_3: input.phone_number_3 ?? '',
       full_name: input.full_name ?? '',
       email: input.email ?? '',
-      source: input.source ?? 'Crawfort',
+      source: input.source ?? 'Unknown',
       residential_status: input.residential_status ?? '',
       has_work_pass_expiry: input.has_work_pass_expiry ?? '',
       proof_of_residence_type: input.proof_of_residence_type ?? '',
