@@ -144,7 +144,7 @@ export default function NewLeadPage() {
           label: "When does your work pass expire?", 
           type: "text",
           showIf: (values) => values.residential_status === "Foreigner",
-          note: "⚠️ Must have at least 6 months validity from today (DD/MM/YYYY format)"
+          note: "⚠️ Must have at least 6 months validity from today"
         } as TextField,
         { 
           name: "proof_of_residence_type", 

@@ -606,7 +606,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
           label: "When does your work pass expire?", 
           type: "text",
           showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-          note: "⚠️ Must have at least 6 months validity from today (DD/MM/YYYY format)"
+          note: "⚠️ Must have at least 6 months validity from today"
         } as TextField,
         { 
           name: "proof_of_residence_type", 
@@ -1185,7 +1185,7 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
           : "When does your work pass expire?", 
         type: "text",
         showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-        note: "⚠️ Must have at least 6 months validity from today (DD/MM/YYYY format)"
+        note: "⚠️ Must have at least 6 months validity from today"
       } as TextField,
       { 
         name: "proof_of_residence_type", 
