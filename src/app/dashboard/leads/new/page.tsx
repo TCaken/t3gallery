@@ -362,6 +362,7 @@ export default function NewLeadPage() {
         phone_number: formatSGPhoneNumber(formData.phone_number),
         phone_number_2: formData.phone_number_2 ? formatSGPhoneNumber(formData.phone_number_2) : '',
         phone_number_3: formData.phone_number_3 ? formatSGPhoneNumber(formData.phone_number_3) : '',
+        bypassEligibility: true,
       };
 
       const result = await createLead(formattedData);

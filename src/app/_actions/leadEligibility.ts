@@ -89,9 +89,9 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
   } catch (error) {
     console.error('Error checking eligibility:', error);
     return {
-      isEligible: true,
-      status: 'new',
-      notes: 'Error checking eligibility, defaulting to new'
+      isEligible: false,
+      status: 'unqualified',
+      notes: 'Error checking eligibility: ' + (error instanceof Error ? error.message : String(error))
     };
   }
 }

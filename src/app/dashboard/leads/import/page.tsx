@@ -22,9 +22,19 @@ interface FlexibleLeadRow {
   [key: string]: string | undefined;
 }
 
+interface RawDataRow {
+  phone_number?: string | number;
+  full_name?: string;
+  first_name?: string;
+  email?: string;
+  source?: string;
+  amount?: string;
+  [key: string]: unknown;
+}
+
 interface ImportResult {
   valid: FlexibleLeadRow[];
-  invalid: { row: number; errors: string[]; data: any }[];
+  invalid: { row: number; errors: string[]; data: RawDataRow }[];
   duplicates: { row: number; phone: string }[];
 }
 
@@ -34,6 +44,7 @@ export default function ImportLeadsPage() {
   const [parsing, setParsing] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [manualInput, setManualInput] = useState('');
@@ -55,9 +66,9 @@ export default function ImportLeadsPage() {
     return cleaned;
   };
 
-  const validateAndProcessData = (rawData: any[]): ImportResult => {
+  const validateAndProcessData = (rawData: RawDataRow[]): ImportResult => {
     const valid: FlexibleLeadRow[] = [];
-    const invalid: { row: number; errors: string[]; data: any }[] = [];
+    const invalid: { row: number; errors: string[]; data: RawDataRow }[] = [];
     const duplicates: { row: number; phone: string }[] = [];
     const seenPhones = new Set<string>();
 
@@ -85,20 +96,21 @@ export default function ImportLeadsPage() {
       }
 
       // Validate full name
-      const fullName = row.full_name?.toString().trim() || row.first_name?.toString().trim() || '';
-      if (!fullName) {
-        errors.push('Full name is required');
-      }
+      const fullName = row.full_name?.toString().trim() ?? row.first_name?.toString().trim() ?? '';
+      // No longer require full name
+      // if (!fullName) {
+      //   errors.push('Full name is required');
+      // }
 
       if (errors.length > 0) {
         invalid.push({ row: index + 1, errors, data: row });
       } else {
         valid.push({
           phone_number: phoneNumber,
-          full_name: fullName,
-          email: row.email?.toString().trim() || '',
-          source: row.source?.toString().trim() || 'Firebase',
-          amount: row.amount?.toString().trim() || '',
+          full_name: fullName || `Lead ${phoneNumber.replace(/^\+65|^65/, '')}`,
+          email: row.email?.toString().trim() ?? '',
+          source: row.source?.toString().trim() ?? 'Firebase',
+          amount: row.amount?.toString().trim() ?? '',
         });
       }
     });
@@ -163,7 +175,7 @@ export default function ImportLeadsPage() {
         return;
       }
 
-      const result = validateAndProcessData(rawData);
+      const result = validateAndProcessData(rawData as RawDataRow[]);
       setImportResult(result);
       
       if (result.valid.length > 0) {
@@ -202,7 +214,7 @@ export default function ImportLeadsPage() {
           rawData.push({
             phone_number: trimmed,
             full_name: `Lead ${trimmed.replace(/^65/, '')}`,
-            source: 'Manual Entry'
+            source: 'Firebase'
           });
         } else {
           // Try to parse as comma-separated or tab-separated
@@ -212,20 +224,20 @@ export default function ImportLeadsPage() {
               phone_number: parts[0],
               full_name: parts[1],
               email: parts[2] || '',
-              source: 'Manual Entry'
+              source: 'Firebase'
             });
           } else {
             // Treat as just a phone number
             rawData.push({
               phone_number: parts[0] || '',
               full_name: `Lead ${(parts[0] || '').replace(/^65/, '')}`,
-              source: 'Manual Entry'
+              source: 'Firebase'
             });
           }
         }
       });
 
-      const result = validateAndProcessData(rawData);
+      const result = validateAndProcessData(rawData as RawDataRow[]);
       setImportResult(result);
       setShowManualInput(false);
       
@@ -250,20 +262,34 @@ export default function ImportLeadsPage() {
     }
 
     setImporting(true);
+    setImportProgress(0);
 
     try {
       // Convert to the format expected by importLeads
       const leadsData = importResult.valid.map(lead => ({
         phone_number: lead.phone_number,
         full_name: lead.full_name,
-        email: lead.email || `${lead.phone_number}@imported.com`,
-        source: lead.source || 'Firebase',
+        email: lead.email ?? `${lead.phone_number}@imported.com`,
+        source: lead.source ?? 'Firebase', // Default to Firebase for imports
         status: 'new',
         lead_type: 'new',
-        amount: lead.amount || ''
+        amount: lead.amount ?? '',
+        bypassEligibility: false // Always check eligibility for imports
       }));
 
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setImportProgress(prev => {
+          if (prev < 90) return prev + 10;
+          return prev;
+        });
+      }, 200);
+
       const result = await importLeads(leadsData);
+      
+      // Complete progress
+      clearInterval(progressInterval);
+      setImportProgress(100);
       
       if (result.success) {
         showNotification(`Successfully imported ${result.count} leads!`, 'success');
@@ -278,6 +304,7 @@ export default function ImportLeadsPage() {
       showNotification('An error occurred while importing leads', 'error');
     } finally {
       setImporting(false);
+      setImportProgress(0);
     }
   };
 
@@ -357,12 +384,12 @@ export default function ImportLeadsPage() {
               <h3 className="text-sm font-medium text-gray-900 mb-2">Required Fields</h3>
               <ul className="text-sm text-gray-600 space-y-1">
                 <li>• <strong>Phone Number</strong> - Singapore mobile number (8 digits)</li>
-                <li>• <strong>Full Name</strong> - Lead's complete name</li>
               </ul>
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-900 mb-2">Optional Fields</h3>
               <ul className="text-sm text-gray-600 space-y-1">
+                <li>• <strong>Full Name</strong> - Lead&apos;s complete name</li>
                 <li>• Email address</li>
                 <li>• Lead source</li>
                 <li>• Loan amount</li>
@@ -530,20 +557,38 @@ export default function ImportLeadsPage() {
               </div>
             )}
 
-            {/* Import Button */}
+            {/* Import Button and Progress */}
             {importResult.valid.length > 0 && (
               <div className="bg-white border border-gray-200 rounded-lg p-6">
-                <div className="flex justify-end">
-                  <button
-                    onClick={handleImport}
-                    disabled={importing}
-                    className="px-6 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                  >
-                    {importing && (
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    )}
-                    <span>{importing ? 'Importing...' : `Import ${importResult.valid.length} Leads`}</span>
-                  </button>
+                <div className="space-y-4">
+                  {/* Progress Bar */}
+                  {importing && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm text-gray-600">
+                        <span>Importing leads...</span>
+                        <span>{importProgress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-gray-900 h-2 rounded-full transition-all duration-300 ease-out"
+                          style={{ width: `${importProgress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleImport}
+                      disabled={importing}
+                      className="px-6 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                    >
+                      {importing && (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      )}
+                      <span>{importing ? 'Importing...' : `Import ${importResult.valid.length} Leads`}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

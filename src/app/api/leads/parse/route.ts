@@ -513,7 +513,10 @@ export async function POST(request: Request) {
     }
 
     // Create the lead
-    const createResult = await createLead(leadData);
+    const createResult = await createLead({
+      ...leadData,
+      bypassEligibility: false // Always check eligibility for Parse API leads
+    });
     console.log('Lead creation result:', createResult);
 
     if (!createResult.success) {

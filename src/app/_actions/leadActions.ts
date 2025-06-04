@@ -78,21 +78,32 @@ interface CreateLeadInput {
   communication_language?: string;
   created_by?: string;
   received_time?: Date;
+  bypassEligibility?: boolean;
 }
 
 export async function createLead(input: CreateLeadInput) {
   try {
     const { userId } = await auth();
     
-    // Check eligibility first
-    // const eligibilityResult = await checkLeadEligibility(input.phone_number);
-
-    // Note: We no longer reject leads with invalid phone numbers
-    // Instead they will be created but marked as ineligible
-
+    // Format phone number
+    const formattedPhone = formatSGPhoneNumber(input.phone_number);
+    
+    // Determine eligibility based on bypass parameter
+    let eligibilityStatus = 'eligible';
+    let eligibilityNotes = 'Manually created lead - bypassed eligibility check';
+    let finalStatus = 'new';
+    
+    if (!input.bypassEligibility) {
+      // Run eligibility check
+      const eligibilityResult = await checkLeadEligibility(formattedPhone);
+      eligibilityStatus = eligibilityResult.isEligible ? 'eligible' : 'ineligible';
+      eligibilityNotes = eligibilityResult.notes;
+      finalStatus = eligibilityResult.isEligible ? 'new' : 'unqualified';
+    }
+    
     // Prepare comprehensive values with all the new fields
     const baseValues = {
-      phone_number: input.phone_number,
+      phone_number: formattedPhone,
       phone_number_2: input.phone_number_2 ?? '',
       phone_number_3: input.phone_number_3 ?? '',
       full_name: input.full_name ?? '',
@@ -113,10 +124,10 @@ export async function createLead(input: CreateLeadInput) {
       contact_preference: input.contact_preference ?? 'No Preferences',
       communication_language: input.communication_language ?? 'No Preferences',
       lead_type: 'new',
-      status: 'new',
+      status: finalStatus,
       eligibility_checked: true,
-      eligibility_status: 'eligible',
-      eligibility_notes: 'Manual Created By User',
+      eligibility_status: eligibilityStatus,
+      eligibility_notes: eligibilityNotes,
       created_by: input.created_by ?? userId,
       created_at: input.received_time ? new Date(input.received_time) : undefined,
     };
@@ -126,15 +137,15 @@ export async function createLead(input: CreateLeadInput) {
 
     // Add log entry for lead creation
     await db.insert(logs).values({
-      description: `Created new lead with phone ${input.phone_number}${input.full_name ? ` for ${input.full_name}` : ''}`,
+      description: `Created new lead with phone ${formattedPhone}${input.full_name ? ` for ${input.full_name}` : ''}`,
       entity_type: 'lead',
       entity_id: lead?.id.toString() ?? '',
       action: 'create',
       performed_by: input.created_by ?? userId,
     });
 
-    // Auto-assign the lead
-    if (lead?.id) {
+    // Auto-assign the lead only if eligible
+    if (lead?.id && eligibilityStatus === 'eligible') {
       await autoAssignSingleLead(lead.id);
     }
 
@@ -145,65 +156,81 @@ export async function createLead(input: CreateLeadInput) {
   }
 }
 
-// Import multiple leads from an Excel file
-export async function importLeads(leadsData: any[]) {
+// Define a proper interface for import data
+interface ImportLeadData {
+  phone_number?: string | number;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  email?: string;
+  source?: string;
+  status?: string;
+  lead_type?: string;
+  amount?: string;
+  [key: string]: unknown;
+}
+
+// Import multiple leads from an Excel file with eligibility checking
+export async function importLeads(leadsData: ImportLeadData[]) {
   const { userId } = await auth();
   if (!userId) throw new Error("Not authenticated");
   
   try {
-    // Clean and format the data
-    const formattedLeads = leadsData.map(lead => {
-      // Handle phone number formatting
-      let phoneNumber = lead.phone_number || '';
-      
-      // If it already has +65 or 65 prefix, keep it for formatting
-      // Otherwise make sure it's just the 8 digits
-      phoneNumber = phoneNumber.replace(/\s+|-|\(|\)/g, '');
-      
-      // Format using our helper
-      const formattedPhone = formatSGPhoneNumber(phoneNumber);
-      
-      // Combine first and last names if needed
-      const firstName = lead.first_name || 'AirConnect';
-      const lastName = lead.last_name || phoneNumber.replace(/^\+65|^65/, '');
-      
-      // Generate a default email if missing
-      const email = lead.email || `airconnect${phoneNumber.replace(/^\+65|^65/, '')}@test.com`;
-      
-      return {
-        phone_number: formattedPhone,
-        first_name: firstName,
-        last_name: lastName,
-        full_name: `${firstName} ${lastName}`.trim(),
-        email: email,
-        // Only allow valid statuses, default to 'new'
-        status: ['new', 'unqualified', 'give_up', 'blacklisted'].includes(lead.status?.toLowerCase()) 
-          ? lead.status?.toLowerCase() 
-          : 'new',
-        source: lead.source || 'Import',
-        // Only allow valid lead types, default to 'new'
-        lead_type: ['new', 'reloan'].includes(lead.lead_type?.toLowerCase())
-          ? lead.lead_type?.toLowerCase()
-          : 'new',
-        created_by: userId,
-        created_at: new Date(),
-      };
-    });
-    
-    // Insert all leads
-    const result = await db.insert(leads).values(formattedLeads).returning();
+    const results = {
+      successful: [] as typeof leadsData,
+      failed: [] as { lead: ImportLeadData; reason: string }[]
+    };
+
+    // Process each lead using createLead function
+    for (const leadData of leadsData) {
+      try {
+        // Prepare the lead data for createLead
+        const createLeadData = {
+          phone_number: leadData.phone_number?.toString() ?? '',
+          full_name: leadData.full_name ?? leadData.first_name ?? '',
+          email: leadData.email ?? '',
+          source: 'Firebase', // Default source for imports
+          amount: leadData.amount ?? '',
+          lead_type: ['new', 'reloan'].includes((leadData.lead_type ?? '').toString().toLowerCase())
+            ? (leadData.lead_type ?? '').toString().toLowerCase()
+            : 'new',
+          created_by: userId,
+          bypassEligibility: false // Always check eligibility for imports
+        };
+
+        // Use createLead which handles eligibility checking and auto-assignment
+        const result = await createLead(createLeadData);
+        
+        if (result.success && result.lead) {
+          results.successful.push(result.lead);
+        } else {
+          results.failed.push({
+            lead: leadData,
+            reason: result.error ?? 'Unknown error during lead creation'
+          });
+        }
+        
+      } catch (error) {
+        results.failed.push({
+          lead: leadData,
+          reason: `Error: ${(error as Error).message}`
+        });
+      }
+    }
     
     return { 
       success: true, 
-      count: result.length,
-      leads: result,
-      message: `${result.length} leads imported successfully` 
+      count: results.successful.length,
+      leads: results.successful,
+      failed: results.failed,
+      message: `${results.successful.length} leads imported successfully${results.failed.length > 0 ? `, ${results.failed.length} failed` : ''}` 
     };
   } catch (error) {
     console.error("Error importing leads:", error);
     return { 
       success: false, 
       count: 0,
+      failed: [],
       message: `Failed to import leads: ${(error as Error).message}` 
     };
   }
@@ -399,7 +426,7 @@ export async function updateLead(
     console.log("leadData", leadData);
     console.log("existingLead", existingLead);
     const changedFields = Object.keys(leadData).filter(key => 
-      leadData[key as keyof typeof leadData] !== existingLead[0][key as keyof typeof existingLead[0]]
+      leadData[key as keyof typeof leadData] !== (existingLead[0] as any)?.[key as keyof typeof existingLead[0]]
     );
 
     await db.insert(logs).values({
@@ -496,12 +523,14 @@ export async function fetchFilteredLeads({
       conditions.push(eq(leads.status, status));
     }
     if (search) {
-      conditions.push(
-        or(
-          like(leads.full_name ?? '', `%${search}%`),
-          like(leads.phone_number ?? '', `%${search}%`)
-        )
-      );
+      const searchConditions = [
+        like(leads.full_name, `%${search}%`),
+        like(leads.phone_number, `%${search}%`)
+      ].filter(Boolean);
+      
+      if (searchConditions.length > 0) {
+        conditions.push(or(...searchConditions)!);
+      }
     }
 
     // Build the query with proper joins and selection
