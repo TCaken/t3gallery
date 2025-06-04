@@ -21,6 +21,7 @@ import LazyComment from './LazyComment';
 import LeadEditSlideOver from './LeadEditSlideOver';
 import { type Lead } from '~/app/types';
 import { formatDistanceToNow } from 'date-fns';
+import { Span } from 'next/dist/trace';
 
 // Infer lead type from Drizzle schema
 type LeadType = InferSelectModel<typeof leads>;
@@ -105,30 +106,61 @@ export default function LeadCard({
         isPinned ? 'border-l-4 border-blue-400' : ''
       }`}
     >
+      {/* Header Section - Name, Phone, and Primary Status */}
       <div className="flex justify-between items-start mb-3">
-        <div>
-          <h3 className="text-lg font-medium text-gray-900">
-            <a href={`leads/${lead.id}`} target="_blank" className="hover:underline">
+        <div className="flex-1 min-w-0 mr-3">
+          <h3 className="text-lg font-medium text-gray-900 truncate group">
+            <a 
+              href={`leads/${lead.id}`} 
+              target="_blank" 
+              className="hover:underline"
+              title={lead.full_name ?? 'No Name'}
+            >
               {lead.full_name ?? 'No Name'}
             </a>
           </h3>
-          <p className="text-sm text-gray-500">{lead.phone_number}</p>
+          <p className="text-sm text-gray-500 truncate">{lead.phone_number}</p>
         </div>
-        <div className="flex items-center space-x-2">
-          <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
+        
+        {/* Status and Tags */}
+        <div className="flex flex-col items-end space-y-1 flex-shrink-0">
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${statusInfo.color}`}>
             {statusInfo.name}
           </span>
+          {lead.communication_language !== "No Preferences" && 
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-medium text-teal-800 bg-teal-100 whitespace-nowrap">
+              {lead.communication_language}
+            </span>
+          }
         </div>
       </div>
 
-      <div className="flex flex-col text-sm text-gray-500">
-        <span>Created: {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}</span>
+      {/* Info Grid - More compact layout */}
+      <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 mb-3">
+        <div className="flex items-center space-x-1">
+          <PencilSquareIcon className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate" title={`Updated: ${formatDistanceToNow(new Date(lead.updated_at ?? ''), { addSuffix: true })}`}>
+            {formatDistanceToNow(new Date(lead.updated_at ?? ''), { addSuffix: true })}
+          </span>
+        </div>
+        <div className="flex items-center space-x-1">
+          <ClockIcon className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate" title={`Created: ${formatDistanceToNow(new Date(lead.created_at ?? ''), { addSuffix: true })}`}>
+            {formatDistanceToNow(new Date(lead.created_at ?? ''), { addSuffix: true })}
+          </span>
+        </div>
         {lead.assigned_to && (
-          <span className="text-blue-600">Agent: {lead.assigned_to}</span>
+          <div className="flex items-center space-x-1 col-span-2">
+            <UserCircleIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
+            <span className="text-blue-600 truncate" title={`Agent: ${lead.assigned_to}`}>
+              Agent: {lead.assigned_to}
+            </span>
+          </div>
         )}
       </div>
 
-      <div className="flex justify-between items-center mb-2">
+      {/* Action Buttons - More compact */}
+      <div className="mb-3">
         <LeadActionButtons
           leadId={lead.id}
           onAction={handleAction}
@@ -140,6 +172,7 @@ export default function LeadCard({
         />
       </div>
 
+      {/* Notes Section - Compact with icon */}
       <div 
         className="relative"
         onMouseEnter={() => {
@@ -148,10 +181,12 @@ export default function LeadCard({
         }}
         onMouseLeave={() => setShowNotesTooltip(false)}
       >
-        <div className="flex items-center">
-          <span className="text-sm text-blue-600 hover:text-blue-800 cursor-pointer">
-            Hover to view notes ({noteCount})
-          </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-1 text-xs text-blue-600 hover:text-blue-800 cursor-pointer">
+            <DocumentTextIcon className="h-3 w-3" />
+            <span>Notes ({noteCount})</span>
+          </div>
+          <ChatBubbleLeftRightIcon className="h-3 w-3 text-gray-400" />
         </div>
         
         {/* Notes Tooltip */}
@@ -164,15 +199,17 @@ export default function LeadCard({
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900 mx-auto"></div>
                 </div>
               ) : notes.length > 0 ? (
-                <ul className="space-y-3">
-                  {notes.map((note, index) => (
-                    <li key={index} className="text-sm text-gray-600 border-b border-gray-100 last:border-b-0 pb-2 last:pb-0">
-                      {note}
-                    </li>
-                  ))}
-                </ul>
+                <div className="max-h-40 overflow-y-auto">
+                  <ul className="space-y-2">
+                    {notes.map((note, index) => (
+                      <li key={index} className="text-sm text-gray-600 border-b border-gray-100 last:border-b-0 pb-2 last:pb-0">
+                        {note}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : (
-                <p className="text-sm text-gray-500 py-2">No notes available</p>
+                <p className="text-sm text-gray-500 py-2 text-center">No notes available</p>
               )}
             </div>
           </div>

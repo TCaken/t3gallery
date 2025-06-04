@@ -9,6 +9,9 @@ import { getCurrentUserId } from "~/app/_actions/userActions";
 import { checkLeadEligibility } from "./leadEligibility";
 import { getUserRoles } from "~/server/rbac/queries";
 import { sendAutoTriggeredMessage } from "./whatsappActions";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { autoAssignSingleLead } from "./agentActions";
 
 
 // Fetch all leads with optional filtering by status
@@ -54,45 +57,67 @@ export async function fetchLeadById(leadId: number) {
 
 interface CreateLeadInput {
   phone_number: string;
+  phone_number_2?: string;
+  phone_number_3?: string;
   full_name?: string;
   email?: string;
+  source?: string;
   residential_status?: string;
+  has_work_pass_expiry?: string;
+  proof_of_residence_type?: string;
+  has_letter_of_consent?: boolean;
   employment_status?: string;
+  employment_salary?: string;
+  employment_length?: string;
+  has_payslip_3months?: boolean;
+  amount?: string;
   loan_purpose?: string;
   existing_loans?: string;
-  amount?: string;
-  source?: string;
+  outstanding_loan_amount?: string;
+  contact_preference?: string;
+  communication_language?: string;
   created_by?: string;
   received_time?: Date;
 }
 
 export async function createLead(input: CreateLeadInput) {
   try {
+    const { userId } = await auth();
+    
     // Check eligibility first
-    const eligibilityResult = await checkLeadEligibility(input.phone_number);
+    // const eligibilityResult = await checkLeadEligibility(input.phone_number);
 
     // Note: We no longer reject leads with invalid phone numbers
     // Instead they will be created but marked as ineligible
 
-    // Prepare base values
+    // Prepare comprehensive values with all the new fields
     const baseValues = {
-      phone_number: "+6583992504",
-      phone_number_2: input.phone_number,
-      phone_number_3: input.phone_number,
-      full_name: input.full_name,
-      email: input.email,
-      residential_status: input.residential_status,
-      employment_status: input.employment_status,
-      loan_purpose: input.loan_purpose,
-      existing_loans: input.existing_loans,
-      amount: input.amount,
-      source: input.source,
+      phone_number: input.phone_number,
+      phone_number_2: input.phone_number_2 ?? '',
+      phone_number_3: input.phone_number_3 ?? '',
+      full_name: input.full_name ?? '',
+      email: input.email ?? '',
+      source: input.source ?? 'Crawfort',
+      residential_status: input.residential_status ?? '',
+      has_work_pass_expiry: input.has_work_pass_expiry ?? '',
+      proof_of_residence_type: input.proof_of_residence_type ?? '',
+      has_letter_of_consent: input.has_letter_of_consent ?? false,
+      employment_status: input.employment_status ?? '',
+      employment_salary: input.employment_salary ?? '',
+      employment_length: input.employment_length ?? '',
+      has_payslip_3months: input.has_payslip_3months ?? false,
+      amount: input.amount ?? '',
+      loan_purpose: input.loan_purpose ?? '',
+      existing_loans: input.existing_loans ?? '',
+      outstanding_loan_amount: input.outstanding_loan_amount ?? '',
+      contact_preference: input.contact_preference ?? 'No Preferences',
+      communication_language: input.communication_language ?? 'No Preferences',
       lead_type: 'new',
-      status: eligibilityResult.status,
+      status: 'new',
       eligibility_checked: true,
-      eligibility_status: eligibilityResult.isEligible ? 'eligible' : 'ineligible',
-      eligibility_notes: eligibilityResult.notes,
-      created_by: input.created_by,
+      eligibility_status: 'eligible',
+      eligibility_notes: 'Manual Created By User',
+      created_by: input.created_by ?? userId,
       created_at: input.received_time ? new Date(input.received_time) : undefined,
     };
 
@@ -105,8 +130,13 @@ export async function createLead(input: CreateLeadInput) {
       entity_type: 'lead',
       entity_id: lead?.id.toString() ?? '',
       action: 'create',
-      performed_by: input.created_by,
+      performed_by: input.created_by ?? userId,
     });
+
+    // Auto-assign the lead
+    if (lead?.id) {
+      await autoAssignSingleLead(lead.id);
+    }
 
     return { success: true, lead: lead };
   } catch (error) {

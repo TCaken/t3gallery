@@ -432,7 +432,26 @@ export const report_snapshots = createTable(
   })
 );
 
-// Add a table for tracking checked-in agents
+// Add a table for auto-assignment settings
+export const autoAssignmentSettings = createTable(
+  "auto_assignment_settings",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    is_enabled: d.boolean().default(false),
+    assignment_method: d.varchar({ length: 50 }).default('round_robin'), // round_robin, weighted, random
+    current_round_robin_index: d.integer().default(0), // Track next agent in rotation
+    last_assigned_agent_id: d.varchar({ length: 256 }),
+    max_leads_per_agent_per_day: d.integer().default(20),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+  }),
+  (t) => [
+    index("auto_assignment_settings_enabled_idx").on(t.is_enabled)
+  ]
+);
+
+// Enhanced checked-in agents table with weights and capacity
 export const checkedInAgents = createTable(
   "checked_in_agents",
   (d) => ({
@@ -440,13 +459,37 @@ export const checkedInAgents = createTable(
     agent_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
     checked_in_date: d.date().default(sql`CURRENT_DATE`).notNull(),
     lead_capacity: d.integer().default(10), // Default number of leads an agent can handle
+    weight: d.integer().default(1), // Weight for distribution (higher = more leads)
+    current_lead_count: d.integer().default(0), // Current leads assigned today
     is_active: d.boolean().default(true),
+    last_assigned_at: d.timestamp({ withTimezone: true }),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
   }),
   (t) => [
     index("checked_in_agent_id_idx").on(t.agent_id),
-    index("checked_in_date_idx").on(t.checked_in_date)
+    index("checked_in_date_idx").on(t.checked_in_date),
+    index("checked_in_active_idx").on(t.is_active)
+  ]
+);
+
+// Add assignment history for tracking and analytics
+export const leadAssignmentHistory = createTable(
+  "lead_assignment_history",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    lead_id: d.integer().references(() => leads.id, { onDelete: "cascade" }).notNull(),
+    assigned_to: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    assigned_by: d.varchar({ length: 256 }).references(() => users.id),
+    assignment_method: d.varchar({ length: 50 }).notNull(), // auto_round_robin, auto_weighted, manual
+    assignment_reason: d.text(), // Why this agent was chosen
+    assigned_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    is_active: d.boolean().default(true), // False if lead was reassigned
+  }),
+  (t) => [
+    index("assignment_history_lead_idx").on(t.lead_id),
+    index("assignment_history_agent_idx").on(t.assigned_to),
+    index("assignment_history_date_idx").on(t.assigned_at)
   ]
 );
 

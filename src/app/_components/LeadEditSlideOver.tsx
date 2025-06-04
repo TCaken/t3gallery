@@ -453,7 +453,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
         <div className="space-y-3">
           {field.options.map((option: string) => (
             <label key={option} className="flex items-center space-x-3 cursor-pointer group">
-              <div className="relative">
+              <div className="relative flex items-center justify-center">
                 <input
                   type="radio"
                   id={`${field.name}-${option}`}
@@ -485,8 +485,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
       return (
         <div className="space-y-3">
           {field.options.map((option: string) => (
-            <label key={option} className="flex items-start space-x-3 cursor-pointer group">
-              <div className="relative">
+            <label key={option} className="flex items-center space-x-3 cursor-pointer group">
+              <div className="relative flex items-center justify-center">
                 <input
                   type="checkbox"
                   id={`${field.name}-${option}`}
@@ -527,8 +527,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
       // Regular checkbox handling for other fields
       return (
         <div className="space-y-2">
-          <label className="flex items-start space-x-3 cursor-pointer group">
-            <div className="relative">
+          <label className="flex items-center space-x-3 cursor-pointer group">
+            <div className="relative flex items-center justify-center">
               <input
                 type="checkbox"
                 id={field.name.toString()}
