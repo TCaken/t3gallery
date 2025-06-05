@@ -429,6 +429,7 @@ export async function updateLead(
   leadData: Partial<InferSelectModel<typeof leads>>
 ) {
   const { userId } = await auth();
+  console.log('userId', userId);
   if (!userId) {
     return { 
       success: false, 
@@ -495,6 +496,7 @@ export async function updateLead(
     // Remove any fields that shouldn't be updated
     const updateData = {
       ...leadData,
+      assigned_to: originalLead.assigned_to,
       updated_by: userId,
       updated_at: new Date()
     };
@@ -502,6 +504,7 @@ export async function updateLead(
     delete updateData.id;
     delete updateData.created_at;
     delete updateData.created_by;
+    console.log('updateData', updateData);
 
     // Update the lead
     const [updated] = await db.update(leads)
