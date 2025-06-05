@@ -54,6 +54,7 @@ export default function LeadCard({
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   const handleAction = (action: string) => {
     console.log('LeadCard: Action clicked:', action);
@@ -62,6 +63,36 @@ export default function LeadCard({
     if (onAction && lead.id) {
       console.log('LeadCard: Calling onAction with:', action, lead.id);
       onAction(action, lead.id);
+    }
+  };
+
+  // Handle card click to open edit
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't trigger if clicking on interactive elements
+    const target = e.target as HTMLElement;
+    if (
+      target.tagName === 'BUTTON' || 
+      target.tagName === 'A' || 
+      target.closest('button') || 
+      target.closest('a') ||
+      target.closest('[data-no-card-click]')
+    ) {
+      return;
+    }
+    
+    handleAction('edit');
+  };
+
+  // Handle phone number copy
+  const handlePhoneCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    
+    try {
+      await navigator.clipboard.writeText(lead.phone_number);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy phone number:', err);
     }
   };
 
@@ -102,9 +133,11 @@ export default function LeadCard({
 
   return (
     <div
-      className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition ${
+      onClick={handleCardClick}
+      className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-[1.02] ${
         isPinned ? 'border-l-4 border-blue-400' : ''
       }`}
+      title="Click to edit lead details"
     >
       {/* Header Section - Name, Phone, and Primary Status */}
       <div className="flex justify-between items-start mb-3">
@@ -115,11 +148,25 @@ export default function LeadCard({
               target="_blank" 
               className="hover:underline"
               title={lead.full_name ?? 'No Name'}
+              data-no-card-click="true"
             >
               {lead.full_name ?? 'No Name'}
             </a>
           </h3>
-          <p className="text-sm text-gray-500 truncate">{lead.phone_number}</p>
+          <div className="relative">
+            <p 
+              className="text-sm text-gray-500 truncate hover:text-blue-600 transition-colors cursor-pointer relative"
+              onClick={handlePhoneCopy}
+              title="Click to copy phone number"
+            >
+              {lead.phone_number}
+            </p>
+            {copySuccess && (
+              <div className="absolute top-full left-0 mt-1 px-2 py-1 bg-green-600 text-white text-xs rounded shadow-lg z-10 whitespace-nowrap">
+                Phone number copied!
+              </div>
+            )}
+          </div>
         </div>
         
         {/* Status and Tags */}
@@ -168,7 +215,7 @@ export default function LeadCard({
       </div>
 
       {/* Action Buttons - More compact */}
-      <div className="mb-3">
+      <div className="mb-3" data-no-card-click="true">
         <LeadActionButtons
           leadId={lead.id}
           onAction={handleAction}
@@ -183,6 +230,7 @@ export default function LeadCard({
       {/* Notes Section - Compact with icon */}
       <div 
         className="relative"
+        data-no-card-click="true"
         onMouseEnter={() => {
           setShowNotesTooltip(true);
           void loadNotes();

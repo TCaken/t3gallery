@@ -410,7 +410,14 @@ export default function LeadsPage() {
   const refreshDataWithFilters = async () => {
     setAllLoadedLeads([]);
     setPage(1);
-    await fetchLeadsWithFilters(1);
+    await fetchFilteredLeads({
+      status: filters.status,
+      search: filters.search,
+      sortBy: filters.sortBy,
+      sortOrder: filters.sortOrder,
+      page: filters.page,
+      limit: filters.limit
+    });
   };
 
   // Modify fetchLeadsWithFilters to load more leads when needed
@@ -732,6 +739,7 @@ export default function LeadsPage() {
         case 'edit':
           setSelectedLead(lead);
           setIsEditOpen(true);
+          console.log("edit")
           // needsRefresh = true;
           break;
 
