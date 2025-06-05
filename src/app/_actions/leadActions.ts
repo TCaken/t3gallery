@@ -146,9 +146,9 @@ export async function createLead(input: CreateLeadInput) {
     });
 
     // Auto-assign the lead only if eligible
-    if (lead?.id && eligibilityStatus === 'eligible') {
-      await autoAssignSingleLead(lead.id);
-    }
+    // if (lead?.id && eligibilityStatus === 'eligible') {
+    //   await autoAssignSingleLead(lead.id);
+    // }
 
     return { success: true, lead: lead };
   } catch (error) {
