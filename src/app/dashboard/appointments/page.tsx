@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   PlusIcon, 
@@ -11,272 +11,660 @@ import {
   ExclamationCircleIcon,
   CalendarIcon,
   ChevronLeftIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  UserIcon,
+  PhoneIcon,
+  Bars3Icon
 } from '@heroicons/react/24/outline';
-import { fetchAppointments } from '~/app/_actions/appointmentAction';
-import { format, parseISO, addDays, startOfDay, endOfDay } from 'date-fns';
+import { createAppointment, fetchAppointments, type AppointmentWithLead } from '~/app/_actions/appointmentAction';
+import { fetchAvailableTimeslots, type Timeslot } from '~/app/_actions/appointmentAction';
+import { format, parseISO, addDays, startOfDay, endOfDay, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay, isToday } from 'date-fns';
+import { createLead } from '~/app/_actions/leadActions';
+import { truncate } from 'fs/promises';
+import { auth } from '@clerk/nextjs/server';
+import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
+  
+const APPOINTMENT_STATUSES = {
+  upcoming: { icon: ClockIcon, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
+  done: { icon: CheckCircleIcon, color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' },
+  missed: { icon: ExclamationCircleIcon, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
+  cancelled: { icon: XCircleIcon, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' }
+};
+
+// Generate timeslots for display (10 AM to 8 PM)
+const generateTimeSlots = () => {
+  const slots = [];
+  for (let hour = 10; hour <= 20; hour++) {
+    const time = `${hour.toString().padStart(2, '0')}:00`;
+    const displayTime = hour === 12 ? '12:00 PM' : hour > 12 ? `${hour - 12}:00 PM` : `${hour}:00 AM`;
+    slots.push({ time, displayTime, hour });
+  }
+  return slots;
+};
+
+// Custom hook for debounced value
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
 
 export default function AppointmentsPage() {
   const router = useRouter();
-  const [appointments, setAppointments] = useState<any[]>([]);
-  const [filteredAppointments, setFilteredAppointments] = useState<any[]>([]);
+  const [allAppointments, setAllAppointments] = useState<AppointmentWithLead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState('today');
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('week');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['upcoming', 'done']);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  
+
+  // Quick create modal state
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [quickCreateData, setQuickCreateData] = useState({
+    date: '',
+    timeSlot: '',
+    leadName: '',
+    phoneNumber: '',
+    allowOverbook: true
+  });
+
+  // TODO: Get this from user context/auth - for now assuming retail user
+  const isRetailUser = true; // This should come from your auth/user context
+
+  // Debounce search query to avoid excessive API calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+
+  const timeSlots = generateTimeSlots();
+
+  // Fetch data only when date range or view changes (not on search/filter changes)
   useEffect(() => {
-    const fetchAppointmentData = async () => {
-      setLoading(true);
-      try {
-        let filters: any = {};
-        
-        if (activeFilter === 'today') {
-          filters.date = new Date();
-          filters.view = 'day';
-        } else if (activeFilter === 'upcoming') {
-          filters.view = 'upcoming';
-        } else if (activeFilter === 'past') {
-          filters.view = 'past';
-        } else if (activeFilter === 'search' && searchQuery.trim() !== '') {
-          filters.searchQuery = searchQuery;
-        }
-        
-        const fetchedAppointments = await fetchAppointments(filters);
-        setAppointments(fetchedAppointments);
-        setFilteredAppointments(fetchedAppointments);
-      } catch (error) {
-        console.error("Error fetching appointments:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
     void fetchAppointmentData();
-  }, [activeFilter, searchQuery, selectedDate]);
-  
-  const handleStatusChange = async (appointmentId: number, newStatus: string) => {
-    try {
-      // Call the update status function
-      // This would be implemented in the appointmentAction.ts file
-      const response = await fetch(`/api/appointments/${appointmentId}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      
-      if (response.ok) {
-        // Update the local state
-        setAppointments(prev => 
-          prev.map(app => 
-            app.id === appointmentId ? { ...app, status: newStatus } : app
-          )
-        );
+  }, [currentDate, viewMode]);
+
+  // Separate effect for search that only triggers after debounce
+  useEffect(() => {
+    if (debouncedSearchQuery !== searchQuery) {
+      // Only refetch if the debounced search is different and not empty
+      if (debouncedSearchQuery.trim()) {
+        void fetchAppointmentData();
       }
+    }
+  }, [debouncedSearchQuery]);
+
+  const fetchAppointmentData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const startDate = viewMode === 'week' ? startOfWeek(currentDate, { weekStartsOn: 1 }) : startOfDay(currentDate);
+      const endDate = viewMode === 'week' ? endOfWeek(currentDate, { weekStartsOn: 1 }) : endOfDay(currentDate);
+
+      const filters = {
+        startDate,
+        endDate,
+        // Don't filter by status or search in the API call - we'll do it client-side for better UX
+        status: ['upcoming', 'done', 'missed', 'cancelled'], // Fetch all statuses
+        sortBy: 'start_datetime'
+      };
+
+      const fetchedAppointments = await fetchAppointments(filters);
+      setAllAppointments(fetchedAppointments);
     } catch (error) {
-      console.error("Error updating appointment status:", error);
+      console.error("Error fetching appointments:", error);
+    } finally {
+      setLoading(false);
     }
-  };
-  
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'upcoming':
-        return <ClockIcon className="h-5 w-5 text-blue-600" />;
-      case 'done':
-        return <CheckCircleIcon className="h-5 w-5 text-green-600" />;
-      case 'cancelled':
-        return <XCircleIcon className="h-5 w-5 text-red-600" />;
-      case 'missed':
-        return <ExclamationCircleIcon className="h-5 w-5 text-gray-600" />;
-      default:
-        return <ClockIcon className="h-5 w-5 text-blue-600" />;
+  }, [currentDate, viewMode]);
+
+  // Filter appointments client-side for immediate response
+  const filteredAppointments = useMemo(() => {
+    let filtered = allAppointments;
+
+    // Filter by status
+    if (selectedStatuses.length > 0) {
+      filtered = filtered.filter(apt => selectedStatuses.includes(apt.status));
     }
+
+    // Filter by search query
+    if (debouncedSearchQuery.trim()) {
+      const searchTerm = debouncedSearchQuery.toLowerCase();
+      filtered = filtered.filter(apt => 
+        (apt.lead?.full_name?.toLowerCase().includes(searchTerm) ?? false) ||
+        (apt.lead?.phone_number?.toLowerCase().includes(searchTerm) ?? false) ||
+        (apt.notes?.toLowerCase().includes(searchTerm) ?? false) ||
+        (apt.lead?.email?.toLowerCase().includes(searchTerm) ?? false)
+      );
+    }
+
+    return filtered;
+  }, [allAppointments, selectedStatuses, debouncedSearchQuery]);
+
+  const handleQuickCreate = (date: Date, timeSlot: string) => {
+    setQuickCreateData({
+      date: format(date, 'yyyy-MM-dd'),
+      timeSlot: timeSlot,
+      leadName: '',
+      phoneNumber: '',
+      allowOverbook: false
+    });
+    setShowQuickCreate(true);
   };
-  
-  const formatDate = (dateString: string | Date) => {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
-    return format(date, 'EEE, MMM d, yyyy');
-  };
-  
-  const formatTime = (dateString: string | Date) => {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
-    return format(date, 'h:mm a');
-  };
-  
-  const navigateDay = (direction: 'prev' | 'next') => {
-    const newDate = direction === 'next' 
-      ? addDays(selectedDate, 1) 
-      : addDays(selectedDate, -1);
+
+  const handleQuickCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    setSelectedDate(newDate);
-    setActiveFilter('custom');
+    try {
+      setLoading(true);
+      
+      // Step 1: Create the lead first
+      // TODO: Replace with your actual createLead function
+      const leadData = {
+        full_name: quickCreateData.leadName,
+        phone_number: quickCreateData.phoneNumber,
+        source: 'SEO',
+        status: 'new'
+      };
+      
+      const leadResult = await createLead({...leadData, bypassEligibility: true});
+     
+      if(!leadResult.success || !leadResult.lead) {
+        throw new Error('Failed to create lead');
+      }
+      const leadId = leadResult.lead.id;
+      console.log('Creating lead:', leadResult.lead);
+
+      
+      // Step 2: Find the appropriate timeslot
+      const selectedDate = new Date(quickCreateData.date);
+      const timeslots = await fetchAvailableTimeslots(quickCreateData.date);
+      const targetSlot = timeslots.find((slot: Timeslot) => slot.start_time === `${quickCreateData.timeSlot}:00`);
+      
+      if (!targetSlot) {
+        throw new Error('Selected timeslot not found');
+      }
+      
+      // Step 3: Check capacity unless overbooking is allowed
+      if (!quickCreateData.allowOverbook) {
+        const occupiedCount = targetSlot.occupied_count ?? 0;
+        const maxCapacity = targetSlot.max_capacity ?? 1;
+        if (occupiedCount >= maxCapacity) {
+          throw new Error('This timeslot is fully booked. Enable overbooking to proceed.');
+        }
+      }
+      
+      // Step 4: Create appointment
+      // TODO: Replace with your actual createAppointment function
+      const appointmentData = {
+        leadId: leadId, 
+        timeslotId: targetSlot.id,
+        notes: `Quick created by retail user for ${quickCreateData.leadName}`,
+        isUrgent: false,
+        phone: quickCreateData.phoneNumber
+      };
+      
+      const appointmentResult = await createAppointmentWorkflow(appointmentData);
+      if(!appointmentResult.success) {
+        throw new Error('Failed to create appointment');
+      }
+      console.log('Creating appointment:', appointmentResult);
+      
+      // Step 5: Success feedback and refresh
+      setShowQuickCreate(false);
+      
+      // Refresh the appointments data
+      await fetchAppointmentData();
+      console.log('Appointment result:', appointmentResult);
+
+      window.open(`/dashboard/appointments/${appointmentResult.data?.appointment?.id}`, '_blank');
+      
+    } catch (error) {
+      console.error('Error creating quick appointment:', error);
+      alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setLoading(false);
+    }
   };
-  
+
+  // Helper function to get time options for the selected hour
+  const getTimeOptions = (baseTimeSlot: string) => {
+    const parts = baseTimeSlot.split(':');
+    const hourStr = parts[0];
+    if (!hourStr) return [];
+    
+    const hour = parseInt(hourStr);
+    const firstHalf = `${hour.toString().padStart(2, '0')}:00`;
+    const secondHalf = `${hour.toString().padStart(2, '0')}:30`;
+    
+    return [
+      { value: firstHalf, label: format(parseISO(`2000-01-01T${firstHalf}:00`), 'h:mm a') },
+      { value: secondHalf, label: format(parseISO(`2000-01-01T${secondHalf}:00`), 'h:mm a') }
+    ];
+  };
+
+  const navigateDate = (direction: 'prev' | 'next') => {
+    if (viewMode === 'week') {
+      setCurrentDate(direction === 'next' ? addWeeks(currentDate, 1) : subWeeks(currentDate, 1));
+    } else {
+      setCurrentDate(direction === 'next' ? addDays(currentDate, 1) : addDays(currentDate, -1));
+    }
+  };
+
+  // Get appointments for a specific time slot, including those that span multiple slots
+  const getAppointmentsForTimeSlot = (date: Date, timeSlot: string) => {
+    return filteredAppointments.filter(apt => {
+      const aptStartDate = new Date(apt.start_datetime);
+      const aptEndDate = new Date(apt.end_datetime);
+      
+      // Check if this appointment is on the same day
+      if (!isSameDay(aptStartDate, date)) return false;
+      
+      const slotStart = new Date(`${format(date, 'yyyy-MM-dd')}T${timeSlot}:00`);
+      const slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000); // Add 1 hour
+
+      // console.log(JSON.stringify(apt), aptStartDate, aptEndDate, slotStart, slotEnd);
+      
+      // Check if appointment overlaps with this time slot
+      // An appointment overlaps if it starts before the slot ends AND ends after the slot starts
+      return (
+        slotStart <= aptStartDate && aptEndDate <= slotEnd
+      );
+    });
+  };
+
+  const getDateRange = () => {
+    if (viewMode === 'week') {
+      const start = startOfWeek(currentDate, { weekStartsOn: 1 });
+      const end = endOfWeek(currentDate, { weekStartsOn: 1 });
+      return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    } else {
+      return [currentDate];
+    }
+  };
+
+  const formatDateHeader = (date: Date) => {
+    if (viewMode === 'week') {
+      return format(date, 'EEE d');
+    } else {
+      return format(date, 'EEEE, MMMM d, yyyy');
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const statusConfig = APPOINTMENT_STATUSES[status as keyof typeof APPOINTMENT_STATUSES];
+    if (!statusConfig) return null;
+
+    const Icon = statusConfig.icon;
+    return (
+      <Icon className={`h-4 w-4 ${statusConfig.color}`} />
+    );
+  };
+
+  const renderAppointmentCard = (appointment: AppointmentWithLead) => {
+    const statusConfig = APPOINTMENT_STATUSES[appointment.status as keyof typeof APPOINTMENT_STATUSES];
+    const startTime = format(new Date(appointment.start_datetime), 'h:mm a');
+    const endTime = format(new Date(appointment.end_datetime), 'h:mm a');
+
+    const handleAppointmentClick = (e: React.MouseEvent) => {
+      const url = `/dashboard/appointments/${appointment.id}`;
+      window.open(url, '_blank');
+    };
+
+    return (
+      <div
+        key={appointment.id}
+        onClick={handleAppointmentClick}
+        onAuxClick={(e) => {
+          if (e.button === 1) { // Middle mouse button
+            e.preventDefault();
+            window.open(`/dashboard/appointments/${appointment.id}`, '_blank');
+          }
+        }}
+        className={`
+          mb-1 px-2 py-1.5 rounded-lg cursor-pointer transition-all text-xs shadow-sm
+          ${statusConfig?.bg ?? 'bg-gray-50'} 
+          ${statusConfig?.border ?? 'border-gray-200'} 
+          border-l-3 hover:shadow-md hover:-translate-y-0.5 group relative w-full max-w-full overflow-x-hidden
+        `}
+        title={`${appointment.lead?.full_name ?? 'Unknown Lead'} - ${startTime} to ${endTime}\nClick to open details`}
+      >
+        {/* Lead Name with Status Indicator */}
+        <div className="flex items-center justify-between w-full mb-1">
+          <span className="font-semibold text-gray-900 truncate text-xs leading-tight flex-1 min-w-0">
+            {appointment.lead?.full_name ?? 'Unknown Lead'}
+          </span>
+          <div className="flex-shrink-0 ml-1">
+            {getStatusBadge(appointment.status)}
+          </div>
+        </div>
+
+        {/* Time Display */}
+        <div className="text-gray-600 text-xs font-medium truncate w-full mb-1">
+          {startTime}
+        </div>
+
+        {/* Phone Number */}
+        {appointment.lead?.phone_number && (
+          <div className="text-gray-500 text-xs truncate w-full font-medium">
+            {appointment.lead.phone_number}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const dates = getDateRange();
+
   if (loading) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>;
+    return (
+      <div className="max-w-full mx-auto p-6">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-pulse text-gray-500">Loading appointments...</div>
+        </div>
+      </div>
+    );
   }
-  
+
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <h1 className="text-2xl font-bold mb-4 md:mb-0">Appointments</h1>
-        
-        <div className="flex items-center space-x-2">
+    <div className="max-w-full mx-auto p-6 bg-gray-50 min-h-screen">
+      {/* Header */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Appointments</h1>
+          <p className="text-gray-600 mt-1">Manage and view your appointment schedule</p>
+        </div>
+      </div>
+
+      {/* Filters Panel */}
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-6 border border-gray-100">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Status Filter */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-3">Filter by Status</label>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => (
+                <label 
+                  key={status} 
+                  className={`flex items-center px-3 py-2 rounded-lg border cursor-pointer transition-all ${
+                    selectedStatuses.includes(status)
+                      ? 'bg-blue-50 border-blue-200 text-blue-700'
+                      : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedStatuses.includes(status)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedStatuses([...selectedStatuses, status]);
+                      } else {
+                        setSelectedStatuses(selectedStatuses.filter(s => s !== status));
+                      }
+                    }}
+                    className="sr-only"
+                  />
+                  <config.icon className={`h-4 w-4 mr-2 ${config.color}`} />
+                  <span className="capitalize text-sm font-medium">{status}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Search */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-3">Search Appointments</label>
+            <div className="relative">
+              <MagnifyingGlassIcon className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by name, phone, or notes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg w-full text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              />
+              {searchQuery !== debouncedSearchQuery && (
+                <div className="absolute right-3 top-3">
+                  <div className="animate-spin h-3 w-3 border border-gray-300 rounded-full border-t-blue-500"></div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* View Controls */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+        {/* Date Navigation */}
+        <div className="flex items-center gap-3">
           <button 
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
-            onClick={() => router.push('/dashboard/leads')}
+            onClick={() => navigateDate('prev')}
+            className="p-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-gray-200 transition-all"
           >
-            <PlusIcon className="h-5 w-5" />
-            <span>Schedule New</span>
+            <ChevronLeftIcon className="h-5 w-5 text-gray-600" />
+          </button>
+          
+          <div className="font-semibold text-xl text-gray-900 px-4">
+            {viewMode === 'week' 
+              ? `Week of ${format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'MMM d, yyyy')}`
+              : format(currentDate, 'MMMM d, yyyy')
+            }
+          </div>
+          
+          <button 
+            onClick={() => navigateDate('next')}
+            className="p-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-gray-200 transition-all"
+          >
+            <ChevronRightIcon className="h-5 w-5 text-gray-600" />
           </button>
 
           <button
-            className="bg-blue-100 text-blue-800 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-200"
-            onClick={() => router.push('/dashboard/appointments/settings')}
-          >
-            <CalendarIcon className="h-5 w-5" />
-            <span>Settings</span>
-          </button>
-        </div>
-      </div>
-      
-      {/* Filter and search bar */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 gap-4">
-        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
-          <button
-            onClick={() => setActiveFilter('today')}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              activeFilter === 'today' 
-                ? 'bg-white shadow-sm text-blue-700' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            onClick={() => setCurrentDate(new Date())}
+            className="px-4 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-medium transition-colors ml-3"
           >
             Today
           </button>
-          <button
-            onClick={() => setActiveFilter('upcoming')}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              activeFilter === 'upcoming' 
-                ? 'bg-white shadow-sm text-blue-700' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Upcoming
-          </button>
-          <button
-            onClick={() => setActiveFilter('past')}
-            className={`px-3 py-1.5 text-sm rounded-md ${
-              activeFilter === 'past' 
-                ? 'bg-white shadow-sm text-blue-700' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Past
-          </button>
         </div>
-        
-        <div className="relative flex-1 max-w-sm">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
-          </div>
-          <input
-            type="text"
-            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-            placeholder="Search appointments..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+
+        {/* View Mode Toggle */}
+        <div className="flex bg-gray-100 p-1 rounded-lg shadow-sm">
+          <button
+            onClick={() => setViewMode('day')}
+            className={`px-4 py-2 text-sm rounded-md font-medium transition-colors ${
+              viewMode === 'day' 
+                ? 'bg-white shadow-sm text-blue-700' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Day View
+          </button>
+          <button
+            onClick={() => setViewMode('week')}
+            className={`px-4 py-2 text-sm rounded-md font-medium transition-colors ${
+              viewMode === 'week' 
+                ? 'bg-white shadow-sm text-blue-700' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Week View
+          </button>
         </div>
       </div>
-      
-      {/* Date navigator - visible when filter is 'today' or 'custom' */}
-      {(activeFilter === 'today' || activeFilter === 'custom') && (
-        <div className="flex justify-between items-center mb-4 p-3 bg-gray-50 rounded-lg">
-          <button 
-            onClick={() => navigateDay('prev')}
-            className="p-1 rounded-full hover:bg-gray-200"
-          >
-            <ChevronLeftIcon className="h-5 w-5 text-gray-700" />
-          </button>
-          
-          <div className="font-medium text-gray-900">
-            {formatDate(selectedDate)}
+
+      {/* Calendar Grid */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+        <div className="overflow-x-auto">
+          <div className="min-w-full">
+            {/* Header Row */}
+            <div className="grid border-b border-gray-200" style={{ gridTemplateColumns: `140px repeat(${dates.length}, 1fr)` }}>
+              <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 border-r border-gray-200 font-semibold text-gray-800">
+                Time
+              </div>
+              {dates.map((date) => (
+                <div 
+                  key={date.toISOString()} 
+                  className={`p-4 bg-gradient-to-r border-r border-gray-200 text-center font-semibold ${
+                    isToday(date) 
+                      ? 'from-blue-50 to-blue-100 text-blue-800' 
+                      : 'from-gray-50 to-gray-100 text-gray-700'
+                  }`}
+                >
+                  {formatDateHeader(date)}
+                  {isToday(date) && (
+                    <div className="text-xs text-blue-600 font-medium mt-1">Today</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Time Slot Rows */}
+            {timeSlots.map((slot) => (
+              <div 
+                key={slot.time} 
+                className="grid border-b border-gray-100 hover:bg-gray-25 transition-colors"
+                style={{ gridTemplateColumns: `140px repeat(${dates.length}, 1fr)` }}
+              >
+                <div className="p-4 bg-gray-50 border-r border-gray-200 text-sm font-semibold text-gray-700">
+                  {slot.displayTime}
+                </div>
+                {dates.map((date) => {
+                  const appointmentsInSlot = getAppointmentsForTimeSlot(date, slot.time);
+                  return (
+                    <div 
+                      key={`${date.toISOString()}-${slot.time}`}
+                      className="p-2 border-r border-gray-100 min-h-[70px] w-full max-w-full overflow-x-hidden hover:bg-gray-25 transition-colors group"
+                      style={{ width: '100%' }}
+                    >
+                      {appointmentsInSlot.map(appointment => renderAppointmentCard(appointment))}
+                      
+                      {/* Quick Create Button for Retail Users - Hidden by default, shown on hover */}
+                      {isRetailUser && (
+                        <button
+                          onClick={() => handleQuickCreate(date, slot.time)}
+                          className="w-full mt-1 p-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-25 text-xs font-medium opacity-0 group-hover:opacity-100 transition-all duration-300 ease-in-out transform translate-y-1 group-hover:translate-y-0"
+                          title="Quick create appointment"
+                        >
+                          <PlusIcon className="h-4 w-4 mx-auto mb-1" />
+                          <div>Add Appointment</div>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
-          
-          <button 
-            onClick={() => navigateDay('next')}
-            className="p-1 rounded-full hover:bg-gray-200"
-          >
-            <ChevronRightIcon className="h-5 w-5 text-gray-700" />
-          </button>
+        </div>
+      </div>
+
+      {/* Empty State */}
+      {filteredAppointments.length === 0 && !loading && (
+        <div className="text-center py-12 bg-white rounded-xl shadow-sm mt-6 border border-gray-100">
+          <CalendarIcon className="mx-auto h-16 w-16 text-gray-300" />
+          <h3 className="mt-4 text-lg font-semibold text-gray-900">No appointments found</h3>
+          <p className="mt-2 text-gray-500 max-w-md mx-auto">
+            {searchQuery 
+              ? 'Try adjusting your search terms or filters to find what you are looking for.' 
+              : 'No appointments are scheduled for this time period. Schedule some appointments to see them here.'}
+          </p>
         </div>
       )}
-      
-      {/* Appointments list */}
-      {filteredAppointments.length > 0 ? (
-        <div className="bg-white shadow overflow-hidden sm:rounded-md">
-          <ul className="divide-y divide-gray-200">
-            {filteredAppointments.map((appointment) => (
-              <li key={appointment.id}>
-                <div 
-                  className="block hover:bg-gray-50 cursor-pointer"
-                  onClick={() => router.push(`/dashboard/appointments/${appointment.id}`)}
-                >
-                  <div className="px-4 py-4 sm:px-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <div className="mr-4">
-                          {getStatusIcon(appointment.status)}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-blue-600 truncate">
-                            {appointment.lead.first_name} {appointment.lead.last_name}
-                          </p>
-                          <p className="flex items-center text-sm text-gray-500">
-                            <span>{appointment.lead.phone_number}</span>
-                            {appointment.is_urgent && (
-                              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                <ExclamationCircleIcon className="h-3 w-3 mr-1" />
-                                Urgent
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="ml-2 flex-shrink-0 flex flex-col items-end">
-                        <p className="text-sm text-gray-900">
-                          {formatDate(appointment.start_datetime)}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {formatTime(appointment.start_datetime)} - {formatTime(appointment.end_datetime)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+
+      {/* Results Summary */}
+      {(searchQuery || selectedStatuses.length < 4) && (
+        <div className="mt-6 text-sm text-gray-600 text-center bg-blue-50 border border-blue-200 rounded-lg py-3 px-4">
+          <span className="font-medium">Showing {filteredAppointments.length} of {allAppointments.length} appointments</span>
+          {searchQuery && <span className="text-blue-700"> matching {searchQuery}</span>}
         </div>
-      ) : (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
-          <CalendarIcon className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No appointments found</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            {activeFilter === 'search' 
-              ? 'Try adjusting your search criteria.' 
-              : 'Get started by scheduling an appointment with a lead.'}
-          </p>
-          <div className="mt-6">
-            <button
-              onClick={() => router.push('/dashboard/leads')}
-              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              <PlusIcon className="-ml-1 mr-2 h-5 w-5" aria-hidden="true" />
-              Schedule New Appointment
-            </button>
+      )}
+
+      {/* Quick Create Modal */}
+      {showQuickCreate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Create Appointment</h3>
+            
+            <form onSubmit={handleQuickCreateSubmit}>
+              {/* Date and Time Display */}
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+                <div className="text-sm font-medium text-blue-900">
+                  {format(parseISO(`${quickCreateData.date}T00:00:00`), 'EEEE, MMMM d, yyyy')}
+                </div>
+              </div>
+
+              {/* Time Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Appointment Time *
+                </label>
+                <select
+                  value={quickCreateData.timeSlot}
+                  onChange={(e) => setQuickCreateData(prev => ({ ...prev, timeSlot: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                >
+                  {getTimeOptions(quickCreateData.timeSlot).map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Choose between first half or second half of the hour</p>
+              </div>
+
+              {/* Lead Name */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Lead Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={quickCreateData.leadName}
+                  onChange={(e) => setQuickCreateData(prev => ({ ...prev, leadName: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter lead name"
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={quickCreateData.phoneNumber}
+                  onChange={(e) => setQuickCreateData(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter phone number"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickCreate(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Create Appointment
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

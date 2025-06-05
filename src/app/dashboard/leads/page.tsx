@@ -29,7 +29,7 @@ import { type leads, type leadStatusEnum } from "~/server/db/schema";
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
 import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
 import { fetchUserData } from '~/app/_actions/userActions';
-import { checkInAgent, checkOutAgent, getAssignmentPreview, autoAssignLeads, checkAgentStatus, getAutoAssignmentSettings, updateAutoAssignmentSettings, getAssignmentPreviewWithRoundRobin, bulkAutoAssignLeads, updateAgentCapacity, resetRoundRobinIndex } from '~/app/_actions/agentActions';
+import { checkInAgent, checkOutAgent, autoAssignLeads, checkAgentStatus, getAutoAssignmentSettings, updateAutoAssignmentSettings, getAssignmentPreviewWithRoundRobin, bulkAutoAssignLeads, updateAgentCapacity, resetRoundRobinIndex, getManualAssignmentPreview } from '~/app/_actions/agentActions';
 import AssignLeadModal from '~/app/_components/AssignLeadModal';
 import { exportAllLeadsToCSV } from '~/app/_actions/exportActions';
 import { makeCall } from '~/app/_actions/callActions';
@@ -502,17 +502,16 @@ export default function LeadsPage() {
     }
   };
 
-  // Load assignment preview
+  // Load assignment preview for manual assignment
   const loadAssignmentPreview = async () => {
     try {
       setIsLoadingPreview(true);
-      const result = await getAssignmentPreviewWithRoundRobin();
+      const result = await getManualAssignmentPreview();
       if (result.success) {
-        setAutoAssignPreview(result.preview);
-        setAutoAssignStats({
+        setAssignmentPreview(result.preview);
+        setAssignmentStats({
           totalAgents: result.totalAgents,
-          totalLeads: result.totalLeads,
-          leadsToAssign: result.leadsToAssign ?? 0
+          totalLeads: result.totalLeads
         });
       } else {
         showNotification(result.message ?? 'Failed to load preview', 'error');
@@ -688,14 +687,8 @@ export default function LeadsPage() {
           setPinnedLeads(pinnedLeadsData);
         }
         
-        const previewResult = await getAssignmentPreview();
-        if (previewResult.success) {
-          setAssignmentPreview(previewResult.preview);
-          setAssignmentStats({
-            totalAgents: previewResult.totalAgents,
-            totalLeads: previewResult.totalLeads
-          });
-        }
+        // Load fresh assignment preview after auto-assignment
+        await loadAssignmentPreview();
         
         // Keep the modal open to show the results
       } else {
@@ -804,7 +797,8 @@ export default function LeadsPage() {
             lead.phone_number,
             'example_template',
             {},
-            'whatsapp'
+            'whatsapp',
+            lead.id
           );
           break;
 
@@ -1125,14 +1119,7 @@ export default function LeadsPage() {
                   // Load fresh preview data when opening the modal
                   setIsLoadingPreview(true);
                   setShowAssignConfirmation(true);
-                  void getAssignmentPreview().then(result => {
-                    if (result.success) {
-                      setAssignmentPreview(result.preview);
-                      setAssignmentStats({
-                        totalAgents: result.totalAgents,
-                        totalLeads: result.totalLeads
-                      });
-                    }
+                  void loadAssignmentPreview().then(() => {
                     setIsLoadingPreview(false);
                   });
                 }}
@@ -1147,7 +1134,7 @@ export default function LeadsPage() {
                 {isAssigning ? 'Assigning...' : 'Auto Assign Leads'}
               </button>
               {/* Auto-Assignment Management Button */}
-              <button
+              {/*<button
                 onClick={() => {
                   setIsAutoAssignModalOpen(true);
                   void loadAutoAssignmentSettings();
@@ -1160,7 +1147,7 @@ export default function LeadsPage() {
                 {autoAssignmentSettings?.is_enabled && (
                   <span className="ml-2 w-2 h-2 bg-green-400 rounded-full"></span>
                 )}
-              </button>
+              </button> */}
               {/* Add Export to CSV button */}
               <button
                 onClick={() => setIsExportModalOpen(true)}

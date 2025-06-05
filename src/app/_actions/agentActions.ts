@@ -149,18 +149,16 @@ export async function getCheckedInAgents() {
   }
 }
 
-// Auto-assign leads to checked-in agents
+// Auto-assign leads to checked-in agents (manual assignment by admin)
 export async function autoAssignLeads() {
   try {
     const { userId } = await auth();
     
-    // Verify admin permissions
-    // In a real app, you'd check permissions here
     if (!userId) {
       return { success: false, message: "Not authenticated" };
     }
 
-    // Get all checked-in agents
+    // Get all checked-in agents (no settings check needed for manual assignment)
     const checkedInAgentsList = await db.query.checkedInAgents.findMany({
       where: and(
         eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
@@ -168,7 +166,8 @@ export async function autoAssignLeads() {
       ),
       with: {
         agent: true
-      }
+      },
+      orderBy: [asc(checkedInAgents.id)] // Consistent ordering for round-robin
     });
     console.log('Checked in agents list:', checkedInAgentsList);
     
@@ -179,12 +178,13 @@ export async function autoAssignLeads() {
       };
     }
 
-    // Get new unassigned leads
+    // Get new unassigned leads ordered by ID to ensure fair distribution
     const unassignedLeads = await db.query.leads.findMany({
       where: and(
         eq(leads.status, 'new'),
         isNull(leads.assigned_to)
-      )
+      ),
+      orderBy: [asc(leads.id)] // Order by ID for consistent round-robin
     });
 
     if (unassignedLeads.length === 0) {
@@ -194,46 +194,43 @@ export async function autoAssignLeads() {
       };
     }
 
-    // Calculate leads per agent
-    const leadsPerAgent = Math.floor(unassignedLeads.length / checkedInAgentsList.length);
-    const remainder = unassignedLeads.length % checkedInAgentsList.length;
-    
     let assignedCount = 0;
     
-    // Assign leads evenly to each agent
-    for (let i = 0; i < checkedInAgentsList.length; i++) {
-      const agent = checkedInAgentsList[i];
-      if (!agent) continue;
+    // Use round-robin assignment based on lead_id to ensure fair distribution
+    // This prevents some agents from getting all old leads and others getting all new leads
+    for (const lead of unassignedLeads) {
+      // Use lead ID modulo number of agents to determine which agent gets this lead
+      const agentIndex = lead.id % checkedInAgentsList.length;
+      const selectedAgent = checkedInAgentsList[agentIndex];
       
-      const agentLeadCount = i < remainder ? leadsPerAgent + 1 : leadsPerAgent;
+      if (!selectedAgent) continue;
       
-      if (agentLeadCount === 0) continue;
+      // Update lead assignment
+      await db
+        .update(leads)
+        .set({ 
+          assigned_to: selectedAgent.agent_id,
+          status: 'assigned',  // Change status from new to assigned
+          updated_at: new Date(),
+          updated_by: userId
+        })
+        .where(eq(leads.id, lead.id));
       
-      // Get leads for this agent
-      const agentLeads = unassignedLeads.slice(
-        assignedCount, 
-        assignedCount + agentLeadCount
-      );
+      // Record assignment history
+      await db.insert(leadAssignmentHistory).values({
+        lead_id: lead.id,
+        assigned_to: selectedAgent.agent_id,
+        assignment_method: 'manual_round_robin',
+        assignment_reason: `Round-robin assignment based on lead ID (${lead.id} % ${checkedInAgentsList.length} = ${agentIndex})`,
+        assigned_at: new Date()
+      });
       
-      // Update lead assignments
-      for (const lead of agentLeads) {
-        await db
-          .update(leads)
-          .set({ 
-            assigned_to: agent.agent_id,
-            status: 'assigned',  // Change status from new to assigned
-            updated_at: new Date(),
-            updated_by: userId
-          })
-          .where(eq(leads.id, lead.id));
-      }
-      
-      assignedCount += agentLeadCount;
+      assignedCount++;
     }
 
     return { 
       success: true, 
-      message: `Successfully assigned ${assignedCount} leads to ${checkedInAgentsList.length} agents` 
+      message: `Successfully assigned ${assignedCount} leads to ${checkedInAgentsList.length} agents using round-robin distribution` 
     };
   } catch (error) {
     console.error("Error auto-assigning leads:", error);
@@ -474,23 +471,11 @@ export async function getAssignmentPreviewWithRoundRobin() {
 // Auto-assign a single lead (used when new leads come in)
 export async function autoAssignSingleLead(leadId: number) {
   try {
-    // Check if auto-assignment is enabled
-    const settingsResult = await getAutoAssignmentSettings();
-    if (!settingsResult.success || !settingsResult.settings?.is_enabled) {
-      return {
-        success: false,
-        message: "Auto-assignment is not enabled"
-      };
-    }
-
-    const settings = settingsResult.settings;
-
-    // Get available agents in round-robin order
+    // Get all checked-in agents (no settings check needed)
     const availableAgents = await db.query.checkedInAgents.findMany({
       where: and(
         eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
-        eq(checkedInAgents.is_active, true),
-        sql`${checkedInAgents.current_lead_count} < ${checkedInAgents.lead_capacity}`
+        eq(checkedInAgents.is_active, true)
       ),
       with: {
         agent: {
@@ -501,19 +486,19 @@ export async function autoAssignSingleLead(leadId: number) {
           }
         }
       },
-      orderBy: [asc(checkedInAgents.id)]
+      orderBy: [asc(checkedInAgents.id)] // Consistent ordering for round-robin
     });
 
     if (availableAgents.length === 0) {
       return {
         success: false,
-        message: "No available agents to assign lead"
+        message: "No agents are checked in today"
       };
     }
 
-    // Find the next agent in round-robin
-    let nextAgentIndex = settings.current_round_robin_index % availableAgents.length;
-    const selectedAgent = availableAgents[nextAgentIndex];
+    // Use round-robin based on lead_id for fair distribution
+    const agentIndex = leadId % availableAgents.length;
+    const selectedAgent = availableAgents[agentIndex];
 
     if (!selectedAgent) {
       return {
@@ -544,23 +529,12 @@ export async function autoAssignSingleLead(leadId: number) {
         })
         .where(eq(checkedInAgents.id, selectedAgent.id));
 
-      // Update round-robin index
-      const newIndex = (nextAgentIndex + 1) % availableAgents.length;
-      await tx
-        .update(autoAssignmentSettings)
-        .set({
-          current_round_robin_index: newIndex,
-          last_assigned_agent_id: selectedAgent.agent_id,
-          updated_at: new Date()
-        })
-        .where(eq(autoAssignmentSettings.id, settings.id));
-
-      // Record assignment history
+      // Record assignment history (with round-robin details)
       await tx.insert(leadAssignmentHistory).values({
         lead_id: leadId,
         assigned_to: selectedAgent.agent_id,
         assignment_method: 'auto_round_robin',
-        assignment_reason: `Auto-assigned via round-robin (index: ${nextAgentIndex})`,
+        assignment_reason: `Auto-assigned via round-robin based on lead ID (${leadId} % ${availableAgents.length} = ${agentIndex})`,
         assigned_at: new Date()
       });
     });
@@ -569,7 +543,7 @@ export async function autoAssignSingleLead(leadId: number) {
 
     return {
       success: true,
-      message: `Lead automatically assigned to ${agentName}`,
+      message: `Lead automatically assigned to ${agentName} via round-robin`,
       assignedTo: selectedAgent.agent_id,
       agentName,
       assignmentMethod: 'auto_round_robin'
@@ -583,7 +557,7 @@ export async function autoAssignSingleLead(leadId: number) {
   }
 }
 
-// Bulk auto-assign leads with round-robin
+// Optimized bulk auto-assign leads with modulo-based distribution
 export async function bulkAutoAssignLeads() {
   try {
     const { userId } = await auth();
@@ -591,19 +565,40 @@ export async function bulkAutoAssignLeads() {
       return { success: false, message: "Not authenticated" };
     }
 
-    // Get assignment preview first
-    const previewResult = await getAssignmentPreviewWithRoundRobin();
-    if (!previewResult.success) {
+    // Check if auto-assignment is enabled
+    const settingsResult = await getAutoAssignmentSettings();
+    if (!settingsResult.success || !settingsResult.settings?.is_enabled) {
       return {
         success: false,
-        message: previewResult.message || "Failed to get assignment preview"
+        message: "Auto-assignment is not enabled"
       };
     }
 
-    if (previewResult.totalLeads === 0) {
+    const settings = settingsResult.settings;
+
+    // Get available agents with their current counts and capacities
+    const availableAgents = await db.query.checkedInAgents.findMany({
+      where: and(
+        eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
+        eq(checkedInAgents.is_active, true),
+        sql`${checkedInAgents.current_lead_count} < ${checkedInAgents.lead_capacity}`
+      ),
+      with: {
+        agent: {
+          columns: {
+            id: true,
+            first_name: true,
+            last_name: true
+          }
+        }
+      },
+      orderBy: [asc(checkedInAgents.id)]
+    });
+
+    if (availableAgents.length === 0) {
       return {
         success: false,
-        message: "No unassigned leads available"
+        message: "No available agents to assign leads"
       };
     }
 
@@ -613,31 +608,170 @@ export async function bulkAutoAssignLeads() {
         eq(leads.status, 'new'),
         isNull(leads.assigned_to)
       ),
-      orderBy: [asc(leads.created_at)] // First in, first assigned
+      orderBy: [asc(leads.created_at)]
     });
 
-    let assignedCount = 0;
-    const assignments: Array<{leadId: number, agentId: string, agentName: string}> = [];
+    if (unassignedLeads.length === 0) {
+      return {
+        success: false,
+        message: "No unassigned leads available"
+      };
+    }
 
-    // Process each lead
+    // Create weighted distribution array
+    const weightedAgents: typeof availableAgents[0][] = [];
+    availableAgents.forEach(agent => {
+      const weight = agent.weight ?? 1;
+      for (let i = 0; i < weight; i++) {
+        weightedAgents.push(agent);
+      }
+    });
+
+    // Calculate assignments using modulo with weights and capacity limits
+    const assignments: Array<{
+      leadId: number;
+      agentId: string;
+      agentCheckInId: number;
+      agentName: string;
+    }> = [];
+
+    const agentLeadCounts = new Map<string, number>();
+    availableAgents.forEach(agent => {
+      agentLeadCounts.set(agent.agent_id, agent.current_lead_count ?? 0);
+    });
+
+    let currentIndex = settings.current_round_robin_index ?? 0;
+    
     for (const lead of unassignedLeads) {
-      const assignResult = await autoAssignSingleLead(lead.id);
-      if (assignResult.success) {
-        assignedCount++;
-        assignments.push({
-          leadId: lead.id,
-          agentId: assignResult.assignedTo!,
-          agentName: assignResult.agentName!
-        });
+      let assigned = false;
+      let attempts = 0;
+      
+      // Try to find an available agent starting from current round-robin position
+      while (!assigned && attempts < weightedAgents.length) {
+        const selectedAgent = weightedAgents[currentIndex % weightedAgents.length];
+        if (!selectedAgent) break;
+        
+        const currentCount = agentLeadCounts.get(selectedAgent.agent_id) ?? 0;
+        const capacity = selectedAgent.lead_capacity ?? 10;
+        
+        if (currentCount < capacity) {
+          // Assign this lead to the agent
+          const agentName = `${selectedAgent.agent?.first_name ?? ''} ${selectedAgent.agent?.last_name ?? ''}`.trim() || 'Unknown';
+          
+          assignments.push({
+            leadId: lead.id,
+            agentId: selectedAgent.agent_id,
+            agentCheckInId: selectedAgent.id,
+            agentName
+          });
+          
+          // Update the count for this agent
+          agentLeadCounts.set(selectedAgent.agent_id, currentCount + 1);
+          assigned = true;
+        }
+        
+        currentIndex++;
+        attempts++;
+      }
+      
+      // If we couldn't assign this lead, stop processing
+      if (!assigned) {
+        break;
       }
     }
 
+    if (assignments.length === 0) {
+      return {
+        success: false,
+        message: "All agents have reached their capacity"
+      };
+    }
+
+    // Perform bulk assignments in a transaction
+    await db.transaction(async (tx) => {
+      // Group assignments by agent for efficient updates
+      const agentAssignments = new Map<string, Array<{leadId: number; agentCheckInId: number}>>();
+      
+      assignments.forEach(assignment => {
+        if (!agentAssignments.has(assignment.agentId)) {
+          agentAssignments.set(assignment.agentId, []);
+        }
+        agentAssignments.get(assignment.agentId)!.push({
+          leadId: assignment.leadId,
+          agentCheckInId: assignment.agentCheckInId
+        });
+      });
+
+      // Update leads in batches
+      for (const assignment of assignments) {
+        await tx
+          .update(leads)
+          .set({
+            assigned_to: assignment.agentId,
+            status: 'assigned',
+            updated_at: new Date()
+          })
+          .where(eq(leads.id, assignment.leadId));
+      }
+
+      // Update agent lead counts
+      for (const [agentId, agentLeads] of agentAssignments) {
+        const checkInRecord = agentLeads[0];
+        if (checkInRecord) {
+          await tx
+            .update(checkedInAgents)
+            .set({
+              current_lead_count: sql`${checkedInAgents.current_lead_count} + ${agentLeads.length}`,
+              last_assigned_at: new Date(),
+              updated_at: new Date()
+            })
+            .where(eq(checkedInAgents.id, checkInRecord.agentCheckInId));
+        }
+      }
+
+      // Update round-robin index to continue from where we left off
+      await tx
+        .update(autoAssignmentSettings)
+        .set({
+          current_round_robin_index: currentIndex % weightedAgents.length,
+          updated_at: new Date()
+        })
+        .where(eq(autoAssignmentSettings.id, settings.id));
+
+      // Record assignment history
+      for (const assignment of assignments) {
+        await tx.insert(leadAssignmentHistory).values({
+          lead_id: assignment.leadId,
+          assigned_to: assignment.agentId,
+          assignment_method: 'bulk_auto_round_robin',
+          assignment_reason: `Bulk auto-assigned via weighted round-robin`,
+          assigned_at: new Date()
+        });
+      }
+    });
+
+    // Create summary by agent
+    const assignmentSummary = new Map<string, {agentName: string; count: number}>();
+    assignments.forEach(assignment => {
+      if (!assignmentSummary.has(assignment.agentId)) {
+        assignmentSummary.set(assignment.agentId, {
+          agentName: assignment.agentName,
+          count: 0
+        });
+      }
+      assignmentSummary.get(assignment.agentId)!.count++;
+    });
+
     return {
       success: true,
-      message: `Successfully assigned ${assignedCount} leads`,
-      assignedCount,
-      assignments,
-      totalLeads: unassignedLeads.length
+      message: `Successfully assigned ${assignments.length} leads to ${assignmentSummary.size} agents`,
+      assignedCount: assignments.length,
+      totalLeads: unassignedLeads.length,
+      assignments: Array.from(assignmentSummary.entries()).map(([agentId, data]) => ({
+        agentId,
+        agentName: data.agentName,
+        leadCount: data.count
+      }))
     };
   } catch (error) {
     console.error("Error bulk auto-assigning leads:", error);
@@ -649,7 +783,7 @@ export async function bulkAutoAssignLeads() {
 }
 
 // Update agent capacity and weight
-export async function updateAgentCapacity(agentId: string, capacity: number, weight: number = 1) {
+export async function updateAgentCapacity(agentId: string, capacity: number, weight = 1) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -790,6 +924,122 @@ export async function checkAgentStatus(agentId?: string) {
       message: "Failed to check agent status",
       isCheckedIn: false,
       checkInData: null
+    };
+  }
+}
+
+// Get assignment preview for manual assignment (round-robin based on lead_id)
+export async function getManualAssignmentPreview() {
+  try {
+    // Get checked-in agents in consistent order
+    const checkedInAgentsList = await db.query.checkedInAgents.findMany({
+      where: and(
+        eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
+        eq(checkedInAgents.is_active, true)
+      ),
+      with: {
+        agent: {
+          columns: {
+            id: true,
+            first_name: true,
+            last_name: true
+          }
+        }
+      },
+      orderBy: [asc(checkedInAgents.id)] // Consistent ordering for round-robin
+    });
+
+    if (checkedInAgentsList.length === 0) {
+      return {
+        success: false,
+        message: "No agents are checked in today",
+        preview: [],
+        totalAgents: 0,
+        totalLeads: 0
+      };
+    }
+
+    // Get unassigned leads with their IDs for round-robin calculation
+    const unassignedLeads = await db.query.leads.findMany({
+      where: and(
+        eq(leads.status, 'new'),
+        isNull(leads.assigned_to)
+      ),
+      columns: {
+        id: true
+      },
+      orderBy: [asc(leads.id)]
+    });
+
+    if (unassignedLeads.length === 0) {
+      return {
+        success: true,
+        message: "No unassigned leads available",
+        preview: checkedInAgentsList.map(agentRecord => {
+          const agent = agentRecord.agent;
+          const firstName = agent?.first_name ?? '';
+          const lastName = agent?.last_name ?? '';
+          const agentName = `${firstName} ${lastName}`.trim() || 'Unknown';
+          
+          return {
+            agentId: agentRecord.agent_id,
+            agentName,
+            leadCount: 0
+          };
+        }),
+        totalAgents: checkedInAgentsList.length,
+        totalLeads: 0
+      };
+    }
+
+    // Calculate round-robin distribution based on lead IDs
+    const agentLeadCounts = new Map<string, number>();
+    
+    // Initialize counts
+    checkedInAgentsList.forEach(agent => {
+      agentLeadCounts.set(agent.agent_id, 0);
+    });
+    
+    // Simulate round-robin assignment based on lead ID
+    unassignedLeads.forEach(lead => {
+      const agentIndex = lead.id % checkedInAgentsList.length;
+      const selectedAgent = checkedInAgentsList[agentIndex];
+      
+      if (selectedAgent) {
+        const currentCount = agentLeadCounts.get(selectedAgent.agent_id) ?? 0;
+        agentLeadCounts.set(selectedAgent.agent_id, currentCount + 1);
+      }
+    });
+
+    // Create preview with calculated counts
+    const preview = checkedInAgentsList.map(agentRecord => {
+      const agent = agentRecord.agent;
+      const firstName = agent?.first_name ?? '';
+      const lastName = agent?.last_name ?? '';
+      const agentName = `${firstName} ${lastName}`.trim() || 'Unknown';
+      
+      return {
+        agentId: agentRecord.agent_id,
+        agentName,
+        leadCount: agentLeadCounts.get(agentRecord.agent_id) ?? 0
+      };
+    });
+
+    return {
+      success: true,
+      preview,
+      totalAgents: checkedInAgentsList.length,
+      totalLeads: unassignedLeads.length,
+      message: `Round-robin distribution based on lead IDs ensures fair distribution of old and new leads`
+    };
+  } catch (error) {
+    console.error("Error getting manual assignment preview:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      preview: [],
+      totalAgents: 0,
+      totalLeads: 0
     };
   }
 } 

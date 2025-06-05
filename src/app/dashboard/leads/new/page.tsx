@@ -71,7 +71,7 @@ export default function NewLeadPage() {
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   
   const [formData, setFormData] = useState<Record<string, any>>({
-    source: 'Crawfort',
+    source: 'SEO',
     full_name: '',
     email: '',
     phone_number: '',
@@ -106,16 +106,14 @@ export default function NewLeadPage() {
           type: "select", 
           required: true,
           options: [
-            "Crawfort",
+            "SEO",
             "Loanable",
             "1% Loan",
             "OMY.sg",
             "MoneyRight",
-            "SEO",
             "Lendela",
             "LendingPoint",
             "MoneyIQ",
-            "Firebase",
             "Other"
           ]
         } as SelectField,

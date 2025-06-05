@@ -325,6 +325,7 @@ export default function LeadActionButtons({
         isOpen={isWhatsAppModalOpen}
         onClose={() => setIsWhatsAppModalOpen(false)}
         phoneNumber={phoneNumber}
+        leadId={leadId}
       />
 
       <CallModal

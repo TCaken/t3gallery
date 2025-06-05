@@ -58,7 +58,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
       try {
         // Load lead info
         const leadResult = await fetchLeadById(leadId);
-        if (leadResult.success) {
+        if (leadResult.success && leadResult.lead) {
           setLead(leadResult.lead);
         }
         
@@ -211,8 +211,8 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
     const daysOfWeek = [];
     for (let i = 0; i < 7; i++) {
       daysOfWeek.push(
-        <div key={`weekday-${i}`} className="text-center font-medium text-gray-500 text-xs py-2">
-          {format(addDays(startOfWeek(new Date()), i), 'EEEEEE')}
+        <div key={`weekday-${i}`} className="text-center font-semibold text-gray-700 text-sm py-3 uppercase tracking-wide">
+          {format(addDays(startOfWeek(new Date()), i), 'EEE')}
         </div>
       );
     }
@@ -225,19 +225,31 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
         const isSelected = selectedDate === formattedDate;
         const isToday = isSameDay(cloneDay, today);
         const isCurrentMonth = isSameMonth(cloneDay, monthStart);
+        const isPastDate = cloneDay < today;
         
         days.push(
           <div
             key={formattedDate}
             className={`
-              relative text-center py-2 cursor-pointer hover:bg-blue-50 rounded-full mx-1
-              ${isSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : ''}
-              ${!isCurrentMonth ? 'text-gray-300' : ''}
-              ${isToday && !isSelected ? 'text-blue-500 font-bold' : ''}
+              relative text-center py-3 cursor-pointer text-sm font-medium transition-all duration-200
+              ${isSelected 
+                ? 'bg-blue-500 text-white shadow-lg scale-105' 
+                : isToday && !isSelected 
+                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
+                  : isCurrentMonth && !isPastDate
+                    ? 'text-gray-900 hover:bg-blue-50 hover:text-blue-600'
+                    : 'text-gray-300 cursor-not-allowed'
+              }
+              ${isCurrentMonth ? 'rounded-lg mx-1' : ''}
             `}
             onClick={() => isCurrentMonth && cloneDay >= today && handleDateSelect(cloneDay)}
           >
-            {format(cloneDay, dateFormat)}
+            <span className="block w-8 h-8 mx-auto leading-8 rounded-full">
+              {format(cloneDay, dateFormat)}
+            </span>
+            {isToday && !isSelected && (
+              <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full"></div>
+            )}
           </div>
         );
         day = addDays(day, 1);
@@ -252,20 +264,28 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
     }
     
     return (
-      <div className="p-3 bg-white rounded-lg shadow-lg border border-gray-200">
+      <div className="p-4 bg-white rounded-xl shadow-lg border border-gray-200">
         {/* Calendar Header */}
-        <div className="flex justify-between items-center mb-2">
-          <button onClick={handlePrevMonth} className="p-2 rounded-full hover:bg-gray-100">
-            <ChevronLeftIcon className="h-5 w-5 text-gray-500" />
+        <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+          <button 
+            onClick={handlePrevMonth} 
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            <ChevronLeftIcon className="h-5 w-5 text-gray-600" />
           </button>
-          <h2 className="font-medium">{format(currentMonth, 'MMMM yyyy')}</h2>
-          <button onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-100">
-            <ChevronRightIcon className="h-5 w-5 text-gray-500" />
+          <h2 className="font-semibold text-lg text-gray-800">
+            {format(currentMonth, 'MMMM yyyy')}
+          </h2>
+          <button 
+            onClick={handleNextMonth} 
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            <ChevronRightIcon className="h-5 w-5 text-gray-600" />
           </button>
         </div>
         
         {/* Days of the week */}
-        <div className="grid grid-cols-7 gap-1 mb-1">
+        <div className="grid grid-cols-7 gap-1 mb-2">
           {daysOfWeek}
         </div>
         
@@ -318,7 +338,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
               <div className="space-y-3">
                 <div>
                   <h3 className="font-medium">
-                    {lead.first_name} {lead.last_name}
+                    {lead.full_name ?? 'Unknown Lead'}
                   </h3>
                 </div>
                 <div className="flex items-center text-sm text-gray-600">
@@ -453,12 +473,13 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                 ) : timeslots.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
                     {timeslots.map(slot => {
-                      const isFull = slot.occupied_count >= slot.max_capacity;
+                      const isFull = (slot.occupied_count ?? 0) >= (slot.max_capacity ?? 1);
                       return (
                         <button
                           key={slot.id}
                           type="button"
-                          onClick={() => setSelectedTimeslot(slot.id)}
+                          disabled={isFull}
+                          onClick={() => !isFull && setSelectedTimeslot(slot.id)}
                           className={`
                             p-4 border rounded-md text-left transition-colors
                             ${selectedTimeslot === slot.id
@@ -476,7 +497,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                           <div className="text-sm mt-1 flex items-center">
                             <UsersIcon className="h-4 w-4 mr-1 text-gray-500" />
                             <span className={isFull ? 'text-red-500' : 'text-green-600'}>
-                              {slot.occupied_count}/{slot.max_capacity} booked
+                              {slot.occupied_count ?? 0}/{slot.max_capacity ?? 1} booked
                             </span>
                           </div>
                         </button>

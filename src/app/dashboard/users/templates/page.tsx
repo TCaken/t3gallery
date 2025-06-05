@@ -69,6 +69,7 @@ interface DataSources {
   lead: string[];
   user: string[];
   system: string[];
+  appointment: string[];
 }
 
 const initialFormData: TemplateFormData = {
@@ -101,7 +102,7 @@ const leadStatuses = [
 export default function WhatsAppTemplatesPage() {
   const { userId } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [dataSources, setDataSources] = useState<DataSources>({ lead: [], user: [], system: [] });
+  const [dataSources, setDataSources] = useState<DataSources>({ lead: [], user: [], system: [], appointment: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -273,6 +274,22 @@ export default function WhatsAppTemplatesPage() {
     const newVariables = [...formData.variables];
     newVariables[index] = { ...newVariables[index]!, [field]: value };
     setFormData({ ...formData, variables: newVariables });
+  };
+
+  const getAppointmentFieldDescription = (source: string) => {
+    const descriptions: Record<string, string> = {
+      'appointment.booked_date': '(latest upcoming/done appointment date)',
+      'appointment.booked_time': '(latest upcoming/done appointment time)',
+      'appointment.booked_datetime': '(latest upcoming/done appointment date & time)',
+      'appointment.missed_date': '(latest cancelled/missed appointment date)',
+      'appointment.missed_time': '(latest cancelled/missed appointment time)',
+      'appointment.missed_datetime': '(latest cancelled/missed appointment date & time)',
+      'appointment.latest_date': '(most recent appointment date)',
+      'appointment.latest_time': '(most recent appointment time)',
+      'appointment.latest_datetime': '(most recent appointment date & time)',
+      'appointment.latest_status': '(most recent appointment status)',
+    };
+    return descriptions[source] || '';
   };
 
   if (loading) {
@@ -560,6 +577,13 @@ export default function WhatsAppTemplatesPage() {
                               <optgroup label="User Data">
                                 {dataSources.user.map(source => (
                                   <option key={source} value={source}>{source}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Appointment Data">
+                                {dataSources.appointment.map(source => (
+                                  <option key={source} value={source}>
+                                    {source} {getAppointmentFieldDescription(source)}
+                                  </option>
                                 ))}
                               </optgroup>
                               <optgroup label="System Data">

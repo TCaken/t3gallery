@@ -197,7 +197,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (formUrl.includes('1percent.sg')) return '1% Loan';
     if (formUrl.includes('moneyright.sg')) return 'MoneyRight';
     if (formUrl.includes('loanable.sg')) return 'Loanable';
-    if (formUrl.includes('crawfort.com')) return 'Crawfort';
+    if (formUrl.includes('crawfort.com')) return 'SEO';
     if (formUrl.includes('moneyiq.sg')) return 'MoneyIQ SG';
   }
 
@@ -208,7 +208,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (subjectLower.includes('moneyright') || subjectLower.includes('1% interest')) return 'MoneyRight';
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
     if (subjectLower.includes('loanable')) return 'Loanable';
-    if (subjectLower.includes('crawfort')) return 'Crawfort';
+    if (subjectLower.includes('crawfort')) return 'SEO';
     if (subjectLower.includes('moneyiq')) return 'MoneyIQ SG';
   }
 
@@ -218,7 +218,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     { source: '1% Loan', keywords: ['1% Loan', '1%', 'One Percent'] },
     { source: 'MoneyRight', keywords: ['MoneyRight', '1% Interest'] },
     { source: 'Loanable', keywords: ['Loanable', 'loanable.sg'] },
-    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com'] },
+    { source: 'SEO', keywords: ['SEO', 'crawfort.com', 'crawfort', 'seo'] },
     { source: 'MoneyIQ SG', keywords: ['MoneyIQ', 'moneyiq.sg'] }
   ];
 
@@ -239,7 +239,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
       if (domain.includes('1percent.sg')) return '1% Loan';
       if (domain.includes('moneyright.sg')) return 'MoneyRight';
       if (domain.includes('loanable.sg')) return 'Loanable';
-      if (domain.includes('crawfort.com')) return 'Crawfort';
+      if (domain.includes('crawfort.com')) return 'SEO';
     }
     return fromValue;
   }

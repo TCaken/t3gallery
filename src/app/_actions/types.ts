@@ -7,6 +7,7 @@ export interface ActionResult {
 }
 
 export interface OrchestrationResult {
+  [x: string]: any;
   success: boolean;
   message?: string;
   error?: string;

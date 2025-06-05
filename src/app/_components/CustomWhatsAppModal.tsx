@@ -21,13 +21,15 @@ interface CustomWhatsAppModalProps {
   onClose: () => void;
   onSend?: (templateId: string, parameters: Record<string, string>, deliveryMethod?: 'sms' | 'whatsapp' | 'both') => Promise<void>;
   phoneNumber: string;
+  leadId: number;
 }
 
 export default function CustomWhatsAppModal({
   isOpen,
   onClose,
   onSend,
-  phoneNumber
+  phoneNumber,
+  leadId
 }: CustomWhatsAppModalProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('whatsapp');
@@ -87,7 +89,8 @@ export default function CustomWhatsAppModal({
         phone: phoneNumber,
         templateDatabaseId: selectedTemplate,
         parameters: {},
-        deliveryMethod
+        deliveryMethod,
+        leadId: leadId
       });
       
       if (result.success) {

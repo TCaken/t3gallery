@@ -2,8 +2,8 @@
 
 import { auth } from '@clerk/nextjs/server';
 import { db } from "~/server/db";
-import { whatsappTemplates, templateVariables, templateUsageLog, leads, users } from "~/server/db/schema";
-import { eq, and } from 'drizzle-orm';
+import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments } from "~/server/db/schema";
+import { eq, and, desc, or } from 'drizzle-orm';
 
 interface WhatsAppRequest {
   workspaces: string;
@@ -77,6 +77,7 @@ export async function sendWhatsAppMessage(
     }
 
     // Get lead data if leadId provided
+    console.log('Lead ID:', leadId);
     let leadData = null;
     if (leadId) {
       const leadResult = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
@@ -88,6 +89,11 @@ export async function sendWhatsAppMessage(
     const user = userData[0] ?? null;
 
     // Build parameters from template configuration
+    // console.log('Template data:', templateData);
+    // console.log('Lead data:', leadData);
+    // console.log('User data:', user);
+    // console.log('Custom parameters:', customParameters);
+  
     const parameters = await buildTemplateParameters(
       templateData.variables, 
       leadData, 
@@ -95,7 +101,7 @@ export async function sendWhatsAppMessage(
       customParameters
     );
 
-    console.log('Built parameters:', parameters);
+    // console.log('Built parameters:', parameters);
 
     // Log the attempt - only include lead_id if it exists
     const logValues: any = {
@@ -363,11 +369,20 @@ async function buildTemplateParameters(
 ): Promise<Record<string, string>> {
   const parameters: Record<string, string> = {};
 
+  // Get appointment data if we have lead data
+  let appointmentData = null;
+  console.log('Lead data:', leadData);
+  if (leadData?.id) {
+    appointmentData = await getAppointmentDataForLead(leadData?.id);
+  }
+
+  console.log('Appointment data:', appointmentData);
+
   for (const variable of variables) {
     let value = customParameters[variable.variable_key];
 
     if (!value) {
-      value = extractValueFromDataSource(variable.data_source, leadData, userData);
+      value = extractValueFromDataSource(variable.data_source, leadData, userData, appointmentData);
     }
 
     if (!value && variable.default_value) {
@@ -391,33 +406,131 @@ async function buildTemplateParameters(
   return parameters;
 }
 
-// Extract value from data source string (e.g., "lead.full_name", "user.email", "system.date")
+// Extract value from data source string (e.g., "lead.full_name", "user.email", "system.date", "appointment.booked_date")
 function extractValueFromDataSource(
   dataSource: string, 
   leadData: any, 
-  userData: any
+  userData: any,
+  appointmentData?: { booked: any; missed: any; latest: any } | null
 ): string | null {
   const parts = dataSource.split('.');
   if (parts.length !== 2) return null;
   
   const [source, field] = parts;
+  
+  if (!source || !field) return null; // Handle undefined parts
 
   switch (source) {
     case 'lead':
       return leadData?.[field] ?? null;
     case 'user':
       return userData?.[field] ?? null;
+    case 'appointment':
+      return extractAppointmentValue(field, appointmentData);
     case 'system':
       switch (field) {
         case 'date':
-          return new Date().toISOString().split('T')[0]!;
+          return new Date().toISOString().split('T')[0] ?? null;
         case 'datetime':
           return new Date().toISOString();
         case 'time':
-          return new Date().toTimeString().split(' ')[0]!;
+          return new Date().toTimeString().split(' ')[0] ?? null;
         default:
           return null;
       }
+    default:
+      return null;
+  }
+}
+
+// Extract appointment-related values
+function extractAppointmentValue(
+  field: string, 
+  appointmentData?: { booked: any; missed: any; latest: any } | null
+): string | null {
+  if (!appointmentData) {
+    // Return fallback message for missing appointment data
+    if (field.includes('booked') || field.includes('missed') || field.includes('latest')) {
+      return "Please check with your agent via chat for appointment details";
+    }
+    return null;
+  }
+
+  const formatDateTime = (datetime: Date | string | null, format: 'date' | 'time' | 'datetime'): string | null => {
+    if (!datetime) return null;
+    
+    try {
+      const date = new Date(datetime);
+      if (isNaN(date.getTime())) return null;
+      
+      // Convert to Singapore time (UTC+8)
+      const singaporeTime = new Date(date.getTime() + (8 * 60 * 60 * 1000));
+      
+      switch (format) {
+        case 'date':
+          return singaporeTime.toISOString().split('T')[0] ?? null; // YYYY-MM-DD format
+        case 'time':
+          // Format time as HH:MM in 24-hour format for Singapore
+          const timeString = singaporeTime.toISOString().split('T')[1]?.split('.')[0];
+          return timeString ? timeString.substring(0, 5) : null; // HH:MM format
+        case 'datetime':
+          // Format as YYYY-MM-DD HH:MM (Singapore time)
+          const dateString = singaporeTime.toISOString().split('T')[0];
+          const timeStr = singaporeTime.toISOString().split('T')[1]?.split('.')[0]?.substring(0, 5);
+          return dateString && timeStr ? `${dateString} ${timeStr}` : null;
+        default:
+          return null;
+      }
+    } catch {
+      return null;
+    }
+  };
+
+  switch (field) {
+    // Booked appointment (upcoming or done)
+    case 'booked_date':
+      return appointmentData.booked?.start_datetime 
+        ? formatDateTime(appointmentData.booked.start_datetime, 'date')
+        : "No appointment date";
+    case 'booked_time':
+      return appointmentData.booked?.start_datetime 
+        ? formatDateTime(appointmentData.booked.start_datetime, 'time')
+        : "No appointment time";
+    case 'booked_datetime':
+      return appointmentData.booked?.start_datetime 
+        ? formatDateTime(appointmentData.booked.start_datetime, 'datetime')
+        : "No appointment date and time";
+
+    // Missed appointment (cancelled or missed)
+    case 'missed_date':
+      return appointmentData.missed?.start_datetime 
+        ? formatDateTime(appointmentData.missed.start_datetime, 'date')
+        : "No missed appointment date";
+    case 'missed_time':
+      return appointmentData.missed?.start_datetime 
+        ? formatDateTime(appointmentData.missed.start_datetime, 'time')
+        : "No missed appointment time";
+    case 'missed_datetime':
+      return appointmentData.missed?.start_datetime 
+        ? formatDateTime(appointmentData.missed.start_datetime, 'datetime')
+        : "No missed appointment date and time";
+
+    // Latest appointment (any status)
+    case 'latest_date':
+      return appointmentData.latest?.start_datetime 
+        ? formatDateTime(appointmentData.latest.start_datetime, 'date')
+        : "No appointment date";
+    case 'latest_time':
+      return appointmentData.latest?.start_datetime 
+        ? formatDateTime(appointmentData.latest.start_datetime, 'time')
+        : "No appointment time";
+    case 'latest_datetime':
+      return appointmentData.latest?.start_datetime 
+        ? formatDateTime(appointmentData.latest.start_datetime, 'datetime')
+        : "No appointment date and time";
+    case 'latest_status':
+      return appointmentData.latest?.status ?? "No appointment";
+
     default:
       return null;
   }
@@ -458,6 +571,54 @@ function formatPhoneNumber(phone: string): string {
   }
   
   return phone;
+}
+
+// Get appointment data for a lead
+async function getAppointmentDataForLead(leadId: number) {
+  try {
+    // Get the latest booked appointment (upcoming or done)
+    const bookedAppointment = await db.query.appointments.findFirst({
+      where: and(
+        eq(appointments.lead_id, leadId),
+        or(
+          eq(appointments.status, 'upcoming'),
+          eq(appointments.status, 'done')
+        )
+      ),
+      orderBy: [desc(appointments.created_at)]
+    });
+
+    // Get the latest missed appointment (cancelled or missed)
+    const missedAppointment = await db.query.appointments.findFirst({
+      where: and(
+        eq(appointments.lead_id, leadId),
+        or(
+          eq(appointments.status, 'cancelled'),
+          eq(appointments.status, 'missed')
+        )
+      ),
+      orderBy: [desc(appointments.created_at)]
+    });
+
+    // Get the latest appointment regardless of status
+    const latestAppointment = await db.query.appointments.findFirst({
+      where: eq(appointments.lead_id, leadId),
+      orderBy: [desc(appointments.created_at)]
+    });
+
+    return {
+      booked: bookedAppointment,
+      missed: missedAppointment,
+      latest: latestAppointment
+    };
+  } catch (error) {
+    console.error('Error fetching appointment data for lead:', error);
+    return {
+      booked: null,
+      missed: null,
+      latest: null
+    };
+  }
 }
 
 // Get all available templates for UI

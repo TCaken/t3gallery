@@ -444,7 +444,7 @@ export const autoAssignmentSettings = createTable(
     max_leads_per_agent_per_day: d.integer().default(20),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+    updated_by: d.varchar({ length: 256 }),
   }),
   (t) => [
     index("auto_assignment_settings_enabled_idx").on(t.is_enabled)

@@ -103,7 +103,7 @@ export default function ImportLeadsPage() {
           phone_number: phoneNumber,
           full_name: fullName || `Lead ${phoneNumber.replace(/^\+65|^65/, '')}`,
           email: row.email?.toString().trim() ?? '',
-          source: row.source?.toString().trim() ?? 'Firebase',
+          source: row.source?.toString().trim() ?? 'SEO',
           amount: row.amount?.toString().trim() ?? '',
         });
       }
@@ -141,7 +141,7 @@ export default function ImportLeadsPage() {
               rawData.push({
                 phone_number: phoneLine,
                 full_name: `Lead ${phoneLine.substring(2)}`, // Default name
-                source: 'Firebase'
+                source: 'SEO'
               });
             }
           }
@@ -207,7 +207,7 @@ export default function ImportLeadsPage() {
           rawData.push({
             phone_number: trimmed,
             full_name: `Lead ${trimmed.replace(/^65/, '')}`,
-            source: 'Firebase'
+            source: 'SEO'
           });
         } else {
           // Try to parse as comma-separated or tab-separated
@@ -217,14 +217,14 @@ export default function ImportLeadsPage() {
               phone_number: parts[0],
               full_name: parts[1],
               email: parts[2] ?? '',
-              source: 'Firebase'
+              source: 'SEO',
             });
           } else {
             // Treat as just a phone number
             rawData.push({
               phone_number: parts[0] ?? '',
               full_name: `Lead ${(parts[0] ?? '').replace(/^65/, '')}`,
-              source: 'Firebase'
+              source: 'SEO'
             });
           }
         }
@@ -250,7 +250,7 @@ export default function ImportLeadsPage() {
   const handleImport = async () => {
     if (!importResult?.valid.length) {
       showNotification('No valid leads to import', 'error');
-      return;
+      return ;
     }
 
     setImporting(true);
@@ -262,7 +262,7 @@ export default function ImportLeadsPage() {
         phone_number: lead.phone_number,
         full_name: lead.full_name,
         email: lead.email ?? `${lead.phone_number}@imported.com`,
-        source: lead.source ?? 'Firebase', // Default to Firebase for imports
+        source: lead.source ?? 'SEO ', // Default to Firebase for imports
         status: 'new',
         lead_type: 'new',
         amount: lead.amount ?? '',
@@ -306,22 +306,22 @@ export default function ImportLeadsPage() {
         phone_number: '81234567',
         full_name: 'John Doe',
         email: 'john.doe@example.com',
-        source: 'Firebase',
+        source: 'SEO',
         amount: '5000'
       },
       {
         phone_number: '91234567', 
         full_name: 'Jane Smith',
         email: 'jane.smith@example.com',
-        source: 'Firebase',
+        source: 'SEO',
         amount: '10000'
       }
     ];
     
     const worksheet = XLSX.utils.json_to_sheet(template);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Firebase Leads Template');
-    XLSX.writeFile(workbook, 'firebase_leads_template.xlsx');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'SEO Leads Template');
+    XLSX.writeFile(workbook, 'seo_leads_template.xlsx');
   };
 
   return (

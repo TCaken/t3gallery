@@ -254,7 +254,7 @@ export async function cancelAppointment(appointmentId: number) {
     await db
       .update(leads)
       .set({
-        status: 'new',
+        status: 'assigned',
         updated_at: new Date(),
         updated_by: userId
       })
@@ -351,7 +351,9 @@ export async function fetchAppointments(filters: {
   view?: string;
   searchQuery?: string;
   status?: string[];
-  agentId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  sortBy?: string;
 }) {
   const { userId } = await auth();
   if (!userId) throw new Error("Not authenticated");
@@ -363,11 +365,19 @@ export async function fetchAppointments(filters: {
         lead: leads
       })
       .from(appointments)
-      .leftJoin(leads, eq(appointments.lead_id, leads.id))
-      .orderBy(desc(appointments.start_datetime));
+      .leftJoin(leads, eq(appointments.lead_id, leads.id));
     
-    // Apply date filter
-    if (filters.date && filters.view === 'day') {
+    // Apply date range filter (new method)
+    if (filters.startDate && filters.endDate) {
+      query = query.where(
+        and(
+          gte(appointments.start_datetime, filters.startDate),
+          lte(appointments.start_datetime, filters.endDate)
+        )
+      );
+    }
+    // Apply single date filter (old method for backward compatibility)
+    else if (filters.date && filters.view === 'day') {
       const dayStart = startOfDay(filters.date);
       const dayEnd = endOfDay(filters.date);
       
@@ -393,23 +403,24 @@ export async function fetchAppointments(filters: {
       query = query.where(or(...statusConditions));
     }
     
-    // Filter by agent/user
-    if (filters.agentId) {
-      query = query.where(eq(appointments.agent_id, filters.agentId));
-    }
-    
     // Apply search filter
     if (filters.searchQuery) {
       const searchTerm = `%${filters.searchQuery}%`;
       query = query.where(
         or(
-          like(leads.first_name, searchTerm),
-          like(leads.last_name, searchTerm),
+          like(leads.full_name, searchTerm),
           like(leads.phone_number, searchTerm),
           like(leads.email, searchTerm),
           like(appointments.notes, searchTerm)
         )
       );
+    }
+    
+    // Apply sorting
+    if (filters.sortBy === 'start_datetime') {
+      query = query.orderBy(appointments.start_datetime);
+    } else {
+      query = query.orderBy(desc(appointments.start_datetime));
     }
     
     const results = await query;

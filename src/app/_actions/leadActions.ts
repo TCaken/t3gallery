@@ -81,6 +81,7 @@ interface CreateLeadInput {
   bypassEligibility?: boolean;
 }
 
+
 export async function createLead(input: CreateLeadInput) {
   try {
     const { userId } = await auth();
@@ -170,72 +171,6 @@ interface ImportLeadData {
   [key: string]: unknown;
 }
 
-// Import multiple leads from an Excel file with eligibility checking
-export async function importLeads(leadsData: ImportLeadData[]) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
-  
-  try {
-    const results = {
-      successful: [] as typeof leadsData,
-      failed: [] as { lead: ImportLeadData; reason: string }[]
-    };
-
-    // Process each lead using createLead function
-    for (const leadData of leadsData) {
-      try {
-        // Prepare the lead data for createLead
-        const createLeadData = {
-          phone_number: leadData.phone_number?.toString() ?? '',
-          full_name: leadData.full_name ?? leadData.first_name ?? '',
-          email: leadData.email ?? '',
-          source: 'Firebase', // Default source for imports
-          amount: leadData.amount ?? '',
-          lead_type: ['new', 'reloan'].includes((leadData.lead_type ?? '').toString().toLowerCase())
-            ? (leadData.lead_type ?? '').toString().toLowerCase()
-            : 'new',
-          created_by: userId,
-          bypassEligibility: false // Always check eligibility for imports
-        };
-
-        // Use createLead which handles eligibility checking and auto-assignment
-        const result = await createLead(createLeadData);
-        
-        if (result.success && result.lead) {
-          results.successful.push(result.lead);
-        } else {
-          results.failed.push({
-            lead: leadData,
-            reason: result.error ?? 'Unknown error during lead creation'
-          });
-        }
-        
-      } catch (error) {
-        results.failed.push({
-          lead: leadData,
-          reason: `Error: ${(error as Error).message}`
-        });
-      }
-    }
-    
-    return { 
-      success: true, 
-      count: results.successful.length,
-      leads: results.successful,
-      failed: results.failed,
-      message: `${results.successful.length} leads imported successfully${results.failed.length > 0 ? `, ${results.failed.length} failed` : ''}` 
-    };
-  } catch (error) {
-    console.error("Error importing leads:", error);
-    return { 
-      success: false, 
-      count: 0,
-      failed: [],
-      message: `Failed to import leads: ${(error as Error).message}` 
-    };
-  }
-}
-
 // Singapore phone number validation and formatting
 const validateSGPhoneNumber = (phone: string) => {
   if (!phone) return false;
@@ -275,6 +210,158 @@ const formatSGPhoneNumber = (phone: string) => {
   
   return cleaned;
 };
+
+// Push ineligible lead data to Workato retention sheets
+async function pushToWorkatoRetention(leadData: {
+  phone_number: string;
+  full_name?: string;
+  email?: string;
+  source?: string;
+  amount?: string;
+  eligibility_notes?: string;
+  created_at?: Date;
+}) {
+  try {
+    const workatoPayload = {
+      phone_number: leadData.phone_number,
+      full_name: leadData.full_name || '',
+      email: leadData.email || '',
+      source: leadData.source || 'Import',
+      amount: leadData.amount || '',
+      eligibility_notes: leadData.eligibility_notes || '',
+      status: 'ineligible',
+      created_at: leadData.created_at?.toISOString() || new Date().toISOString(),
+      retention_category: 'imported_ineligible'
+    };
+
+    console.log('Pushing to Workato retention sheets:', workatoPayload);
+
+    const response = await fetch('https://api.capcfintech.com/api/workato/retention-sheets', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': `${process.env.WORKATO_API_KEY || process.env.WHATSAPP_API_KEY}` // Fallback to existing key if Workato key not set
+      },
+      body: JSON.stringify(workatoPayload)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+      console.error('Failed to push to Workato retention sheets:', errorData);
+      return { success: false, error: errorData.message || 'Failed to push to retention sheets' };
+    }
+
+    const result = await response.json();
+    console.log('Successfully pushed to Workato retention sheets:', result);
+    return { success: true, data: result };
+
+  } catch (error) {
+    console.error('Error pushing to Workato retention sheets:', error);
+    return { success: false, error: 'Network error while pushing to retention sheets' };
+  }
+}
+
+// Import multiple leads from an Excel file with eligibility checking
+export async function importLeads(leadsData: ImportLeadData[]) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    const results = {
+      successful: [] as any[], // Changed from ImportLeadData[] to fix type issue
+      failed: [] as { lead: ImportLeadData; reason: string }[],
+      pushedToRetention: [] as any[] // Track leads pushed to Workato retention
+    };
+
+    // Process each lead using createLead function
+    for (const leadData of leadsData) {
+      try {
+        // Prepare the lead data for createLead
+        const createLeadData = {
+          phone_number: leadData.phone_number?.toString() ?? '',
+          full_name: leadData.full_name ?? leadData.first_name ?? '',
+          email: leadData.email ?? '',
+          source: 'Firebase', // Default source for imports
+          amount: leadData.amount ?? '',
+          lead_type: ['new', 'reloan'].includes((leadData.lead_type ?? '').toString().toLowerCase())
+            ? (leadData.lead_type ?? '').toString().toLowerCase()
+            : 'new',
+          created_by: userId,
+          bypassEligibility: false // Always check eligibility for imports
+        };
+
+        // Use createLead which handles eligibility checking and auto-assignment
+        const result = await createLead(createLeadData);
+        
+        if (result.success && result.lead) {
+          results.successful.push(result.lead);
+          
+          // If the lead is ineligible, push to Workato retention sheets
+          if (result.lead.eligibility_status === 'ineligible') {
+            try {
+              const retentionResult = await pushToWorkatoRetention({
+                phone_number: result.lead.phone_number,
+                full_name: result.lead.full_name || undefined,
+                email: result.lead.email || undefined,
+                source: result.lead.source || undefined,
+                amount: result.lead.amount || undefined,
+                eligibility_notes: result.lead.eligibility_notes || undefined,
+                created_at: result.lead.created_at
+              });
+              
+              if (retentionResult.success) {
+                results.pushedToRetention.push({
+                  leadId: result.lead.id,
+                  phone_number: result.lead.phone_number,
+                  retention_data: retentionResult.data
+                });
+                console.log(`✅ Pushed ineligible lead ${result.lead.id} to Workato retention sheets`);
+              } else {
+                console.error(`❌ Failed to push lead ${result.lead.id} to retention sheets:`, retentionResult.error);
+              }
+            } catch (retentionError) {
+              console.error('Error pushing to retention sheets:', retentionError);
+              // Don't fail the import if retention push fails
+            }
+          }
+        } else {
+          results.failed.push({
+            lead: leadData,
+            reason: result.error ?? 'Unknown error during lead creation'
+          });
+        }
+        
+      } catch (error) {
+        results.failed.push({
+          lead: leadData,
+          reason: `Error: ${(error as Error).message}`
+        });
+      }
+    }
+    
+    const retentionMessage = results.pushedToRetention.length > 0 
+      ? `, ${results.pushedToRetention.length} ineligible leads pushed to retention sheets`
+      : '';
+    
+    return { 
+      success: true, 
+      count: results.successful.length,
+      leads: results.successful,
+      failed: results.failed,
+      pushedToRetention: results.pushedToRetention,
+      message: `${results.successful.length} leads imported successfully${results.failed.length > 0 ? `, ${results.failed.length} failed` : ''}${retentionMessage}` 
+    };
+  } catch (error) {
+    console.error("Error importing leads:", error);
+    return { 
+      success: false, 
+      count: 0,
+      failed: [],
+      pushedToRetention: [],
+      message: `Failed to import leads: ${(error as Error).message}` 
+    };
+  }
+}
 
 // Add a note to a lead
 export async function addLeadNote(leadId: number, content: string) {
@@ -357,7 +444,7 @@ export async function updateLead(
       return { success: false, message: "Lead not found" };
     }
 
-    const originalLead = existingLead[0];
+    const originalLead = existingLead[0]!;
 
     // Validate phone number if it's being updated
     if (leadData.phone_number) {
@@ -423,10 +510,8 @@ export async function updateLead(
       .returning();
 
     // Add log entry for lead update
-    console.log("leadData", leadData);
-    console.log("existingLead", existingLead);
     const changedFields = Object.keys(leadData).filter(key => 
-      leadData[key as keyof typeof leadData] !== (existingLead[0] as any)?.[key as keyof typeof existingLead[0]]
+      leadData[key as keyof typeof leadData] !== originalLead[key as keyof typeof originalLead]
     );
 
     await db.insert(logs).values({
@@ -494,7 +579,7 @@ export async function fetchFilteredLeads({
 }: {
   status?: typeof leadStatusEnum.enumValues[number];
   search?: string;
-  sortBy?: keyof typeof leads;
+  sortBy?: string; // Changed from keyof typeof leads to string to fix type issue
   sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
@@ -585,11 +670,16 @@ export async function fetchFilteredLeads({
       ? baseQuery.where(and(...conditions))
       : baseQuery;
 
-    // Add sorting
-    const sortColumn = leads[sortBy];
-    const queryWithSort = sortColumn
-      ? queryWithConditions.orderBy(sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn))
-      : queryWithConditions;
+    // Add sorting with proper type handling
+    let queryWithSort = queryWithConditions;
+    if (sortBy && sortBy in leads) {
+      const sortColumn = leads[sortBy as keyof typeof leads];
+      if (sortColumn && typeof sortColumn === 'object' && 'dataType' in sortColumn) {
+        queryWithSort = queryWithConditions.orderBy(
+          sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn)
+        );
+      }
+    }
 
     // Add pagination
     const finalQuery = queryWithSort.limit(limit + 1).offset(offset);

@@ -308,6 +308,18 @@ export async function getDataSourceSuggestions() {
       'user.email',
       'user.team',
     ],
+    appointment: [
+      'appointment.booked_date',
+      'appointment.booked_time', 
+      'appointment.booked_datetime',
+      'appointment.missed_date',
+      'appointment.missed_time',
+      'appointment.missed_datetime',
+      'appointment.latest_date',
+      'appointment.latest_time',
+      'appointment.latest_datetime',
+      'appointment.latest_status',
+    ],
     system: [
       'system.date',
       'system.datetime',

@@ -211,6 +211,7 @@ export async function sendManualWhatsAppWorkflow(data: {
   templateDatabaseId: number;
   parameters?: Record<string, string>;
   deliveryMethod?: 'sms' | 'whatsapp' | 'both';
+  leadId?: number;
 }) {
   const { userId } = await auth();
   if (!userId) {
@@ -230,7 +231,8 @@ export async function sendManualWhatsAppWorkflow(data: {
         data.phone,
         data.templateDatabaseId,
         data.parameters ?? {},
-        data.deliveryMethod ?? 'whatsapp'
+        data.deliveryMethod ?? 'whatsapp',
+        data.leadId
       );
       
       return {
