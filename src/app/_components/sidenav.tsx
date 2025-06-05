@@ -86,12 +86,12 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
     //   href: "/dashboard/reports",
     //   icon: <DocumentTextIcon className="h-5 w-5" />
     // },
-    {
-      title: "Retail",
-      href: "/dashboard/retail",
-      icon: <ShoppingBagIcon className="h-5 w-5" />,
-      roles: ["admin", "retail"] // Only admin and retail can access retail section
-    },
+    // {
+    //   title: "Retail",
+    //   href: "/dashboard/retail",
+    //   icon: <ShoppingBagIcon className="h-5 w-5" />,
+    //   roles: ["admin", "retail"] // Only admin and retail can access retail section
+    // },
     {
       title: "User Management",
       href: "/dashboard/users",

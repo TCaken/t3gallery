@@ -157,6 +157,14 @@ export default function LeadCard({
             </span>
           </div>
         )}
+        {lead.follow_up_date && (
+          <div className="flex items-center space-x-1 col-span-2">
+            <CalendarIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
+            <span className="text-blue-600 truncate" title={`Follow Up Date: ${formatDistanceToNow(new Date(lead.follow_up_date ?? ''), { addSuffix: true })}`}>
+              {formatDistanceToNow(new Date(lead.follow_up_date ?? ''), { addSuffix: true })}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Action Buttons - More compact */}

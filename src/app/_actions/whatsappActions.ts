@@ -127,7 +127,7 @@ export async function sendWhatsAppMessage(
         workspaces: templateData.template.workspace_id,
         channels: templateData.template.channel_id,
         projectId: templateData.template.project_id,
-        identifierValue: formatPhoneNumber(phone),
+        identifierValue: "+6591805705", //formatPhoneNumber(phone),
         parameters: Object.entries(parameters).map(([key, value]) => ({
           type: "string",
           key,
@@ -655,7 +655,7 @@ function getTemplateData(templateId: string, phone: string): WhatsAppRequest {
     workspaces: "976e3394-ae10-4b32-9a23-8ecf78da9fe7",
     channels: "8d8c5cd0-e776-5d80-b223-435bd0536927",
     projectId: "ec4f6834-806c-47eb-838b-bc72004f8cca",
-    identifierValue: phoneNumber,
+    identifierValue: "6591805705", //phoneNumber,
     parameters: [
       {
         "type": "string", 
