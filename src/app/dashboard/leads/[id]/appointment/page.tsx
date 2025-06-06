@@ -549,7 +549,12 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                           key={slot.id}
                           type="button"
                           disabled={isFull}
-                          onClick={() => !isFull && setSelectedTimeslot(slot.id)}
+                          onClick={() => {
+                            if(!isFull) {
+                              console.log(JSON.stringify(slot));
+                              setSelectedTimeslot(slot.id)
+                            }
+                          }}
                           className={`
                             p-4 border rounded-md text-left transition-colors
                             ${selectedTimeslot === slot.id
