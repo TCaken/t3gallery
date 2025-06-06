@@ -30,6 +30,51 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, su
 
 type Lead = InferSelectModel<typeof leads>;
 
+// Timezone utility functions
+const getSystemTimezone = () => {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+};
+
+const getSingaporeTime = (date: Date) => {
+  return new Date(date.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+};
+
+const convertToUTC = (localDateTimeString: string, timezone: string = "Asia/Singapore") => {
+  // Create a date object in the specified timezone
+  const localDate = new Date(localDateTimeString);
+  
+  // Get the timezone offset for Singapore
+  const now = new Date();
+  const utc1 = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const singapore = new Date(utc1 + (8 * 3600000)); // Singapore is UTC+8
+  
+  // Calculate the offset difference
+  const localOffset = localDate.getTimezoneOffset();
+  const singaporeOffset = -480; // Singapore is UTC+8 (480 minutes behind UTC)
+  
+  // Convert to UTC
+  const utcTime = new Date(localDate.getTime() - (singaporeOffset - localOffset) * 60000);
+  
+  console.log('🕐 Timezone Conversion Debug:');
+  console.log('System timezone:', getSystemTimezone());
+  console.log('Local date input:', localDateTimeString);
+  console.log('Local date object:', localDate.toISOString());
+  console.log('Singapore offset (minutes):', singaporeOffset);
+  console.log('Local offset (minutes):', localOffset);
+  console.log('Converted UTC time:', utcTime.toISOString());
+  console.log('Singapore display time:', getSingaporeTime(utcTime).toLocaleString());
+  
+  return utcTime;
+};
+
+const formatSingaporeTime = (utcDate: Date) => {
+  const singaporeTime = getSingaporeTime(utcDate);
+  console.log('🕘 Displaying time:');
+  console.log('UTC input:', utcDate.toISOString());
+  console.log('Singapore time:', singaporeTime.toLocaleString());
+  return singaporeTime;
+};
+
 export default function AppointmentPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const leadId = parseInt(params.id);
@@ -65,7 +110,9 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
         // Check for existing appointments
         const { hasAppointment, appointment } = await checkExistingAppointment(leadId);
         setHasAppointment(hasAppointment);
-        setExistingAppointment(appointment);
+        if (appointment) {
+          setExistingAppointment(appointment);
+        }
       } catch (error) {
         console.error("Error loading lead data:", error);
       } finally {
@@ -134,14 +181,33 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedTimeslot) {
-      alert('Please select a timeslot');
+    if (!selectedTimeslot || !selectedDate) {
+      alert('Please select a date and timeslot');
       return;
     }
     
     setLoading(true);
     
     try {
+      // Find the selected timeslot to get the time details
+      const selectedSlot = timeslots.find(slot => slot.id === selectedTimeslot);
+      if (!selectedSlot) {
+        alert('Selected timeslot not found');
+        return;
+      }
+      
+      // Create the appointment datetime string in Singapore timezone
+      const appointmentDateTimeString = `${selectedDate}T${selectedSlot.start_time}`;
+      
+      // Convert to UTC for database storage
+      const utcDateTime = convertToUTC(appointmentDateTimeString);
+      
+      console.log('🗓️ Appointment Scheduling Debug:');
+      console.log('Selected date:', selectedDate);
+      console.log('Selected time:', selectedSlot.start_time);
+      console.log('Combined datetime string:', appointmentDateTimeString);
+      console.log('UTC datetime for database:', utcDateTime.toISOString());
+      
       const result = await createAppointmentWorkflow({
         leadId,
         timeslotId: selectedTimeslot,
@@ -443,7 +509,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
               <div className="flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => router.push(`/dashboard/appointments/${existingAppointment?.id || ''}`)}
+                  onClick={() => router.push(`/dashboard/appointments/${existingAppointment?.id ?? ''}`)}
                   className="py-2 px-4 border border-blue-300 rounded-md shadow-sm text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   View Appointment
