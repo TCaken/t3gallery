@@ -20,15 +20,15 @@ import {
   checkExistingAppointment, 
   fetchAvailableTimeslots, 
   cancelAppointment,
-  type AppointmentWithLead,
   type Timeslot
 } from '~/app/_actions/appointmentAction';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
 import { type InferSelectModel } from 'drizzle-orm';
-import { leads } from "~/server/db/schema";
+import { leads, appointments } from "~/server/db/schema";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, addDays, isSameMonth, isSameDay, parseISO } from 'date-fns';
 
 type Lead = InferSelectModel<typeof leads>;
+type Appointment = InferSelectModel<typeof appointments>;
 
 // Timezone utility functions
 const getSystemTimezone = () => {
@@ -39,30 +39,37 @@ const getSingaporeTime = (date: Date) => {
   return new Date(date.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
 };
 
-const convertToUTC = (localDateTimeString: string, timezone = "Asia/Singapore") => {
-  // Create a date object in the specified timezone
+const convertToUTC = (localDateTimeString: string) => {
+  // Create a date from the string - this will be interpreted differently based on environment
   const localDate = new Date(localDateTimeString);
   
-  // Get the timezone offset for Singapore
-  const now = new Date();
-  const utc1 = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const singapore = new Date(utc1 + (8 * 3600000)); // Singapore is UTC+8
+  // Get the system timezone
+  const systemTimezone = getSystemTimezone();
   
-  // Calculate the offset difference
-  const localOffset = localDate.getTimezoneOffset();
-  const singaporeOffset = -480; // Singapore is UTC+8 (480 minutes behind UTC)
+  console.log('🕐 Enhanced Timezone Conversion Debug:');
+  console.log('System timezone:', systemTimezone);
+  console.log('Input datetime string:', localDateTimeString);
+  console.log('Parsed date (system interpretation):', localDate.toISOString());
   
-  // Convert to UTC
-  const utcTime = new Date(localDate.getTime() - (singaporeOffset - localOffset) * 60000);
+  // Create a more reliable conversion:
+  // Parse the datetime components manually and create UTC time
+  const [datePart, timePart] = localDateTimeString.split('T');
+  const [year, month, day] = datePart!.split('-').map(Number);
+  const [hour, minute, second = 0] = timePart!.split(':').map(Number);
   
-  console.log('🕐 Timezone Conversion Debug:');
-  console.log('System timezone:', getSystemTimezone());
-  console.log('Local date input:', localDateTimeString);
-  console.log('Local date object:', localDate.toISOString());
-  console.log('Singapore offset (minutes):', singaporeOffset);
-  console.log('Local offset (minutes):', localOffset);
-  console.log('Converted UTC time:', utcTime.toISOString());
-  console.log('Singapore display time:', getSingaporeTime(utcTime).toLocaleString());
+  // Create Singapore time explicitly
+  const singaporeTime = new Date();
+  singaporeTime.setFullYear(year!, month! - 1, day); // month is 0-indexed
+  singaporeTime.setHours(hour!, minute!, second, 0);
+  
+  // Convert Singapore time (UTC+8) to UTC by subtracting 8 hours
+  const utcTime = new Date(singaporeTime.getTime() - (8 * 60 * 60 * 1000));
+  
+  console.log('🌏 Manual parsing approach:');
+  console.log('Date components:', { year, month, day, hour, minute, second });
+  console.log('Singapore time:', singaporeTime.toISOString());
+  console.log('Converted to UTC:', utcTime.toISOString());
+  console.log('Display back in SGT:', getSingaporeTime(utcTime).toLocaleString());
   
   return utcTime;
 };
@@ -82,7 +89,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   
   const [lead, setLead] = useState<Lead | null>(null);
   const [loadingLead, setLoadingLead] = useState(true);
-  const [existingAppointment, setExistingAppointment] = useState<AppointmentWithLead | null>(null);
+  const [existingAppointment, setExistingAppointment] = useState<Appointment | null>(null);
   const [hasAppointment, setHasAppointment] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTimeslot, setSelectedTimeslot] = useState<number | null>(null);
@@ -479,23 +486,14 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                 <div className="bg-white p-4 rounded-md border border-amber-200 mb-4">
                   <h3 className="font-medium text-gray-800 mb-2">Appointment Details</h3>
                   <p className="text-gray-600 mb-1">
-                    <span className="font-medium">Date:</span> {formatAppointmentDate(existingAppointment.start_datetime)}
+                    <span className="font-medium">Date:</span> {formatAppointmentDate(new Date(existingAppointment.start_datetime))}
                   </p>
                   <p className="text-gray-600 mb-1">
-                    <span className="font-medium">Time:</span> {formatAppointmentTime(existingAppointment.start_datetime, existingAppointment.end_datetime)}
+                    <span className="font-medium">Time:</span> {formatAppointmentTime(new Date(existingAppointment.start_datetime), new Date(existingAppointment.end_datetime))}
                   </p>
                   <p className="text-gray-600 mb-1">
                     <span className="font-medium">Status:</span> {existingAppointment.status}
                   </p>
-                  
-                  {existingAppointment.is_urgent && (
-                    <div className="mt-2 flex items-center">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                        <ExclamationCircleIcon className="h-4 w-4 mr-1" />
-                        Needed Early
-                      </span>
-                    </div>
-                  )}
                   
                   {existingAppointment.notes && (
                     <div className="mt-3 p-2 bg-gray-50 rounded text-sm text-gray-700">

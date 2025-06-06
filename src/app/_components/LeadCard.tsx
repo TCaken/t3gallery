@@ -43,9 +43,9 @@ interface LeadCardProps {
 }
 
 // Helper function to format follow-up date in Singapore time
-const formatFollowUpDate = (followUpDate: string) => {
+const formatFollowUpDate = (followUpDate: Date) => {
   // Convert UTC date to Singapore time
-  const utcDate = new Date(followUpDate);
+  const utcDate = followUpDate;
   const singaporeTime = new Date(utcDate.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
   
   // Check if it's today in Singapore time
@@ -262,8 +262,8 @@ export default function LeadCard({
         {lead.follow_up_date !== null && (lead.status === "assigned" || lead.status === "no_answer" || lead.status === "follow_up" || lead.status === "missed/RS") && (
           <div className="flex items-center space-x-1 col-span-2">  
             <CalendarIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
-            <span className="text-blue-600 truncate" title={`Follow Up Date: ${formatFollowUpDate(lead.follow_up_date)}`}>
-              {formatFollowUpDate(lead.follow_up_date)}
+            <span className="text-blue-600 truncate" title={`Follow Up Date: ${formatFollowUpDate(new Date(lead.follow_up_date ?? ''))}`}>
+              {formatFollowUpDate(new Date(lead.follow_up_date ?? ''))}
             </span>
           </div>
         )}
