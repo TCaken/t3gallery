@@ -34,6 +34,7 @@ import AssignLeadModal from '~/app/_components/AssignLeadModal';
 import { exportAllLeadsToCSV } from '~/app/_actions/exportActions';
 import { makeCall } from '~/app/_actions/callActions';
 import LeadEditSlideOver from '~/app/_components/LeadEditSlideOver';
+import CustomWhatsAppModal from '~/app/_components/CustomWhatsAppModal';
 
 
 // Infer Lead type from the schema
@@ -71,9 +72,9 @@ const allStatuses = [
   { id: 'assigned', name: 'Assigned', color: 'bg-cyan-100 text-cyan-800' },
   { id: 'no_answer', name: 'No Answer', color: 'bg-gray-100 text-gray-800' },
   { id: 'follow_up', name: 'Follow Up', color: 'bg-indigo-100 text-indigo-800' },
+  { id: 'missed/RS', name: 'Missed/RS', color: 'bg-red-100 text-red-800' },
   { id: 'booked', name: 'Booked', color: 'bg-green-100 text-green-800' },
   { id: 'done', name: 'Done', color: 'bg-green-100 text-green-800' },
-  { id: 'missed/RS', name: 'Missed/RS', color: 'bg-red-100 text-red-800' },
   { id: 'unqualified', name: 'Unqualified', color: 'bg-orange-100 text-orange-800' },
   { id: 'give_up', name: 'Give Up', color: 'bg-red-100 text-red-800' },
   { id: 'blacklisted', name: 'Blacklisted', color: 'bg-black text-white' },
@@ -81,9 +82,9 @@ const allStatuses = [
 
 // Tab options
 const TABS = [
-  { id: 'kanban', name: 'Kanban Board', icon: <FunnelIcon className="h-5 w-5" /> },
-  { id: 'all', name: 'All Leads', icon: <UserGroupIcon className="h-5 w-5" /> },
-  { id: 'pinned', name: 'Pinned Leads', icon: <BookmarkIcon className="h-5 w-5" /> },
+  { id: 'kanban', name: 'Kanban Board', icon: <FunnelIcon className="h-5 w-5" /> }
+  // { id: 'all', name: 'All Leads', icon: <UserGroupIcon className="h-5 w-5" /> },
+  // { id: 'pinned', name: 'Pinned Leads', icon: <BookmarkIcon className="h-5 w-5" /> },
 ];
 
 // Get status color
@@ -154,7 +155,7 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [activeTab, setActiveTab] = useState('kanban');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
+  // const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [checkingInOut, setCheckingInOut] = useState(false);
@@ -274,6 +275,13 @@ export default function LeadsPage() {
   });
   const [activeFilters, setActiveFilters] = useState<LeadFilters>({});
 
+  // Add WhatsApp modal state at page level
+  const [isPageWhatsAppModalOpen, setIsPageWhatsAppModalOpen] = useState(false);
+  const [whatsAppLeadData, setWhatsAppLeadData] = useState<{
+    phoneNumber: string;
+    leadId: number;
+  } | null>(null);
+
   // Function to filter leads based on search query
   const filterLeads = (leads: Lead[], query: string) => {
     if (!query) return leads;
@@ -300,7 +308,7 @@ export default function LeadsPage() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Enhanced function to apply frontend filters
+  // Enhanced function to apply frontend filters - sorting now handled in backend
   const applyFrontendFilters = (leads: Lead[]) => {
     let filteredLeads = [...leads];
 
@@ -362,6 +370,7 @@ export default function LeadsPage() {
       });
     }
 
+    // Sorting is now handled in the backend - no need to sort here
     return filteredLeads;
   };
 
@@ -394,49 +403,30 @@ export default function LeadsPage() {
     });
   };
 
-  // Enhanced sorting options
-  const sortOptions = [
-    { value: 'created_at', label: 'Created Date' },
-    { value: 'updated_at', label: 'Updated Date' },
-    { value: 'full_name', label: 'Name' },
-    { value: 'amount', label: 'Amount' },
-    { value: 'phone_number', label: 'Phone Number' },
-    { value: 'employment_salary', label: 'Employment Salary' },
-    { value: 'lead_score', label: 'Lead Score' },
-    { value: 'id', label: 'ID' }
-  ];
-
-  // Function to refresh data with new sort/filter parameters
+  // Function to refresh data with new filter parameters - simplified without sort params
   const refreshDataWithFilters = async () => {
     setAllLoadedLeads([]);
     setPage(1);
-    await fetchFilteredLeads({
-      status: filters.status,
-      search: filters.search,
-      sortBy: filters.sortBy,
-      sortOrder: filters.sortOrder,
-      page: filters.page,
-      limit: filters.limit
-    });
+    await fetchLeadsWithFilters(1);
   };
 
-  // Modify fetchLeadsWithFilters to load more leads when needed
+  // Modify fetchLeadsWithFilters to load more leads when needed - remove sort params
   const fetchLeadsWithFilters = async (pageNum = 1) => {
     try {
       setIsLoadingMore(true);
       
       const result = await fetchFilteredLeads({
         search: '', // Don't send search to server, handle it frontend
-        sortBy: filters.sortBy ?? "created_at",
-        sortOrder: filters.sortOrder ?? "desc",
+        sortBy: "updated_at", // Always sort by updated_at from server
+        sortOrder: "desc", // Always descending from server
         page: pageNum,
         limit: 50
       });
       
+      
       if (result.success && result.leads) {
         const newLeads = [...(pageNum === 1 ? [] : allLoadedLeads), ...result.leads.map(lead => ({
           ...lead,
-          follow_up_date: null // Add missing property to match Lead type
         }))];
         setAllLoadedLeads(newLeads);
         setHasMore(result.hasMore ?? false);
@@ -595,10 +585,10 @@ export default function LeadsPage() {
     void loadInitialData();
   }, []);
 
-  // Modify handleScroll to load more leads when scrolling in any column
+  // Modify handleScroll to fix auto-scroll functionality
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !loadingMore) {
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !isLoadingMore) {
       const nextPage = page + 1;
       setPage(nextPage);
       void fetchLeadsWithFilters(nextPage);
@@ -802,15 +792,14 @@ export default function LeadsPage() {
           break;
 
         case 'whatsapp':
-          await sendWhatsAppMessage(
-            lead.phone_number,
-            'example_template',
-            {},
-            'whatsapp',
-            lead.id
-          );
+          // Open the page-level WhatsApp modal
+          setWhatsAppLeadData({
+            phoneNumber: lead.phone_number,
+            leadId: lead.id
+          });
+          setIsPageWhatsAppModalOpen(true);
           break;
-
+          
         case 'call':
           try {
             const callResult = await makeCall({
@@ -839,7 +828,7 @@ export default function LeadsPage() {
           break;
 
         default:
-          // console.log('Unknown action:', action);
+          console.log('Unknown action:', action);
       }
 
       // Refresh all leads if needed
@@ -917,7 +906,7 @@ export default function LeadsPage() {
     }
   };
 
-  // Function to handle CSV export
+  // Function to handle CSV export - fix linter errors
   const handleExportLeads = async () => {
     try {
       setExportStatus({ loading: true });
@@ -937,7 +926,7 @@ export default function LeadsPage() {
       
       const result = await exportAllLeadsToCSV(statusesToExport);
       
-      if (!result.success || !result.csvDataByStatus) {
+      if (!result.success) {
         setExportStatus({ 
           loading: false, 
           error: result.error ?? 'Failed to export leads. Please try again.' 
@@ -992,7 +981,7 @@ export default function LeadsPage() {
           .map(([status, agentCounts]) => {
             const agentDetails = Object.entries(agentCounts)
               .map(([agentId, count]) => {
-                const agentName = result.agentNames?.[agentId] || 'Unknown';
+                const agentName = result.agentNames?.[agentId] ?? 'Unknown';
                 return `${agentName}: ${count}`;
               })
         .join(', ');
@@ -1271,38 +1260,7 @@ export default function LeadsPage() {
             ))}
           </select>
 
-          {/* Enhanced Sort Options */}
-          <select
-            value={filters.sortBy ?? 'created_at'}
-            onChange={(e) => {
-              setFilters(prev => ({
-                ...prev,
-                sortBy: e.target.value as LeadFilters['sortBy']
-              }));
-              void refreshDataWithFilters();
-            }}
-            className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
-          >
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                Sort by {option.label}
-              </option>
-            ))}
-          </select>
-
-          {/* Sort Order */}
-          <button
-            className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none hover:bg-gray-50"
-            onClick={() => {
-              setFilters(prev => ({
-                ...prev,
-                sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc'
-              }));
-              void refreshDataWithFilters();
-            }}
-          >
-            {filters.sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
-          </button>
+          {/* Remove sort options since we're using automatic three-layer sorting */}
 
           {/* Clear Filters Button */}
           {Object.keys(activeFilters).length > 0 && (
@@ -1333,10 +1291,11 @@ export default function LeadsPage() {
                       placeholder="Min"
                       className="flex-1 rounded border border-gray-300 px-3 py-1 text-sm"
                       onChange={(e) => {
-                        const min = parseFloat(e.target.value) || filterOptions.amountRange[0];
+                        const value = parseFloat(e.target.value);
+                        const min = isNaN(value) ? filterOptions.amountRange[0] : value;
                         setActiveFilters(prev => ({
                           ...prev,
-                          amountRange: [min, activeFilters.amountRange?.[1] || filterOptions.amountRange[1]]
+                          amountRange: [min, activeFilters.amountRange?.[1] ?? filterOptions.amountRange[1]]
                         }));
                       }}
                     />
@@ -1345,10 +1304,11 @@ export default function LeadsPage() {
                       placeholder="Max"
                       className="flex-1 rounded border border-gray-300 px-3 py-1 text-sm"
                       onChange={(e) => {
-                        const max = parseFloat(e.target.value) || filterOptions.amountRange[1];
+                        const value = parseFloat(e.target.value);
+                        const max = isNaN(value) ? filterOptions.amountRange[1] : value;
                         setActiveFilters(prev => ({
                           ...prev,
-                          amountRange: [activeFilters.amountRange?.[0] || filterOptions.amountRange[0], max]
+                          amountRange: [activeFilters.amountRange?.[0] ?? filterOptions.amountRange[0], max]
                         }));
                       }}
                     />
@@ -1832,6 +1792,19 @@ export default function LeadsPage() {
         lead={selectedLead}
         onSave={handleSaveLead}
       />}
+
+      {/* Add page-level WhatsApp modal */}
+      {whatsAppLeadData && (
+        <CustomWhatsAppModal
+          isOpen={isPageWhatsAppModalOpen}
+          onClose={() => {
+            setIsPageWhatsAppModalOpen(false);
+            setWhatsAppLeadData(null);
+          }}
+          phoneNumber={whatsAppLeadData.phoneNumber}
+          leadId={whatsAppLeadData.leadId}
+        />
+      )}
 
       {/* Auto-Assignment Management Modal */}
       {isAutoAssignModalOpen && (

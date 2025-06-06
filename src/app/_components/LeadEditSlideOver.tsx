@@ -109,16 +109,17 @@ interface LeadEditSlideOverProps {
 export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: LeadEditSlideOverProps) {
   const [selectedAction, setSelectedAction] = useState<string>('save');
   const [followUpDate, setFollowUpDate] = useState<string>('');
-  const [followUpTime, setFollowUpTime] = useState<string>('00:00');
+  const [followUpTime, setFollowUpTime] = useState<string>('');
   const [formValues, setFormValues] = useState<FormValues>({
     ...lead,
-    follow_up_time: '00:00'
+    follow_up_time: ''
   });
   const [showUnsavedChangesModal, setShowUnsavedChangesModal] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [initialValues, setInitialValues] = useState<FormValues>(lead);
   const [currentStep, setCurrentStep] = useState(0);
+  const [showTimeInput, setShowTimeInput] = useState(false);
 
   // console.log("LeadEditSlideOver", lead);
   
@@ -126,7 +127,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
   useEffect(() => {
     const newValues = {
       ...lead,
-      follow_up_time: '00:00'
+      follow_up_time: ''
     };
     setFormValues(newValues);
     setInitialValues(newValues);
@@ -172,27 +173,38 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
 
   // Get default follow-up date (today at 00:00 Singapore time)
   const getDefaultFollowUpDate = () => {
+    // Get current date in Singapore timezone
     const now = new Date();
-    // Create date string in Singapore timezone
-    const sgDate = new Date(now.getTime());
-    sgDate.setHours(0, 0, 0, 0);
-    return sgDate.toISOString().slice(0, 16);
+    const sgTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+    sgTime.setHours(0, 0, 0, 0);
+    
+    // Format for date input (YYYY-MM-DD)
+    const year = sgTime.getFullYear();
+    const month = String(sgTime.getMonth() + 1).padStart(2, '0');
+    const day = String(sgTime.getDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
   };
 
-  // Get max follow-up date (30 days from now at 00:00 Singapore time)
+  // Get max follow-up date (30 days from now in Singapore time)
   const getMaxFollowUpDate = () => {
     const now = new Date();
-    const maxDate = new Date(now.getTime());
+    const sgTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+    const maxDate = new Date(sgTime);
     maxDate.setDate(maxDate.getDate() + 30);
-    maxDate.setHours(0, 0, 0, 0);
-    return maxDate.toISOString().split('T')[0];
+    
+    const year = maxDate.getFullYear();
+    const month = String(maxDate.getMonth() + 1).padStart(2, '0');
+    const day = String(maxDate.getDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
   };
 
   // Format date for display (Singapore timezone)
   const formatDateForDisplay = (date: string) => {
-    // Parse the UTC date and format it in Singapore time
-    const utcDate = new Date(date);
-    return utcDate.toLocaleString('en-SG', { 
+    // Parse the date and format it in Singapore time
+    const dateObj = new Date(date);
+    return dateObj.toLocaleString('en-SG', { 
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -217,15 +229,21 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
     setShowConfirmationModal(false);
     
     if (selectedAction === 'follow_up' && followUpDate) {
-      // Combine date and time, defaulting to 00:00 if no time selected
-      const dateStr = followUpDate.split('T')[0];
-      const timeStr = followUpTime || '00:00';
-      
       // Create date in Singapore timezone
-      const sgDate = new Date(`${dateStr}T${timeStr}:00+08:00`);
+      const timeStr = followUpTime || '00:00'; // Use 00:00 if no time selected
+      const timeParts = timeStr.split(':');
+      const hours = parseInt(timeParts[0] ?? '0', 10);
+      const minutes = parseInt(timeParts[1] ?? '0', 10);
+      
+      // Create date object in Singapore timezone
+      const sgDate = new Date(followUpDate);
+      sgDate.setHours(hours, minutes, 0, 0);
       
       // Convert to UTC for database storage
-      const utcDate = new Date(sgDate.getTime());
+      // Note: The date input already gives us the correct date, we just need to adjust for timezone
+      const sgTimeZoneOffset = 8 * 60; // GMT+8 in minutes
+      const localTimeZoneOffset = sgDate.getTimezoneOffset(); // Local timezone offset in minutes
+      const utcDate = new Date(sgDate.getTime() - (sgTimeZoneOffset + localTimeZoneOffset) * 60 * 1000);
       
       // Update form values with the follow-up date
       const updatedValues = {
@@ -585,7 +603,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
         { name: "source", label: "Lead Source", type: "text", disabled: true } as TextField,
         { name: "full_name", label: "Full Name", type: "text" } as TextField,
         { name: "email", label: "Email", type: "text" } as TextField,
-        { name: "phone_number", label: "Primary Phone", type: "tel", disabled: true } as TextField,
+        { name: "phone_number", label: "Primary Phone", type: "tel" } as TextField,
         { name: "phone_number_2", label: "Secondary Phone", type: "tel" } as TextField,
         { name: "phone_number_3", label: "Additional Phone", type: "tel" } as TextField,
       ]
@@ -1025,49 +1043,122 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
                           {getConfirmationMessage(selectedAction)}
                         </p>
                         {selectedAction === 'follow_up' && (
-                          <div className="mt-4 space-y-4">
-                            <div>
-                              <label htmlFor="follow-up-date" className="block text-sm font-medium text-gray-700">
-                                Select Date
-                              </label>
-                              <input
-                                type="date"
-                                id="follow-up-date"
-                                name="follow-up-date"
-                                value={followUpDate.split('T')[0]}
-                                onChange={(e) => setFollowUpDate(e.target.value)}
-                                min={new Date().toISOString().split('T')[0]}
-                                max={getMaxFollowUpDate()}
-                                className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                                required
-                              />
+                          <div className="mt-4 space-y-3">
+                            {/* Date and Time in a better layout */}
+                            <div className="space-y-4">
+                              {/* Date Selection */}
+                              <div>
+                                <label htmlFor="follow-up-date" className="justify-between items-center block text-sm font-medium text-gray-700 mb-2">
+                                  Select Date
+                                </label>
+                                <input
+                                  type="date"
+                                  id="follow-up-date"
+                                  name="follow-up-date"
+                                  value={followUpDate}
+                                  onChange={(e) => setFollowUpDate(e.target.value)}
+                                  min={getDefaultFollowUpDate()}
+                                  max={getMaxFollowUpDate()}
+                                  onClick={(e) => {
+                                    // Auto-open calendar when clicking
+                                    if (e.currentTarget.showPicker) {
+                                      e.currentTarget.showPicker();
+                                    }
+                                  }}
+                                  className="w-full rounded-lg border-2 border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3 cursor-pointer font-medium"
+                                  required
+                                />
+                              </div>
+
+                              {/* Time Selection */}
+                              <div>
+                                {!showTimeInput ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowTimeInput(true)}
+                                    className="w-full rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400 px-4 py-3 text-sm text-gray-600 hover:text-blue-600 transition-all duration-200"
+                                  >
+                                  Add specific time (optional)
+                                  </button>
+                                ) : (
+                                  <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <label htmlFor="follow-up-time" className="text-sm font-medium text-gray-700">
+                                        Specific Time
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFollowUpTime('');
+                                          setShowTimeInput(false);
+                                        }}
+                                        className="text-xs text-gray-500 hover:text-red-600 font-medium px-2 py-1 rounded"
+                                      >
+                                        Remove time
+                                      </button>
+                                    </div>
+                                    <input
+                                      type="time"
+                                      id="follow-up-time"
+                                      name="follow-up-time"
+                                      value={followUpTime}
+                                      onChange={(e) => setFollowUpTime(e.target.value)}
+                                      className="w-full rounded-lg border-2 border-blue-300 bg-blue-50 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3 font-medium"
+                                      placeholder="Select time..."
+                                    />
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div>
-                              <label htmlFor="follow-up-time" className="block text-sm font-medium text-gray-700">
-                                Select Time (Optional)
-                              </label>
-                              <input
-                                type="time"
-                                id="follow-up-time"
-                                name="follow-up-time"
-                                value={followUpTime}
-                                onChange={(e) => setFollowUpTime(e.target.value)}
-                                className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                              />
-                              <p className="mt-1 text-xs text-gray-500">
-                                Leave empty to automatically set to 00:00
+                            
+                            {/* Preview and helpful info */}
+                            <div className="bg-blue-50 rounded-lg p-3">
+                              <div className="flex items-start space-x-2">
+                                <div className="text-sm">
+                                  <p className="text-blue-700 font-medium">
+                                    {followUpDate ? (
+                                      <>
+                                        {new Date(followUpDate).toLocaleDateString('en-SG', {
+                                          weekday: 'long',
+                                          day: 'numeric',
+                                          month: 'long',
+                                          year: 'numeric',
+                                          timeZone: 'Asia/Singapore'
+                                        })}
+                                        {followUpTime && followUpTime !== '' ? (
+                                          <span className="block text-blue-700 mt-1">
+                                            at {followUpTime} (Singapore time)
+                                          </span>
+                                        ) : (
+                                          <span className="block text-blue-700 text-sm mt-1">
+                                            No specific time set
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      'Please select a date above'
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Helper text */}
+                            <div className="text-center">
+                              <p className="text-xs text-gray-500">
+                                Click the date field to open calendar. All times in Singapore timezone (GMT+8)
                               </p>
                             </div>
                           </div>
                         )}
                         {selectedAction === 'blacklist' && (
                           <p className="mt-2 text-sm text-red-600">
-                            ⚠️ Blacklisted leads will be permanently removed from active leads and cannot be contacted again.
+                            Blacklisted leads will be permanently removed from active leads and cannot be contacted again.
                           </p>
                         )}
                         {selectedAction === 'no_answer' && (
                           <p className="mt-2 text-sm text-blue-600">
-                            ℹ️ The lead will automatically return to active status after 14 days.
+                            The lead will automatically return to give up status after 14 days.
                           </p>
                         )}
                       </div>

@@ -1,7 +1,7 @@
 // Modified LeadCard.tsx without drag functionality
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   PencilSquareIcon,
   PhoneIcon,
@@ -22,6 +22,7 @@ import LeadEditSlideOver from './LeadEditSlideOver';
 import { type Lead } from '~/app/types';
 import { formatDistanceToNow } from 'date-fns';
 import { Span } from 'next/dist/trace';
+import { Portal } from '@headlessui/react';
 
 // Infer lead type from Drizzle schema
 type LeadType = InferSelectModel<typeof leads>;
@@ -55,13 +56,15 @@ export default function LeadCard({
   const [isHovered, setIsHovered] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const notesRef = useRef<HTMLDivElement>(null);
 
   const handleAction = (action: string) => {
-    console.log('LeadCard: Action clicked:', action);
-    console.log('LeadCard: Lead data:', lead);
+    // console.log('LeadCard: Action clicked:', action);
+    // console.log('LeadCard: Lead data:', lead);
     
     if (onAction && lead.id) {
-      console.log('LeadCard: Calling onAction with:', action, lead.id);
+      // console.log('LeadCard: Calling onAction with:', action, lead.id);
       onAction(action, lead.id);
     }
   };
@@ -69,6 +72,7 @@ export default function LeadCard({
   // Handle card click to open edit
   const handleCardClick = (e: React.MouseEvent) => {
     // Don't trigger if clicking on interactive elements
+    // console.log('LeadCard: handleCardClick', JSON.stringify(lead));
     const target = e.target as HTMLElement;
     if (
       target.tagName === 'BUTTON' || 
@@ -155,14 +159,14 @@ export default function LeadCard({
           </h3>
           <div className="relative">
             <p 
-              className="text-sm text-gray-500 truncate hover:text-blue-600 transition-colors cursor-pointer relative"
+              className="text-sm text-gray-500 hover:text-blue-600 hover:underline transition-colors cursor-pointer inline-block"
               onClick={handlePhoneCopy}
               title="Click to copy phone number"
             >
               {lead.phone_number}
             </p>
             {copySuccess && (
-              <div className="absolute top-full left-0 mt-1 px-2 py-1 bg-green-600 text-white text-xs rounded shadow-lg z-10 whitespace-nowrap">
+              <div className="absolute top-full left-0 mt-1 px-2 py-1 bg-green-600 text-white text-xs rounded shadow-lg z-[5] whitespace-nowrap">
                 Phone number copied!
               </div>
             )}
@@ -174,6 +178,11 @@ export default function LeadCard({
           <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${statusInfo.color}`}>
             {statusInfo.name}
           </span>
+          {lead.contact_preference !== "No Preferences" && 
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-medium text-yellow-800 bg-yellow-100 whitespace-nowrap">
+              {lead.contact_preference}
+            </span>
+          }
           {lead.communication_language !== "No Preferences" && 
             <span className="px-2.5 py-0.5 rounded-full text-xs font-medium text-teal-800 bg-teal-100 whitespace-nowrap">
               {lead.communication_language}
@@ -187,7 +196,7 @@ export default function LeadCard({
         <div className="flex items-center space-x-1">
           <PencilSquareIcon className="h-3 w-3 flex-shrink-0" />
           <span className="truncate" title={`Updated: ${formatDistanceToNow(new Date(lead.updated_at ?? ''), { addSuffix: true })}`}>
-            {formatDistanceToNow(new Date(lead.updated_at ?? ''), { addSuffix: true })}
+            {formatDistanceToNow(new Date(lead.updated_at ?? ''), { addSuffix: true })} 
           </span>
         </div>
         <div className="flex items-center space-x-1">
@@ -196,7 +205,7 @@ export default function LeadCard({
             {formatDistanceToNow(new Date(lead.created_at ?? ''), { addSuffix: true })}
           </span>
         </div>
-        {lead.assigned_to && (
+        {lead.assigned_to !== null && (
           <div className="flex items-center space-x-1 col-span-2">
             <UserCircleIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
             <span className="text-blue-600 truncate" title={`Agent: ${lead.assigned_to}`}>
@@ -204,18 +213,18 @@ export default function LeadCard({
             </span>
           </div>
         )}
-        {lead.follow_up_date && (
+        {lead.follow_up_date !== null && (
           <div className="flex items-center space-x-1 col-span-2">
             <CalendarIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
             <span className="text-blue-600 truncate" title={`Follow Up Date: ${formatDistanceToNow(new Date(lead.follow_up_date ?? ''), { addSuffix: true })}`}>
-              {formatDistanceToNow(new Date(lead.follow_up_date ?? ''), { addSuffix: true })}
+              {formatDistanceToNow(new Date(lead.follow_up_date ?? ''), { addSuffix: true })} {new Date(lead.follow_up_date ?? '').toLocaleDateString()}
             </span>
           </div>
         )}
       </div>
 
       {/* Action Buttons - More compact */}
-      <div className="mb-3" data-no-card-click="true">
+      <div className="mb-3">
         <LeadActionButtons
           leadId={lead.id}
           onAction={handleAction}
@@ -229,9 +238,16 @@ export default function LeadCard({
 
       {/* Notes Section - Compact with icon */}
       <div 
+        ref={notesRef}
         className="relative"
-        data-no-card-click="true"
         onMouseEnter={() => {
+          if (notesRef.current) {
+            const rect = notesRef.current.getBoundingClientRect();
+            setTooltipPosition({
+              top: rect.bottom + window.scrollY,
+              left: rect.right + window.scrollX - 288, // 288px = w-72 width
+            });
+          }
           setShowNotesTooltip(true);
           void loadNotes();
         }}
@@ -242,33 +258,40 @@ export default function LeadCard({
             <DocumentTextIcon className="h-3 w-3" />
             <span>Notes ({noteCount})</span>
           </div>
-          <ChatBubbleLeftRightIcon className="h-3 w-3 text-gray-400" />
         </div>
         
         {/* Notes Tooltip */}
         {showNotesTooltip && (
-          <div className="absolute right-0 mt-2 w-72 z-10 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
-            <div className="p-4">
-              <h4 className="font-medium text-gray-900 mb-3">Lead Notes</h4>
-              {loadingNotes ? (
-                <div className="text-center py-3">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900 mx-auto"></div>
-                </div>
-              ) : notes.length > 0 ? (
-                <div className="max-h-40 overflow-y-auto">
-                  <ul className="space-y-2">
-                    {notes.map((note, index) => (
-                      <li key={index} className="text-sm text-gray-600 border-b border-gray-100 last:border-b-0 pb-2 last:pb-0">
-                        {note}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500 py-2 text-center">No notes available</p>
-              )}
+          <Portal>
+            <div 
+              className="fixed w-72 z-[200] bg-white rounded-lg shadow-lg border border-gray-200"
+              style={{
+                top: `${tooltipPosition.top}px`,
+                left: `${tooltipPosition.left}px`,
+              }}
+            >
+              <div className="p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Lead Notes</h4>
+                {loadingNotes ? (
+                  <div className="text-center py-3">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900 mx-auto"></div>
+                  </div>
+                ) : notes.length > 0 ? (
+                  <div className="max-h-40 overflow-y-auto">
+                    <ul className="space-y-2">
+                      {notes.map((note, index) => (
+                        <li key={index} className="text-sm text-gray-600 border-b border-gray-100 last:border-b-0 pb-2 last:pb-0">
+                          {note}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 py-2 text-center">No notes available</p>
+                )}
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
       </div>
     </div>

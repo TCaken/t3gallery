@@ -4,7 +4,7 @@ import { db } from "~/server/db";
 import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import type { InferSelectModel } from "drizzle-orm";
-import { eq, desc, like, or, and, SQL, asc } from "drizzle-orm";
+import { eq, desc, like, or, and, SQL, asc, sql } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import { checkLeadEligibility } from "./leadEligibility";
 import { getUserRoles } from "~/server/rbac/queries";
@@ -105,8 +105,8 @@ export async function createLead(input: CreateLeadInput) {
     // Prepare comprehensive values with all the new fields
     const baseValues = {
       phone_number: formattedPhone,
-      phone_number_2: input.phone_number_2 ?? '',
-      phone_number_3: input.phone_number_3 ?? '',
+      phone_number_2: input.phone_number_2 ?? formattedPhone,
+      phone_number_3: input.phone_number_3 ?? formattedPhone,
       full_name: input.full_name ?? '',
       email: input.email ?? '',
       source: input.source ?? 'Unknown',
@@ -224,13 +224,13 @@ async function pushToWorkatoRetention(leadData: {
   try {
     const workatoPayload = {
       phone_number: leadData.phone_number,
-      full_name: leadData.full_name || '',
-      email: leadData.email || '',
-      source: leadData.source || 'Import',
-      amount: leadData.amount || '',
-      eligibility_notes: leadData.eligibility_notes || '',
+      full_name: leadData.full_name ?? '',
+      email: leadData.email ?? '',
+      source: leadData.source ?? 'Import',
+      amount: leadData.amount ?? '',
+      eligibility_notes: leadData.eligibility_notes ?? '',
       status: 'ineligible',
-      created_at: leadData.created_at?.toISOString() || new Date().toISOString(),
+      created_at: leadData.created_at?.toISOString() ?? new Date().toISOString(),
       retention_category: 'imported_ineligible'
     };
 
@@ -240,7 +240,7 @@ async function pushToWorkatoRetention(leadData: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': `${process.env.WORKATO_API_KEY || process.env.WHATSAPP_API_KEY}` // Fallback to existing key if Workato key not set
+        'apikey': `${process.env.WORKATO_API_KEY ?? process.env.WHATSAPP_API_KEY}` // Fallback to existing key if Workato key not set
       },
       body: JSON.stringify(workatoPayload)
     });
@@ -248,7 +248,7 @@ async function pushToWorkatoRetention(leadData: {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
       console.error('Failed to push to Workato retention sheets:', errorData);
-      return { success: false, error: errorData.message || 'Failed to push to retention sheets' };
+      return { success: false, error: (errorData as { message?: string }).message ?? 'Failed to push to retention sheets' };
     }
 
     const result = await response.json();
@@ -268,9 +268,9 @@ export async function importLeads(leadsData: ImportLeadData[]) {
   
   try {
     const results = {
-      successful: [] as any[], // Changed from ImportLeadData[] to fix type issue
+      successful: [] as InferSelectModel<typeof leads>[], // Fix type to use actual Lead type
       failed: [] as { lead: ImportLeadData; reason: string }[],
-      pushedToRetention: [] as any[] // Track leads pushed to Workato retention
+      pushedToRetention: [] as { leadId: number; phone_number: string; retention_data: unknown }[] // Fix type
     };
 
     // Process each lead using createLead function
@@ -301,11 +301,11 @@ export async function importLeads(leadsData: ImportLeadData[]) {
             try {
               const retentionResult = await pushToWorkatoRetention({
                 phone_number: result.lead.phone_number,
-                full_name: result.lead.full_name || undefined,
-                email: result.lead.email || undefined,
-                source: result.lead.source || undefined,
-                amount: result.lead.amount || undefined,
-                eligibility_notes: result.lead.eligibility_notes || undefined,
+                full_name: result.lead.full_name ?? undefined,
+                email: result.lead.email ?? undefined,
+                source: result.lead.source ?? undefined,
+                amount: result.lead.amount ?? undefined,
+                eligibility_notes: result.lead.eligibility_notes ?? undefined,
                 created_at: result.lead.created_at
               });
               
@@ -575,14 +575,14 @@ export async function updateLeadStatus(leadId: number, newStatus: string) {
 export async function fetchFilteredLeads({
   status,
   search,
-  sortBy = 'created_at',
+  sortBy = 'updated_at',
   sortOrder = 'desc',
   page = 1,
   limit = 200
 }: {
   status?: typeof leadStatusEnum.enumValues[number];
   search?: string;
-  sortBy?: string; // Changed from keyof typeof leads to string to fix type issue
+  sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
@@ -596,16 +596,15 @@ export async function fetchFilteredLeads({
     // Get user's roles
     const userRolesResult = await getUserRoles();
     const isAdmin = userRolesResult.some(r => r.roleName.toLowerCase() === 'admin');
+    const isAgent = userRolesResult.some(r => r.roleName.toLowerCase() === 'agent');
 
     const offset = (page - 1) * limit;
 
     // Build query conditions
     const conditions: SQL[] = [];
     
-    // Add role-based access control
-    if (!isAdmin) {
-      conditions.push(eq(leads.assigned_to, userId));
-    }
+    // Remove role-based access control - both admins and agents see all leads
+    // The sorting will prioritize agent assignments instead
 
     if (status) {
       conditions.push(eq(leads.status, status));
@@ -663,29 +662,58 @@ export async function fetchFilteredLeads({
         first_name: users.first_name,
         last_name: users.last_name,
         email: users.email
-      }
+      },
+      follow_up_date: leads.follow_up_date,
     })
     .from(leads)
     .leftJoin(users, eq(leads.assigned_to, users.id));
     
-    // Add conditions if any
-    const queryWithConditions = conditions.length > 0
-      ? baseQuery.where(and(...conditions))
-      : baseQuery;
-
-    // Add sorting with proper type handling
-    let queryWithSort = queryWithConditions;
-    if (sortBy && sortBy in leads) {
-      const sortColumn = leads[sortBy as keyof typeof leads];
-      if (sortColumn && typeof sortColumn === 'object' && 'dataType' in sortColumn) {
-        queryWithSort = queryWithConditions.orderBy(
-          sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn)
-        );
+    // Build final query with conditions, sorting, and pagination
+    let finalQuery;
+    
+    if (isAgent) {
+      // For agents: Layer 1 (assignment priority) + Layer 2 (updated_at) + Layer 3 (follow_up_date)
+      if (conditions.length > 0) {
+        finalQuery = baseQuery
+          .where(and(...conditions))
+          .orderBy(
+            sql`CASE WHEN ${leads.assigned_to} = ${userId} THEN 0 ELSE 1 END`,
+            desc(leads.updated_at),
+            asc(leads.follow_up_date)
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      } else {
+        finalQuery = baseQuery
+          .orderBy(
+            sql`CASE WHEN ${leads.assigned_to} = ${userId} THEN 0 ELSE 1 END`,
+            desc(leads.updated_at),
+            asc(leads.follow_up_date)
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      }
+    } else {
+      // For admins: Layer 2 (updated_at) + Layer 3 (follow_up_date)
+      if (conditions.length > 0) {
+        finalQuery = baseQuery
+          .where(and(...conditions))
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date)
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      } else {
+        finalQuery = baseQuery
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date)
+          )
+          .limit(limit + 1)
+          .offset(offset);
       }
     }
-
-    // Add pagination
-    const finalQuery = queryWithSort.limit(limit + 1).offset(offset);
 
     // Execute query
     const results = await finalQuery;

@@ -221,7 +221,7 @@ export const leads = createTable(
     outstanding_loan_amount: d.varchar({ length: 255 }).default(''),
     status: d.varchar({ length: 50 }).default('new').notNull(),
     source: d.varchar({ length: 100 }).default('System'),
-    assigned_to: d.varchar({ length: 256 }).default(sql`NULL`),
+    assigned_to: d.varchar({ length: 256 }),
     lead_type: d.varchar({ length: 50 }).default('new'),
     eligibility_checked: d.boolean().default(false),
     eligibility_status: d.varchar({ length: 50 }).default(''),

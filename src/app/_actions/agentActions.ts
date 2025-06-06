@@ -1042,4 +1042,105 @@ export async function getManualAssignmentPreview() {
       totalLeads: 0
     };
   }
+}
+
+// Manually assign a specific lead to a specific agent
+export async function assignLeadToAgent(leadId: number, agentId: string) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, message: "Not authenticated" };
+    }
+
+    // Verify the lead exists and is assignable
+    const lead = await db.query.leads.findFirst({
+      where: eq(leads.id, leadId),
+      columns: {
+        id: true,
+        status: true,
+        assigned_to: true,
+        full_name: true
+      }
+    });
+
+    if (!lead) {
+      return { success: false, message: "Lead not found" };
+    }
+
+    // Verify the agent exists
+    const agent = await db.query.users.findFirst({
+      where: eq(users.id, agentId),
+      columns: {
+        id: true,
+        first_name: true,
+        last_name: true
+      }
+    });
+
+    if (!agent) {
+      return { success: false, message: "Agent not found" };
+    }
+
+    // // Check if agent is checked in today (optional - you can remove this if not required)
+    // const agentCheckIn = await db.query.checkedInAgents.findFirst({
+    //   where: and(
+    //     eq(checkedInAgents.agent_id, agentId),
+    //     eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
+    //     eq(checkedInAgents.is_active, true)
+    //   )
+    // });
+
+    // Perform the assignment in a transaction
+    await db.transaction(async (tx) => {
+      // Update lead assignment
+      await tx
+        .update(leads)
+        .set({
+          assigned_to: agentId,
+          status: 'assigned',
+          updated_at: new Date(),
+          updated_by: userId
+        })
+        .where(eq(leads.id, leadId));
+
+      // Update agent's current lead count if checked in
+      // if (agentCheckIn) {
+      //   await tx
+      //     .update(checkedInAgents)
+      //     .set({
+      //       current_lead_count: sql`${checkedInAgents.current_lead_count} + 1`,
+      //       last_assigned_at: new Date(),
+      //       updated_at: new Date()
+      //     })
+      //     .where(eq(checkedInAgents.id, agentCheckIn.id));
+      // }
+
+      // Record assignment history
+      await tx.insert(leadAssignmentHistory).values({
+        lead_id: leadId,
+        assigned_to: agentId,
+        assignment_method: 'manual',
+        assignment_reason: `Manually assigned by user ${userId}`,
+        assigned_at: new Date()
+      });
+    });
+
+    const agentName = `${agent.first_name ?? ''} ${agent.last_name ?? ''}`.trim() || 'Unknown';
+    const leadName = lead.full_name || 'Unknown Lead';
+
+    return {
+      success: true,
+      message: `Successfully assigned "${leadName}" to ${agentName}`,
+      assignedTo: agentId,
+      agentName,
+      leadName,
+      assignmentMethod: 'manual'
+    };
+  } catch (error) {
+    console.error("Error assigning lead to agent:", error);
+    return {
+      success: false,
+      message: "Failed to assign lead to agent"
+    };
+  }
 } 

@@ -16,7 +16,7 @@ interface AssignLeadModalProps {
 
 // Define user and role types based on the API response
 interface UserRole {
-  id: string;
+  id: number;  // Changed from string to number to match actual schema
   roleName: string;
 }
 
@@ -97,12 +97,13 @@ export default function AssignLeadModal({
       setError(null);
 
       const result = await assignLeadToAgent(leadId, selectedAgent);
+      console.log('assignLeadToAgent result:', JSON.stringify(result));
       
       if (result.success) {
         onAssignComplete();
         onClose();
       } else {
-        setError(result.message || 'Failed to assign lead');
+        setError(result.message ?? 'Failed to assign lead');
       }
     } catch (error) {
       console.error('Error assigning lead:', error);
