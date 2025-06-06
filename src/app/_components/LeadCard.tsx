@@ -42,6 +42,52 @@ interface LeadCardProps {
   onView: (lead: Lead) => void;
 }
 
+// Helper function to format follow-up date in Singapore time
+const formatFollowUpDate = (followUpDate: string) => {
+  // Convert UTC date to Singapore time
+  const utcDate = new Date(followUpDate);
+  const singaporeTime = new Date(utcDate.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+  
+  // Check if it's today in Singapore time
+  const today = new Date();
+  const todaySingapore = new Date(today.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+  
+  const isToday = singaporeTime.toDateString() === todaySingapore.toDateString();
+  
+  // Check if time is exactly 00:00 in Singapore time
+  const isAtMidnight = singaporeTime.getHours() === 0 && singaporeTime.getMinutes() === 0;
+  
+  if (isToday) {
+    if (isAtMidnight) {
+      return "Today";
+    } else {
+      return `Today ${singaporeTime.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit', 
+        hour12: true 
+      })}`;
+    }
+  } else {
+    if (isAtMidnight) {
+      return singaporeTime.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: singaporeTime.getFullYear() !== todaySingapore.getFullYear() ? 'numeric' : undefined
+      });
+    } else {
+      return `${singaporeTime.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: singaporeTime.getFullYear() !== todaySingapore.getFullYear() ? 'numeric' : undefined
+      })} ${singaporeTime.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit', 
+        hour12: true 
+      })}`;
+    }
+  }
+};
+
 export default function LeadCard({ 
   lead, 
   statusInfo, 
@@ -213,11 +259,11 @@ export default function LeadCard({
             </span>
           </div>
         )}
-        {lead.follow_up_date !== null && (
-          <div className="flex items-center space-x-1 col-span-2">
+        {lead.follow_up_date !== null && (lead.status === "assigned" || lead.status === "no_answer" || lead.status === "follow_up" || lead.status === "missed/RS") && (
+          <div className="flex items-center space-x-1 col-span-2">  
             <CalendarIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
-            <span className="text-blue-600 truncate" title={`Follow Up Date: ${formatDistanceToNow(new Date(lead.follow_up_date ?? ''), { addSuffix: true })}`}>
-              {formatDistanceToNow(new Date(lead.follow_up_date ?? ''), { addSuffix: true })} {new Date(lead.follow_up_date ?? '').toLocaleDateString()}
+            <span className="text-blue-600 truncate" title={`Follow Up Date: ${formatFollowUpDate(lead.follow_up_date)}`}>
+              {formatFollowUpDate(lead.follow_up_date)}
             </span>
           </div>
         )}

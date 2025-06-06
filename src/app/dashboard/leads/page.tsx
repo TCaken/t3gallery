@@ -598,7 +598,7 @@ export default function LeadsPage() {
   // Update the visibleStatuses definition to include pinned leads first
   const visibleStatuses = [
     // Add pinned leads column first
-    { id: 'pinned', name: 'Pinned Leads', color: 'bg-blue-100 text-blue-800' },
+    // { id: 'pinned', name: 'Pinned Leads', color: 'bg-blue-100 text-blue-800' },
     // Then add other statuses
     ...(userRole === 'agent'
       ? allStatuses.filter(col => agentAllowedStatuses.includes(col.id))
@@ -1242,7 +1242,7 @@ export default function LeadsPage() {
         {/* Basic Filters Row */}
         <div className="flex flex-wrap gap-4 items-center">
           {/* Status Filter */}
-          <select
+          {/* <select
             value={filters.status ?? 'new'}
             onChange={(e) => {
               setFilters(prev => ({
@@ -1258,7 +1258,7 @@ export default function LeadsPage() {
                 {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
               </option>
             ))}
-          </select>
+          </select> */}
 
           {/* Remove sort options since we're using automatic three-layer sorting */}
 

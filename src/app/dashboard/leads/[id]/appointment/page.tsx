@@ -39,7 +39,7 @@ const getSingaporeTime = (date: Date) => {
   return new Date(date.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
 };
 
-const convertToUTC = (localDateTimeString: string, timezone: string = "Asia/Singapore") => {
+const convertToUTC = (localDateTimeString: string, timezone = "Asia/Singapore") => {
   // Create a date object in the specified timezone
   const localDate = new Date(localDateTimeString);
   
@@ -82,7 +82,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   
   const [lead, setLead] = useState<Lead | null>(null);
   const [loadingLead, setLoadingLead] = useState(true);
-  const [existingAppointment, setExistingAppointment] = useState<any>(null);
+  const [existingAppointment, setExistingAppointment] = useState<AppointmentWithLead | null>(null);
   const [hasAppointment, setHasAppointment] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTimeslot, setSelectedTimeslot] = useState<number | null>(null);
