@@ -57,10 +57,16 @@ const convertToUTC = (localDateTimeString: string) => {
   const [year, month, day] = datePart!.split('-').map(Number);
   const [hour, minute, second = 0] = timePart!.split(':').map(Number);
   
+  // Validate parsed components
+  if (!year || !month || !day || hour === undefined || minute === undefined) {
+    console.error('Invalid datetime components:', { year, month, day, hour, minute });
+    return new Date(); // fallback to current time
+  }
+  
   // Create Singapore time explicitly
   const singaporeTime = new Date();
-  singaporeTime.setFullYear(year!, month! - 1, day); // month is 0-indexed
-  singaporeTime.setHours(hour!, minute!, second, 0);
+  singaporeTime.setFullYear(year, month - 1, day); // month is 0-indexed
+  singaporeTime.setHours(hour, minute, second, 0);
   
   // Convert Singapore time (UTC+8) to UTC by subtracting 8 hours
   const utcTime = new Date(singaporeTime.getTime() - (8 * 60 * 60 * 1000));

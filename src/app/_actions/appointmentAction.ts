@@ -83,7 +83,7 @@ export async function fetchAvailableTimeslots(date: string) {
     const selectedDate = new Date(date);
     selectedDate.setHours(0, 0, 0, 0);
     
-    // Get all timeslots for the selected date
+    // Get all timeslots for the selected date, ordered by start time
     const availableSlots = await db
       .select()
       .from(timeslots)
@@ -92,7 +92,8 @@ export async function fetchAvailableTimeslots(date: string) {
           eq(timeslots.date, selectedDate),
           eq(timeslots.is_disabled, false)
         )
-      );
+      )
+      .orderBy(timeslots.start_time); // Sort by start time in ascending order
     
     return availableSlots;
   } catch (error) {
