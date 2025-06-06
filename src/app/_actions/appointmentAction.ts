@@ -79,9 +79,11 @@ export async function fetchAvailableTimeslots(date: string) {
   if (!userId) throw new Error("Not authenticated");
   
   try {
-    // Convert string date to Date object for database query
-    const selectedDate = new Date(date);
-    selectedDate.setHours(0, 0, 0, 0);
+    // Convert string date to the format the database expects (YYYY-MM-DD)
+    // Don't create a Date object to avoid timezone issues
+    const selectedDateString = date; // Input should already be in YYYY-MM-DD format
+    
+    console.log('🔍 Fetching timeslots for date:', selectedDateString);
     
     // Get all timeslots for the selected date, ordered by start time
     const availableSlots = await db
@@ -89,11 +91,13 @@ export async function fetchAvailableTimeslots(date: string) {
       .from(timeslots)
       .where(
         and(
-          eq(timeslots.date, selectedDate),
+          eq(timeslots.date, selectedDateString), // Use string directly
           eq(timeslots.is_disabled, false)
         )
       )
       .orderBy(timeslots.start_time); // Sort by start time in ascending order
+    
+    console.log('🔍 Found timeslots:', availableSlots.length);
     
     return availableSlots;
   } catch (error) {
@@ -143,6 +147,30 @@ export async function createAppointment(data: {
 
     // Use a transaction to ensure all operations succeed or fail together
     return await db.transaction(async (tx) => {
+      // Create appointment datetime strings and convert to UTC properly
+      const slotDate = typeof selectedSlot.date === 'string' ? selectedSlot.date : format(selectedSlot.date, 'yyyy-MM-dd');
+      const startTimeString = `${slotDate}T${selectedSlot.start_time}`;
+      const endTimeString = `${slotDate}T${selectedSlot.end_time}`;
+      
+      console.log('🕐 Creating appointment with timezone conversion:');
+      console.log('Slot date:', slotDate);
+      console.log('Start time string (SGT):', startTimeString);
+      console.log('End time string (SGT):', endTimeString);
+      
+      // Parse as Singapore time and convert to UTC
+      // Method 1: Manual timezone conversion (SGT = UTC+8)
+      const startSGT = new Date(startTimeString);
+      const endSGT = new Date(endTimeString);
+      
+      // Convert to UTC by subtracting 8 hours (Singapore offset)
+      const startUTC = new Date(startSGT.getTime() - (8 * 60 * 60 * 1000));
+      const endUTC = new Date(endSGT.getTime() - (8 * 60 * 60 * 1000));
+      
+      console.log('Start SGT:', startSGT.toISOString());
+      console.log('Start UTC (for DB):', startUTC.toISOString());
+      console.log('End SGT:', endSGT.toISOString());
+      console.log('End UTC (for DB):', endUTC.toISOString());
+      
       // Create the appointment
       const [newAppointment] = await tx
         .insert(appointments)
@@ -151,8 +179,8 @@ export async function createAppointment(data: {
           agent_id: userId,
           status: 'upcoming',
           notes: data.notes,
-          start_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.start_time}`),
-          end_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.end_time}`),
+          start_datetime: startUTC,
+          end_datetime: endUTC,
           created_at: new Date(),
           created_by: userId
         })
