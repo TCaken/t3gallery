@@ -36,7 +36,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-100 flex">
+    <div className="h-screen bg-gray-100 flex overflow-hidden">
       {/* Mobile overlay when sidebar is open */}
       {isMobile && expanded && (
         <div 
@@ -50,21 +50,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       
       {/* Main content */}
       <div 
-        className={`flex-1 transition-all duration-300 ease-in-out ${
+        className={`flex-1 flex flex-col transition-all duration-300 ease-in-out bg-gray-100 ${
           expanded ? (isMobile ? "ml-0" : "ml-64") : "ml-20"
         }`}
       >
         <TopNav expanded={expanded} setExpanded={setExpanded} isMobile={isMobile} />
-        <main className="p-6">
-          <Suspense fallback={
-            <div className="flex items-center justify-center h-full">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          }>
-            <PermissionCheck allowedRoles={['admin', 'agent', 'retail']}>
-              {children}
-            </PermissionCheck>
-          </Suspense>
+        <main className="flex-1 overflow-auto bg-gray-100">
+          <div className="p-6 min-h-full">
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+              </div>
+            }>
+              <PermissionCheck allowedRoles={['admin', 'agent', 'retail']}>
+                {children}
+              </PermissionCheck>
+            </Suspense>
+          </div>
         </main>
       </div>
     </div>
