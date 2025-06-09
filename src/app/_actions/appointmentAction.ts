@@ -211,6 +211,29 @@ export async function createAppointment(data: {
       
       // Note: Lead status update is now handled separately by updateLead function
       
+      // Send appointment data to webhook
+      try {
+        console.log('Sending appointment data to webhook...');
+        const { sendAppointmentToWebhook } = await import('./appointmentWebhookActions');
+        
+        const webhookResult = await sendAppointmentToWebhook(data.leadId, {
+          appointmentDate: slotDate,
+          appointmentTime: selectedSlot.start_time,
+          appointmentType: "Consultation",
+          notes: data.notes
+        });
+        
+        if (webhookResult.success) {
+          console.log('✅ Appointment data sent to webhook successfully');
+        } else {
+          console.error('❌ Failed to send appointment data to webhook:', webhookResult.error);
+          // Don't fail the appointment creation if webhook fails
+        }
+      } catch (webhookError) {
+        console.error('❌ Error calling webhook:', webhookError);
+        // Don't fail the appointment creation if webhook fails
+      }
+      
       return { success: true, appointment: newAppointment };
     });
   } catch (error) {
