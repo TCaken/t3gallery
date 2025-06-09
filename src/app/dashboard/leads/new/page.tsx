@@ -112,7 +112,7 @@ export default function NewLeadPage() {
             "OMY.sg",
             "MoneyRight",
             "Lendela",
-            "LendingPoint",
+            "LendingPot",
             "MoneyIQ",
             "Other"
           ]

@@ -211,6 +211,47 @@ export async function createAppointment(data: {
       
       // Note: Lead status update is now handled separately by updateLead function
       
+      // Send appointment data to webhook ONLY if appointment is for today (Singapore time)
+      try {
+        // Get today's date in Singapore timezone (UTC+8)
+        const now = new Date();
+        const singaporeOffset = 8 * 60; // 8 hours in minutes
+        const singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
+        const todaySingapore = singaporeTime.toISOString().split('T')[0]; // YYYY-MM-DD format
+        
+        // Get appointment date (already in YYYY-MM-DD format)
+        const appointmentDate = slotDate;
+        
+        console.log('🕐 Webhook date check:');
+        console.log('Today (Singapore):', todaySingapore);
+        console.log('Appointment date:', appointmentDate);
+        
+        // Only send webhook if appointment is for today
+        if (appointmentDate === todaySingapore) {
+          console.log('✅ Appointment is for today, sending webhook...');
+          const { sendAppointmentToWebhook } = await import('./appointmentWebhookActions');
+          
+          const webhookResult = await sendAppointmentToWebhook(data.leadId, {
+            appointmentDate: slotDate,
+            appointmentTime: selectedSlot.start_time,
+            appointmentType: "Consultation",
+            notes: data.notes
+          });
+          
+          if (webhookResult.success) {
+            console.log('✅ Appointment data sent to webhook successfully');
+          } else {
+            console.error('❌ Failed to send appointment data to webhook:', webhookResult.error);
+            // Don't fail the appointment creation if webhook fails
+          }
+        } else {
+          console.log('ℹ️ Appointment is NOT for today, skipping webhook');
+        }
+      } catch (webhookError) {
+        console.error('❌ Error calling webhook:', webhookError);
+        // Don't fail the appointment creation if webhook fails
+      }
+      
       return { success: true, appointment: newAppointment };
     });
   } catch (error) {

@@ -1205,14 +1205,34 @@ export default function LeadsPage() {
                 }
               </button>
 
-              {/* Add Export to CSV button */}
-              <button
-                onClick={() => setIsExportModalOpen(true)}
-                className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 flex items-center"
-              >
-                <DocumentArrowDownIcon className="h-5 w-5 mr-2" />
-                Export to CSV
-              </button>
+                              {/* Add Export to CSV button */}
+                <button
+                  onClick={() => setIsExportModalOpen(true)}
+                  className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 flex items-center"
+                >
+                  <DocumentArrowDownIcon className="h-5 w-5 mr-2" />
+                  Export to CSV
+                </button>
+                {/* Test Webhook Button */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const { testWebhookConnection } = await import('~/app/_actions/appointmentWebhookActions');
+                      const result = await testWebhookConnection();
+                      if (result.success) {
+                        showNotification('Webhook test successful! (Only sends on same-day appointments)', 'success');
+                      } else {
+                        showNotification(`Webhook test failed: ${result.error}`, 'error');
+                      }
+                    } catch (error) {
+                      showNotification('Webhook test error', 'error');
+                      console.error('Webhook test error:', error);
+                    }
+                  }}
+                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center"
+                >
+                  🔗 Test Webhook
+                </button>
             </>
           )}
           <div className="relative">
