@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "~/server/db";
 import { lead_actions } from "~/server/db/schema";
+import { clearModuleContext } from "next/dist/server/lib/render-server";
 
 // Define the response schema for Samespace API
 const SamespaceResponseSchema = z.object({
@@ -54,7 +55,7 @@ export async function makeCall({ phoneNumber, leadId }: MakeCallParams) {
       },
       body: JSON.stringify({
         username: username,
-        number: "6583992504"
+        number: cleanedPhoneNumber
       })
     });
 

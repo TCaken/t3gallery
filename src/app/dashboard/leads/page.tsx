@@ -1321,7 +1321,7 @@ export default function LeadsPage() {
                   Export to CSV
                 </button>
                 {/* Test Webhook Button */}
-                <button
+                {/* <button
                   onClick={async () => {
                     try {
                       const { testWebhookConnection } = await import('~/app/_actions/appointmentWebhookActions');
@@ -1339,7 +1339,7 @@ export default function LeadsPage() {
                   className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center"
                 >
                   🔗 Test Webhook
-                </button>
+                </button> */}
             </>
           )}
           <div className="relative">
