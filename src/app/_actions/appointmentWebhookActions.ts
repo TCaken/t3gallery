@@ -162,8 +162,12 @@ export async function sendAppointmentToWebhook(leadId: number, appointmentData?:
     };
 
     // Send to Workato webhook
-    const webhookUrl = "https://webhooks.sg.workato.com/webhooks/rest/948768ee-3ac7-4215-b07d-24e2585f7884/new-appointment";
-    
+    const webhookUrl = process.env.WORKATO_CREATE_APPOINTMENT_WEBHOOK_URL ?? '';
+    if(!webhookUrl) {
+      console.error('❌ WORKATO_CREATE_APPOINTMENT_WEBHOOK_URL is not set');
+      return;
+    }
+
     console.log('Sending data to webhook:', webhookData);
     
     const response = await fetch(webhookUrl, {
@@ -201,7 +205,11 @@ export async function sendCustomAppointmentToWebhook(customData: AppointmentWebh
   try {
     console.log('Sending custom appointment data to webhook');
     
-    const webhookUrl = "https://webhooks.sg.workato.com/webhooks/rest/948768ee-3ac7-4215-b07d-24e2585f7884/new-appointment";
+    const webhookUrl = process.env.WORKATO_CREATE_APPOINTMENT_WEBHOOK_URL ?? '';
+    if(!webhookUrl) {
+      console.error('❌ APPOINTMENT_WEBHOOK_URL is not set');
+      return;
+    }
     
     // Add timestamp if not provided
     const dataWithTimestamp = {
