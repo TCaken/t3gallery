@@ -127,7 +127,7 @@ export async function sendWhatsAppMessage(
         workspaces: templateData.template.workspace_id,
         channels: templateData.template.channel_id,
         projectId: templateData.template.project_id,
-        identifierValue: "+6583992504", //formatPhoneNumber(phone),
+        identifierValue: formatPhoneNumber(phone),
         parameters: Object.entries(parameters).map(([key, value]) => ({
           type: "string",
           key,
