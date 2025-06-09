@@ -19,16 +19,74 @@ import { fetchLeadById } from '~/app/_actions/leadActions';
 import { 
   checkExistingAppointment, 
   fetchAvailableTimeslots, 
-  createAppointment, 
   cancelAppointment,
-  type AppointmentWithLead,
   type Timeslot
 } from '~/app/_actions/appointmentAction';
+import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
 import { type InferSelectModel } from 'drizzle-orm';
-import { leads } from "~/server/db/schema";
+import { leads, appointments } from "~/server/db/schema";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, addDays, isSameMonth, isSameDay, parseISO } from 'date-fns';
 
 type Lead = InferSelectModel<typeof leads>;
+type Appointment = InferSelectModel<typeof appointments>;
+
+// Timezone utility functions
+const getSystemTimezone = () => {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+};
+
+const getSingaporeTime = (date: Date) => {
+  return new Date(date.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+};
+
+const convertToUTC = (localDateTimeString: string) => {
+  // Create a date from the string - this will be interpreted differently based on environment
+  const localDate = new Date(localDateTimeString);
+  
+  // Get the system timezone
+  const systemTimezone = getSystemTimezone();
+  
+  console.log('🕐 Enhanced Timezone Conversion Debug:');
+  console.log('System timezone:', systemTimezone);
+  console.log('Input datetime string:', localDateTimeString);
+  console.log('Parsed date (system interpretation):', localDate.toISOString());
+  
+  // Create a more reliable conversion:
+  // Parse the datetime components manually and create UTC time
+  const [datePart, timePart] = localDateTimeString.split('T');
+  const [year, month, day] = datePart!.split('-').map(Number);
+  const [hour, minute, second = 0] = timePart!.split(':').map(Number);
+  
+  // Validate parsed components
+  if (!year || !month || !day || hour === undefined || minute === undefined) {
+    console.error('Invalid datetime components:', { year, month, day, hour, minute });
+    return new Date(); // fallback to current time
+  }
+  
+  // Create Singapore time explicitly
+  const singaporeTime = new Date();
+  singaporeTime.setFullYear(year, month - 1, day); // month is 0-indexed
+  singaporeTime.setHours(hour, minute, second, 0);
+  
+  // Convert Singapore time (UTC+8) to UTC by subtracting 8 hours
+  const utcTime = new Date(singaporeTime.getTime() - (8 * 60 * 60 * 1000));
+  
+  console.log('🌏 Manual parsing approach:');
+  console.log('Date components:', { year, month, day, hour, minute, second });
+  console.log('Singapore time:', singaporeTime.toISOString());
+  console.log('Converted to UTC:', utcTime.toISOString());
+  console.log('Display back in SGT:', getSingaporeTime(utcTime).toLocaleString());
+  
+  return utcTime;
+};
+
+const formatSingaporeTime = (utcDate: Date) => {
+  const singaporeTime = getSingaporeTime(utcDate);
+  console.log('🕘 Displaying time:');
+  console.log('UTC input:', utcDate.toISOString());
+  console.log('Singapore time:', singaporeTime.toLocaleString());
+  return singaporeTime;
+};
 
 export default function AppointmentPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -37,7 +95,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   
   const [lead, setLead] = useState<Lead | null>(null);
   const [loadingLead, setLoadingLead] = useState(true);
-  const [existingAppointment, setExistingAppointment] = useState<any>(null);
+  const [existingAppointment, setExistingAppointment] = useState<Appointment | null>(null);
   const [hasAppointment, setHasAppointment] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTimeslot, setSelectedTimeslot] = useState<number | null>(null);
@@ -58,14 +116,16 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
       try {
         // Load lead info
         const leadResult = await fetchLeadById(leadId);
-        if (leadResult.success) {
+        if (leadResult.success && leadResult.lead) {
           setLead(leadResult.lead);
         }
         
         // Check for existing appointments
         const { hasAppointment, appointment } = await checkExistingAppointment(leadId);
         setHasAppointment(hasAppointment);
-        setExistingAppointment(appointment);
+        if (appointment) {
+          setExistingAppointment(appointment);
+        }
       } catch (error) {
         console.error("Error loading lead data:", error);
       } finally {
@@ -134,27 +194,51 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedTimeslot) {
-      alert('Please select a timeslot');
+    if (!selectedTimeslot || !selectedDate) {
+      alert('Please select a date and timeslot');
       return;
     }
     
     setLoading(true);
     
     try {
-      const result = await createAppointment({
+      // Find the selected timeslot to get the time details
+      const selectedSlot = timeslots.find(slot => slot.id === selectedTimeslot);
+      if (!selectedSlot) {
+        alert('Selected timeslot not found');
+        return;
+      }
+      
+      // Create the appointment datetime string in Singapore timezone
+      const appointmentDateTimeString = `${selectedDate}T${selectedSlot.start_time}`;
+      
+      // Convert to UTC for database storage
+      const utcDateTime = convertToUTC(appointmentDateTimeString);
+      
+      console.log('🗓️ Appointment Scheduling Debug:');
+      console.log('Selected date:', selectedDate);
+      console.log('Selected time:', selectedSlot.start_time);
+      console.log('Combined datetime string:', appointmentDateTimeString);
+      console.log('UTC datetime for database:', utcDateTime.toISOString());
+      
+      const result = await createAppointmentWorkflow({
         leadId,
         timeslotId: selectedTimeslot,
         notes,
-        isUrgent
+        isUrgent,
+        phone: lead?.phone_number ?? ''
       });
       
       if (result.success) {
-        alert('Appointment scheduled successfully!');
-        // Lead status will be updated to "booked" by the server action
+        alert(`Appointment scheduled successfully! Executed ${result.results.length} actions.`);
+        // Orchestrator handles: 1) create appointment, 2) update lead status to "booked" 
+        // (which automatically triggers WhatsApp via updateLead)
         router.push(`/dashboard/leads/${leadId}`);
       } else {
-        alert(`Failed to schedule appointment: ${result.message}`);
+        alert(`Failed to schedule appointment: ${result.error}`);
+        if (result.rollbackAttempted) {
+          console.log('Rollback was attempted due to failure');
+        }
       }
     } catch (error) {
       console.error('Error scheduling appointment:', error);
@@ -206,8 +290,8 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
     const daysOfWeek = [];
     for (let i = 0; i < 7; i++) {
       daysOfWeek.push(
-        <div key={`weekday-${i}`} className="text-center font-medium text-gray-500 text-xs py-2">
-          {format(addDays(startOfWeek(new Date()), i), 'EEEEEE')}
+        <div key={`weekday-${i}`} className="text-center font-semibold text-gray-700 text-sm py-3 uppercase tracking-wide">
+          {format(addDays(startOfWeek(new Date()), i), 'EEE')}
         </div>
       );
     }
@@ -220,19 +304,31 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
         const isSelected = selectedDate === formattedDate;
         const isToday = isSameDay(cloneDay, today);
         const isCurrentMonth = isSameMonth(cloneDay, monthStart);
+        const isPastDate = cloneDay < today;
         
         days.push(
           <div
             key={formattedDate}
             className={`
-              relative text-center py-2 cursor-pointer hover:bg-blue-50 rounded-full mx-1
-              ${isSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : ''}
-              ${!isCurrentMonth ? 'text-gray-300' : ''}
-              ${isToday && !isSelected ? 'text-blue-500 font-bold' : ''}
+              relative text-center py-3 cursor-pointer text-sm font-medium transition-all duration-200
+              ${isSelected 
+                ? 'bg-blue-500 text-white shadow-lg scale-105' 
+                : isToday && !isSelected 
+                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
+                  : isCurrentMonth && !isPastDate
+                    ? 'text-gray-900 hover:bg-blue-50 hover:text-blue-600'
+                    : 'text-gray-300 cursor-not-allowed'
+              }
+              ${isCurrentMonth ? 'rounded-lg mx-1' : ''}
             `}
             onClick={() => isCurrentMonth && cloneDay >= today && handleDateSelect(cloneDay)}
           >
-            {format(cloneDay, dateFormat)}
+            <span className="block w-8 h-8 mx-auto leading-8 rounded-full">
+              {format(cloneDay, dateFormat)}
+            </span>
+            {isToday && !isSelected && (
+              <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-blue-500 rounded-full"></div>
+            )}
           </div>
         );
         day = addDays(day, 1);
@@ -247,20 +343,28 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
     }
     
     return (
-      <div className="p-3 bg-white rounded-lg shadow-lg border border-gray-200">
+      <div className="p-4 bg-white rounded-xl shadow-lg border border-gray-200">
         {/* Calendar Header */}
-        <div className="flex justify-between items-center mb-2">
-          <button onClick={handlePrevMonth} className="p-2 rounded-full hover:bg-gray-100">
-            <ChevronLeftIcon className="h-5 w-5 text-gray-500" />
+        <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+          <button 
+            onClick={handlePrevMonth} 
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            <ChevronLeftIcon className="h-5 w-5 text-gray-600" />
           </button>
-          <h2 className="font-medium">{format(currentMonth, 'MMMM yyyy')}</h2>
-          <button onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-100">
-            <ChevronRightIcon className="h-5 w-5 text-gray-500" />
+          <h2 className="font-semibold text-lg text-gray-800">
+            {format(currentMonth, 'MMMM yyyy')}
+          </h2>
+          <button 
+            onClick={handleNextMonth} 
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            <ChevronRightIcon className="h-5 w-5 text-gray-600" />
           </button>
         </div>
         
         {/* Days of the week */}
-        <div className="grid grid-cols-7 gap-1 mb-1">
+        <div className="grid grid-cols-7 gap-1 mb-2">
           {daysOfWeek}
         </div>
         
@@ -313,7 +417,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
               <div className="space-y-3">
                 <div>
                   <h3 className="font-medium">
-                    {lead.first_name} {lead.last_name}
+                    {lead.full_name ?? 'Unknown Lead'}
                   </h3>
                 </div>
                 <div className="flex items-center text-sm text-gray-600">
@@ -388,23 +492,14 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                 <div className="bg-white p-4 rounded-md border border-amber-200 mb-4">
                   <h3 className="font-medium text-gray-800 mb-2">Appointment Details</h3>
                   <p className="text-gray-600 mb-1">
-                    <span className="font-medium">Date:</span> {formatAppointmentDate(existingAppointment.start_datetime)}
+                    <span className="font-medium">Date:</span> {formatAppointmentDate(new Date(existingAppointment.start_datetime))}
                   </p>
                   <p className="text-gray-600 mb-1">
-                    <span className="font-medium">Time:</span> {formatAppointmentTime(existingAppointment.start_datetime, existingAppointment.end_datetime)}
+                    <span className="font-medium">Time:</span> {formatAppointmentTime(new Date(existingAppointment.start_datetime), new Date(existingAppointment.end_datetime))}
                   </p>
                   <p className="text-gray-600 mb-1">
                     <span className="font-medium">Status:</span> {existingAppointment.status}
                   </p>
-                  
-                  {existingAppointment.is_urgent && (
-                    <div className="mt-2 flex items-center">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                        <ExclamationCircleIcon className="h-4 w-4 mr-1" />
-                        Needed Early
-                      </span>
-                    </div>
-                  )}
                   
                   {existingAppointment.notes && (
                     <div className="mt-3 p-2 bg-gray-50 rounded text-sm text-gray-700">
@@ -418,7 +513,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
               <div className="flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => router.push(`/dashboard/appointments/${existingAppointment?.id || ''}`)}
+                  onClick={() => router.push(`/dashboard/appointments/${existingAppointment?.id ?? ''}`)}
                   className="py-2 px-4 border border-blue-300 rounded-md shadow-sm text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   View Appointment
@@ -448,12 +543,18 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                 ) : timeslots.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
                     {timeslots.map(slot => {
-                      const isFull = slot.occupied_count >= slot.max_capacity;
+                      const isFull = (slot.occupied_count ?? 0) >= (slot.max_capacity ?? 1);
                       return (
                         <button
                           key={slot.id}
                           type="button"
-                          onClick={() => setSelectedTimeslot(slot.id)}
+                          disabled={isFull}
+                          onClick={() => {
+                            if(!isFull) {
+                              console.log(JSON.stringify(slot));
+                              setSelectedTimeslot(slot.id)
+                            }
+                          }}
                           className={`
                             p-4 border rounded-md text-left transition-colors
                             ${selectedTimeslot === slot.id
@@ -471,7 +572,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                           <div className="text-sm mt-1 flex items-center">
                             <UsersIcon className="h-4 w-4 mr-1 text-gray-500" />
                             <span className={isFull ? 'text-red-500' : 'text-green-600'}>
-                              {slot.occupied_count}/{slot.max_capacity} booked
+                              {slot.occupied_count ?? 0}/{slot.max_capacity ?? 1} booked
                             </span>
                           </div>
                         </button>

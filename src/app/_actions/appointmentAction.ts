@@ -79,20 +79,25 @@ export async function fetchAvailableTimeslots(date: string) {
   if (!userId) throw new Error("Not authenticated");
   
   try {
-    // Convert string date to Date object for database query
-    const selectedDate = new Date(date);
-    selectedDate.setHours(0, 0, 0, 0);
+    // Convert string date to the format the database expects (YYYY-MM-DD)
+    // Don't create a Date object to avoid timezone issues
+    const selectedDateString = date; // Input should already be in YYYY-MM-DD format
     
-    // Get all timeslots for the selected date
+    console.log('🔍 Fetching timeslots for date:', selectedDateString);
+    
+    // Get all timeslots for the selected date, ordered by start time
     const availableSlots = await db
       .select()
       .from(timeslots)
       .where(
         and(
-          eq(timeslots.date, selectedDate),
+          eq(timeslots.date, selectedDateString), // Use string directly
           eq(timeslots.is_disabled, false)
         )
-      );
+      )
+      .orderBy(timeslots.start_time); // Sort by start time in ascending order
+    
+    console.log('🔍 Found timeslots:', availableSlots.length);
     
     return availableSlots;
   } catch (error) {
@@ -102,7 +107,7 @@ export async function fetchAvailableTimeslots(date: string) {
 }
 
 /**
- * Create a new appointment and update lead status to booked
+ * Create a new appointment (without updating lead status)
  */
 export async function createAppointment(data: {
   leadId: number;
@@ -142,7 +147,31 @@ export async function createAppointment(data: {
 
     // Use a transaction to ensure all operations succeed or fail together
     return await db.transaction(async (tx) => {
-      // Create the appointment first
+      // Create appointment datetime strings and convert to UTC properly
+      const slotDate = typeof selectedSlot.date === 'string' ? selectedSlot.date : format(selectedSlot.date, 'yyyy-MM-dd');
+      const startTimeString = `${slotDate}T${selectedSlot.start_time}`;
+      const endTimeString = `${slotDate}T${selectedSlot.end_time}`;
+      
+      console.log('🕐 Creating appointment with timezone conversion:');
+      console.log('Slot date:', slotDate);
+      console.log('Start time string (SGT):', startTimeString);
+      console.log('End time string (SGT):', endTimeString);
+      
+      // Parse as Singapore time and convert to UTC
+      // Method 1: Manual timezone conversion (SGT = UTC+8)
+      const startSGT = new Date(startTimeString);
+      const endSGT = new Date(endTimeString);
+      
+      // Convert to UTC by subtracting 8 hours (Singapore offset)
+      const startUTC = new Date(startSGT.getTime() - (8 * 60 * 60 * 1000));
+      const endUTC = new Date(endSGT.getTime() - (8 * 60 * 60 * 1000));
+      
+      console.log('Start SGT:', startSGT.toISOString());
+      console.log('Start UTC (for DB):', startUTC.toISOString());
+      console.log('End SGT:', endSGT.toISOString());
+      console.log('End UTC (for DB):', endUTC.toISOString());
+      
+      // Create the appointment
       const [newAppointment] = await tx
         .insert(appointments)
         .values({
@@ -150,8 +179,8 @@ export async function createAppointment(data: {
           agent_id: userId,
           status: 'upcoming',
           notes: data.notes,
-          start_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.start_time}`),
-          end_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.end_time}`),
+          start_datetime: startUTC,
+          end_datetime: endUTC,
           created_at: new Date(),
           created_by: userId
         })
@@ -161,7 +190,7 @@ export async function createAppointment(data: {
         throw new Error("Failed to create appointment");
       }
 
-      // Then create the appointment_timeslot relationship
+      // Create the appointment_timeslot relationship
       await tx
         .insert(appointment_timeslots)
         .values({
@@ -180,15 +209,7 @@ export async function createAppointment(data: {
         })
         .where(eq(timeslots.id, data.timeslotId));
       
-      // Update lead status to "booked"
-      await tx
-        .update(leads)
-        .set({
-          status: 'booked',
-          updated_at: new Date(),
-          updated_by: userId
-        })
-        .where(eq(leads.id, data.leadId));
+      // Note: Lead status update is now handled separately by updateLead function
       
       return { success: true, appointment: newAppointment };
     });
@@ -262,7 +283,7 @@ export async function cancelAppointment(appointmentId: number) {
     await db
       .update(leads)
       .set({
-        status: 'new',
+        status: 'assigned',
         updated_at: new Date(),
         updated_by: userId
       })
@@ -359,7 +380,9 @@ export async function fetchAppointments(filters: {
   view?: string;
   searchQuery?: string;
   status?: string[];
-  agentId?: string;
+  startDate?: Date;
+  endDate?: Date;
+  sortBy?: string;
 }) {
   const { userId } = await auth();
   if (!userId) throw new Error("Not authenticated");
@@ -371,11 +394,19 @@ export async function fetchAppointments(filters: {
         lead: leads
       })
       .from(appointments)
-      .leftJoin(leads, eq(appointments.lead_id, leads.id))
-      .orderBy(desc(appointments.start_datetime));
+      .leftJoin(leads, eq(appointments.lead_id, leads.id));
     
-    // Apply date filter
-    if (filters.date && filters.view === 'day') {
+    // Apply date range filter (new method)
+    if (filters.startDate && filters.endDate) {
+      query = query.where(
+        and(
+          gte(appointments.start_datetime, filters.startDate),
+          lte(appointments.start_datetime, filters.endDate)
+        )
+      );
+    }
+    // Apply single date filter (old method for backward compatibility)
+    else if (filters.date && filters.view === 'day') {
       const dayStart = startOfDay(filters.date);
       const dayEnd = endOfDay(filters.date);
       
@@ -401,23 +432,24 @@ export async function fetchAppointments(filters: {
       query = query.where(or(...statusConditions));
     }
     
-    // Filter by agent/user
-    if (filters.agentId) {
-      query = query.where(eq(appointments.agent_id, filters.agentId));
-    }
-    
     // Apply search filter
     if (filters.searchQuery) {
       const searchTerm = `%${filters.searchQuery}%`;
       query = query.where(
         or(
-          like(leads.first_name, searchTerm),
-          like(leads.last_name, searchTerm),
+          like(leads.full_name, searchTerm),
           like(leads.phone_number, searchTerm),
           like(leads.email, searchTerm),
           like(appointments.notes, searchTerm)
         )
       );
+    }
+    
+    // Apply sorting
+    if (filters.sortBy === 'start_datetime') {
+      query = query.orderBy(appointments.start_datetime);
+    } else {
+      query = query.orderBy(desc(appointments.start_datetime));
     }
     
     const results = await query;

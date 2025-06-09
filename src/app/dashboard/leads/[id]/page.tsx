@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { use, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { fetchLeadById, addLeadNote, fetchLeadNotes, updateLeadStatus, updateLeadDetails } from "~/app/_actions/leadActions";
 import { type InferSelectModel } from "drizzle-orm";
 import { leads, lead_notes } from "~/server/db/schema";
@@ -59,11 +59,17 @@ interface Appointment {
   [key: string]: unknown;
 }
 
-export default function LeadDetailPage({ params }: { params: { id: string } }) {
+interface PageProps {
+  params: {
+    id: string;
+  };
+}
+
+
+export default function LeadDetailPage({ params }: PageProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const activeTab = searchParams.get('tab') ?? 'details';
-  const leadId = parseInt(params.id);
+  const { id } = use(params);
+  const leadId = parseInt(id);
   const [lead, setLead] = useState<Lead | null>(null);
   const [notes, setNotes] = useState<LeadNote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -298,7 +304,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => router.back()} 
+              onClick={() => router.push(`/dashboard/leads`)} 
               className="flex items-center text-gray-600 hover:text-gray-900 transition-colors p-2 rounded-full hover:bg-gray-100"
             >
               <ArrowLeftIcon className="h-5 w-5" />

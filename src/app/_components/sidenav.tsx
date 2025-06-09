@@ -58,12 +58,12 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
   }, [isLoaded, userId]);
 
   const navItems: NavItem[] = [
-    {
-      title: "Dashboard",
-      href: "/dashboard",
-      icon: <HomeIcon className="h-5 w-5" />,
-      roles: ["admin", "agent", "retail"] // All roles can access dashboard
-    },
+    // {
+    //   title: "Dashboard",
+    //   href: "/dashboard",
+    //   icon: <HomeIcon className="h-5 w-5" />,
+    //   roles: ["admin", "agent", "retail"] // All roles can access dashboard
+    // },
     {
       title: "Leads",
       href: "/dashboard/leads",
@@ -86,17 +86,23 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
     //   href: "/dashboard/reports",
     //   icon: <DocumentTextIcon className="h-5 w-5" />
     // },
-    {
-      title: "Retail",
-      href: "/dashboard/retail",
-      icon: <ShoppingBagIcon className="h-5 w-5" />,
-      roles: ["admin", "retail"] // Only admin and retail can access retail section
-    },
+    // {
+    //   title: "Retail",
+    //   href: "/dashboard/retail",
+    //   icon: <ShoppingBagIcon className="h-5 w-5" />,
+    //   roles: ["admin", "retail"] // Only admin and retail can access retail section
+    // },
     {
       title: "User Management",
       href: "/dashboard/users",
       icon: <UserGroupIcon className="h-5 w-5" />,
       roles: ["admin"] // Only admin can access user management
+    },
+    {
+      title: "WhatsApp Templates",
+      href: "/dashboard/users/templates",
+      icon: <DocumentTextIcon className="h-5 w-5" />,
+      roles: ["admin"]
     }
   ];
 
@@ -125,8 +131,8 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
         <div className="space-y-2">
           {filteredNavItems.length > 0 ? (
             filteredNavItems.map((item) => {
-              const isActive = pathname === item.href || 
-                (pathname.startsWith(item.href) && item.href !== "/dashboard");
+              const isActive = pathname === item.href;
+                // (pathname.startsWith(item.href) && item.href !== "/dashboard");
                 
               return (
                 <Link

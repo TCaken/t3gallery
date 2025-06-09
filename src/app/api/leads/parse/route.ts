@@ -63,7 +63,7 @@ function extractAmount(amount: string): string {
   if (!amount) return 'UNKNOWN';
   
   // Remove everything after the first occurrence of '---'
-  const cleanAmount = amount.split('---')[0].trim();
+  const cleanAmount = amount?.split('---')[0]?.trim() ?? amount.trim();
   
   // Check if amount contains "to" for range
   if (cleanAmount.toLowerCase().includes('to')) {
@@ -197,7 +197,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (formUrl.includes('1percent.sg')) return '1% Loan';
     if (formUrl.includes('moneyright.sg')) return 'MoneyRight';
     if (formUrl.includes('loanable.sg')) return 'Loanable';
-    if (formUrl.includes('crawfort.com')) return 'Crawfort';
+    if (formUrl.includes('crawfort.com')) return 'SEO';
     if (formUrl.includes('moneyiq.sg')) return 'MoneyIQ SG';
   }
 
@@ -208,7 +208,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (subjectLower.includes('moneyright') || subjectLower.includes('1% interest')) return 'MoneyRight';
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
     if (subjectLower.includes('loanable')) return 'Loanable';
-    if (subjectLower.includes('crawfort')) return 'Crawfort';
+    if (subjectLower.includes('crawfort')) return 'SEO';
     if (subjectLower.includes('moneyiq')) return 'MoneyIQ SG';
   }
 
@@ -218,7 +218,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     { source: '1% Loan', keywords: ['1% Loan', '1%', 'One Percent'] },
     { source: 'MoneyRight', keywords: ['MoneyRight', '1% Interest'] },
     { source: 'Loanable', keywords: ['Loanable', 'loanable.sg'] },
-    { source: 'Crawfort', keywords: ['Crawfort', 'crawfort.com'] },
+    { source: 'SEO', keywords: ['SEO', 'crawfort.com', 'crawfort', 'seo'] },
     { source: 'MoneyIQ SG', keywords: ['MoneyIQ', 'moneyiq.sg'] }
   ];
 
@@ -239,7 +239,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
       if (domain.includes('1percent.sg')) return '1% Loan';
       if (domain.includes('moneyright.sg')) return 'MoneyRight';
       if (domain.includes('loanable.sg')) return 'Loanable';
-      if (domain.includes('crawfort.com')) return 'Crawfort';
+      if (domain.includes('crawfort.com')) return 'SEO';
     }
     return fromValue;
   }
@@ -276,21 +276,14 @@ function extractOMYData(message: string): {
   const amountRegex = /(?:Monthly Income|Loan Amount|Amount)[:\s]+([0-9\s+]+)/i;
   
   // Extract name
-  const nameMatch = nameRegex.exec(message);
-  if (nameMatch && nameMatch[1]) {
-    result.full_name = nameMatch[1].trim();
-  }
+  result.full_name = nameRegex.exec(message)?.[1]?.trim();
   
   // Extract phone number
-  const phoneMatch = phoneRegex.exec(message);
-  if (phoneMatch && phoneMatch[1]) {
-    result.phone_number = phoneMatch[1].trim();
-  }
+  result.phone_number = phoneRegex.exec(message)?.[1]?.trim();
   
   // Extract citizenship/residential status
-  const citizenMatch = citizenRegex.exec(message);
-  if (citizenMatch && citizenMatch[1]) {
-    const citizenValue = citizenMatch[1].trim().toLowerCase();
+  const citizenValue = citizenRegex.exec(message)?.[1]?.trim().toLowerCase();
+  if (citizenValue) {
     if (citizenValue.includes('singapore') || 
         citizenValue.includes('local') || 
         citizenValue.includes('citizen') || 
@@ -307,12 +300,20 @@ function extractOMYData(message: string): {
   }
 
   // Extract amount
-  const amountMatch = amountRegex.exec(message);
-  if (amountMatch && amountMatch[1]) {
-    result.amount = amountMatch[1].trim();
-  }
+  result.amount = amountRegex.exec(message)?.[1]?.trim();
   
   return result;
+}
+
+// Helper function to safely handle special JSON characters
+function sanitizeJsonCharacters(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')  // escape backslashes first
+    .replace(/\{/g, '\\{')   // escape curly braces
+    .replace(/\}/g, '\\}')
+    .replace(/"/g, '\\"')    // escape quotes
+    .replace(/\[/g, '\\[')   // escape square brackets
+    .replace(/\]/g, '\\]');
 }
 
 export async function POST(request: Request) {
@@ -323,16 +324,20 @@ export async function POST(request: Request) {
 
     let body;
     try {
-      // Clean the JSON string before parsing
-      const cleanedText = rawText
-        // First escape any existing backslashes to prevent double escaping
-        .replace(/\\/g, '\\\\')
-        // Then handle the message content
-        .replace(/"message":\s*"([^"]*)"/g, (match, message) => {
-          // Escape special characters in the message
-          const escapedMessage = message
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"')
+      // First sanitize any special JSON characters
+      // const sanitizedText = sanitizeJsonCharacters(rawText);
+      const sanitizedText = rawText;
+      
+      // Then clean the JSON string before parsing
+      const cleanedText = sanitizedText
+        // Handle the message content
+        .replace(/"message":\s*"([^"]*)"/g, (match, message: string) => {
+          // Sanitize special characters in the message content
+          // const sanitizedMessage = sanitizeJsonCharacters(message);
+          const sanitizedMessage = message;
+          
+          // Handle newlines and tabs
+          const escapedMessage = sanitizedMessage
             .replace(/\n/g, '\\n')
             .replace(/\r/g, '\\r')
             .replace(/\t/g, '\\t');
@@ -354,7 +359,7 @@ export async function POST(request: Request) {
         { 
           success: false, 
           error: 'Invalid JSON format',
-          details: 'Could not parse request body as JSON',
+          details: error instanceof Error ? error.message : 'Unknown parsing error',
           receivedText: rawText.substring(0, 100) + '...' // Log first 100 chars
         },
         { status: 400 }
@@ -398,7 +403,7 @@ export async function POST(request: Request) {
       if (line) {
         const parts = line.split(':');
         if (parts.length > 1) {
-          return parts[1].trim();
+          return parts[1]?.trim() ?? undefined;
         }
       }
       return undefined;
@@ -508,7 +513,10 @@ export async function POST(request: Request) {
     }
 
     // Create the lead
-    const createResult = await createLead(leadData);
+    const createResult = await createLead({
+      ...leadData,
+      bypassEligibility: false // Always check eligibility for Parse API leads
+    });
     console.log('Lead creation result:', createResult);
 
     if (!createResult.success) {
