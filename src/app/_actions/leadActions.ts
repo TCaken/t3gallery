@@ -146,9 +146,9 @@ export async function createLead(input: CreateLeadInput) {
     });
 
     // Auto-assign the lead only if eligible
-    // if (lead?.id && eligibilityStatus === 'eligible') {
-    //   await autoAssignSingleLead(lead.id);
-    // }
+    if (lead?.id && eligibilityStatus === 'eligible') {
+      await autoAssignSingleLead(lead.id);
+    }
 
     return { success: true, lead: lead };
   } catch (error) {
@@ -295,6 +295,8 @@ export async function importLeads(leadsData: ImportLeadData[]) {
         
         if (result.success && result.lead) {
           results.successful.push(result.lead);
+          const autoAssignResult = await autoAssignSingleLead(result.lead.id);
+          console.log('autoAssignResult', autoAssignResult);
           
           // If the lead is ineligible, push to Workato retention sheets
           if (result.lead.eligibility_status === 'ineligible') {

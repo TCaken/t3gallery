@@ -58,12 +58,12 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
   }, [isLoaded, userId]);
 
   const navItems: NavItem[] = [
-    {
-      title: "Dashboard",
-      href: "/dashboard",
-      icon: <HomeIcon className="h-5 w-5" />,
-      roles: ["admin", "agent", "retail"] // All roles can access dashboard
-    },
+    // {
+    //   title: "Dashboard",
+    //   href: "/dashboard",
+    //   icon: <HomeIcon className="h-5 w-5" />,
+    //   roles: ["admin", "agent", "retail"] // All roles can access dashboard
+    // },
     {
       title: "Leads",
       href: "/dashboard/leads",

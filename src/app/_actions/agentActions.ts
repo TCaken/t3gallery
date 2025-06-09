@@ -471,6 +471,13 @@ export async function getAssignmentPreviewWithRoundRobin() {
 // Auto-assign a single lead (used when new leads come in)
 export async function autoAssignSingleLead(leadId: number) {
   try {
+    const isAutoAssignEnabled = await getAutoAssignmentSettings();
+    if (!isAutoAssignEnabled.success || !isAutoAssignEnabled.settings?.is_enabled) {
+      return {
+        success: false,
+        message: "Auto-assignment is not enabled"
+      };
+    }
     // Get all checked-in agents (no settings check needed)
     const availableAgents = await db.query.checkedInAgents.findMany({
       where: and(
@@ -1126,7 +1133,7 @@ export async function assignLeadToAgent(leadId: number, agentId: string) {
     });
 
     const agentName = `${agent.first_name ?? ''} ${agent.last_name ?? ''}`.trim() || 'Unknown';
-    const leadName = lead.full_name || 'Unknown Lead';
+    const leadName = lead.full_name ?? 'Unknown Lead';
 
     return {
       success: true,

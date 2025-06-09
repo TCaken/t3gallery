@@ -176,6 +176,7 @@ export default function LeadsPage() {
   const { userId } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showAssignConfirmation, setShowAssignConfirmation] = useState(false);
+  const [showDisableConfirmation, setShowDisableConfirmation] = useState(false);
   const [isTagModalOpen, setIsTagModalOpen] = useState(false);
   const [pendingStatusChange, setPendingStatusChange] = useState<{ leadId: number, newStatus: string } | null>(null);
   const [leadTags, setLeadTags] = useState<Record<number, { id: number, name: string }>>({});
@@ -463,15 +464,21 @@ export default function LeadsPage() {
   // Load auto-assignment settings
   const loadAutoAssignmentSettings = async () => {
     try {
+      console.log('Starting to load auto assignment settings...'); // Debug log
       setIsLoadingAutoSettings(true);
       const result = await getAutoAssignmentSettings();
+      console.log('Auto assignment settings result:', result); // Debug log
       if (result.success && result.settings) {
-        setAutoAssignmentSettings({
+        const settings = {
           is_enabled: result.settings.is_enabled ?? false,
           assignment_method: result.settings.assignment_method ?? 'round_robin',
           max_leads_per_agent_per_day: result.settings.max_leads_per_agent_per_day ?? 20,
           current_round_robin_index: result.settings.current_round_robin_index ?? 0
-        });
+        };
+        console.log('Setting auto assignment settings to:', settings); // Debug log
+        setAutoAssignmentSettings(settings);
+      } else {
+        console.log('Failed to load auto assignment settings:', result); // Debug log
       }
     } catch (error) {
       console.error('Error loading auto-assignment settings:', error);
@@ -545,6 +552,55 @@ export default function LeadsPage() {
     }
   };
 
+  // Handle auto assign button click - check if auto-assignment is enabled
+  const handleAutoAssignButtonClick = async () => {
+    try {
+      // Load current settings if not loaded
+      if (!autoAssignmentSettings) {
+        console.log('Loading settings first...');
+        await loadAutoAssignmentSettings();
+      }
+
+      // Recheck after loading
+      const currentSettings = autoAssignmentSettings;
+      console.log('Current settings after load:', currentSettings);
+
+      if (currentSettings?.is_enabled) {
+        // Auto-assignment is enabled, show disable confirmation
+        console.log('Auto-assignment is enabled, showing disable confirmation');
+        setShowDisableConfirmation(true);
+      } else {
+        // Auto-assignment is disabled, proceed with manual assignment
+        console.log('Auto-assignment is disabled, proceeding with manual assignment');
+        setIsLoadingPreview(true);
+        setShowAssignConfirmation(true);
+        void loadAssignmentPreview().then(() => {
+          setIsLoadingPreview(false);
+        });
+      }
+    } catch (error) {
+      console.error('Error handling auto assign button click:', error);
+      showNotification('Error loading assignment settings', 'error');
+    }
+  };
+
+  // Handle disabling auto-assignment
+  const handleDisableAutoAssignment = async () => {
+    try {
+      const result = await updateAutoAssignmentSettings({ is_enabled: false });
+      if (result.success) {
+        setAutoAssignmentSettings(prev => prev ? { ...prev, is_enabled: false } : null);
+        showNotification('Auto-assignment has been disabled', 'success');
+        setShowDisableConfirmation(false);
+      } else {
+        showNotification('Failed to disable auto-assignment', 'error');
+      }
+    } catch (error) {
+      console.error('Error disabling auto-assignment:', error);
+      showNotification('Error disabling auto-assignment', 'error');
+    }
+  };
+
   // Initial data loading
   useEffect(() => {
     const loadInitialData = async () => {
@@ -564,8 +620,10 @@ export default function LeadsPage() {
         
         // Load user role
         const { roles } = await fetchUserData();
+        console.log('User roles fetched:', roles); // Debug log
         if (roles && roles.length > 0) {
           const roleName = roles[0]?.roleName ?? 'user';
+          console.log('Setting userRole to:', roleName); // Debug log
           setUserRole(roleName as UserRole);
           
           // If user is an agent, check their check-in status
@@ -575,6 +633,14 @@ export default function LeadsPage() {
               setIsCheckedIn(statusResult.isCheckedIn);
             }
           }
+          
+          // If user is an admin, load auto assignment settings
+          if (roleName === 'admin') {
+            console.log('Loading auto assignment settings for admin...'); // Debug log
+            await loadAutoAssignmentSettings();
+          }
+        } else {
+          console.log('No roles found, defaulting to user'); // Debug log
         }
       } catch (err) {
         console.error('Error in loadInitialData:', err);
@@ -594,6 +660,11 @@ export default function LeadsPage() {
       void fetchLeadsWithFilters(nextPage);
     }
   };
+
+  // Debug logging - remove this after fixing
+  console.log('Current userRole:', userRole);
+  console.log('Current autoAssignmentSettings:', autoAssignmentSettings);
+  console.log('isLoadingAutoSettings:', isLoadingAutoSettings);
 
   // Update the visibleStatuses definition to include pinned leads first
   const visibleStatuses = [
@@ -1113,39 +1184,27 @@ export default function LeadsPage() {
           {userRole === 'admin' && (
             <>
               <button
-                onClick={() => {
-                  // Load fresh preview data when opening the modal
-                  setIsLoadingPreview(true);
-                  setShowAssignConfirmation(true);
-                  void loadAssignmentPreview().then(() => {
-                    setIsLoadingPreview(false);
-                  });
-                }}
-                disabled={isAssigning}
+                onClick={handleAutoAssignButtonClick}
+                disabled={isAssigning || isLoadingAutoSettings}
                 className={`px-4 py-2 rounded-lg flex items-center ${
-                  isAssigning
+                  isAssigning || isLoadingAutoSettings
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-purple-500 text-white hover:bg-purple-600'
+                    : autoAssignmentSettings?.is_enabled
+                      ? 'bg-red-500 text-white hover:bg-red-600'
+                      : 'bg-purple-500 text-white hover:bg-purple-600'
                 }`}
               >
                 <ArrowDownOnSquareIcon className="h-5 w-5 mr-2" />
-                {isAssigning ? 'Assigning...' : 'Auto Assign Leads'}
+                {isAssigning 
+                  ? 'Processing...' 
+                  : isLoadingAutoSettings 
+                    ? 'Loading...'
+                    : autoAssignmentSettings?.is_enabled
+                      ? 'Disable Auto-Assignment'
+                      : 'Auto Assign Leads'
+                }
               </button>
-              {/* Auto-Assignment Management Button */}
-              {/*<button
-                onClick={() => {
-                  setIsAutoAssignModalOpen(true);
-                  void loadAutoAssignmentSettings();
-                  void loadAssignmentPreview();
-                }}
-                className="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 flex items-center"
-              >
-                <AdjustmentsHorizontalIcon className="h-5 w-5 mr-2" />
-                Auto-Assignment
-                {autoAssignmentSettings?.is_enabled && (
-                  <span className="ml-2 w-2 h-2 bg-green-400 rounded-full"></span>
-                )}
-              </button> */}
+
               {/* Add Export to CSV button */}
               <button
                 onClick={() => setIsExportModalOpen(true)}
@@ -1594,6 +1653,29 @@ export default function LeadsPage() {
                 <XMarkIcon className="h-6 w-6" />
               </button>
             </div>
+              <div className="bg-blue-50 p-4 rounded-lg mb-4">
+               <div className="flex items-center justify-between">
+                 <div>
+                   <h3 className="font-medium text-blue-900">Auto-Assignment</h3>
+                   <p className="text-sm text-blue-700">
+                     {autoAssignmentSettings?.is_enabled 
+                       ? 'New leads are automatically assigned to checked-in agents'
+                       : 'Auto-assignment is disabled. New leads will remain unassigned'
+                     }
+                   </p>
+                 </div>
+                 <label className="relative inline-flex items-center cursor-pointer">
+                   <input
+                     type="checkbox"
+                     checked={autoAssignmentSettings?.is_enabled ?? false}
+                     onChange={(e) => toggleAutoAssignment(e.target.checked)}
+                     className="sr-only peer"
+                     disabled={isLoadingAutoSettings}
+                   />
+                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                 </label>
+               </div>
+             </div>
             
             <div className="mb-4">
               {isLoadingPreview ? (
@@ -1806,183 +1888,64 @@ export default function LeadsPage() {
         />
       )}
 
-      {/* Auto-Assignment Management Modal */}
-      {isAutoAssignModalOpen && (
+      {/* Disable Auto-Assignment Confirmation Modal */}
+      {showDisableConfirmation && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold">Auto-Assignment Management</h2>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Disable Auto-Assignment</h2>
               <button 
-                onClick={() => setIsAutoAssignModalOpen(false)}
+                onClick={() => setShowDisableConfirmation(false)}
                 className="text-gray-500 hover:text-gray-700"
               >
                 <XMarkIcon className="h-6 w-6" />
               </button>
             </div>
             
-            {/* Auto-Assignment Toggle */}
-            <div className="bg-blue-50 p-4 rounded-lg mb-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium text-blue-900">Auto-Assignment Status</h3>
-                  <p className="text-sm text-blue-700">
-                    {autoAssignmentSettings?.is_enabled 
-                      ? 'New leads are automatically assigned to checked-in agents'
-                      : 'Auto-assignment is disabled. New leads will remain unassigned'
-                    }
-                  </p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoAssignmentSettings?.is_enabled ?? false}
-                    onChange={(e) => toggleAutoAssignment(e.target.checked)}
-                    className="sr-only peer"
-                    disabled={isLoadingAutoSettings}
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-            </div>
-
-            {/* Assignment Preview */}
             <div className="mb-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium">Assignment Preview</h3>
-                <button
-                  onClick={loadAssignmentPreview}
-                  disabled={isLoadingPreview}
-                  className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50"
-                >
-                  {isLoadingPreview ? 'Loading...' : 'Refresh'}
-                </button>
-              </div>
-              
-              {isLoadingPreview ? (
-                <div className="py-8 flex justify-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                </div>
-              ) : autoAssignStats.totalAgents === 0 ? (
-                <div className="py-8 text-center">
-                  <p className="text-yellow-600 mb-2">No agents are checked in today.</p>
-                  <p className="text-gray-600">Ask agents to check in before assigning leads.</p>
-                </div>
-              ) : autoAssignStats.totalLeads === 0 ? (
-                <div className="py-8 text-center">
-                  <p className="text-yellow-600 mb-2">No unassigned leads available.</p>
-                  <p className="text-gray-600">New leads will be automatically assigned as they come in.</p>
-                </div>
-              ) : (
-                <div>
-                  <div className="bg-green-50 p-3 rounded-lg mb-4">
-                    <p className="text-green-700 font-medium">
-                      {autoAssignStats.leadsToAssign} leads ready for assignment
-                    </p>
-                    <p className="text-green-600 text-sm">
-                      Distribution among {autoAssignStats.totalAgents} available agents using round-robin
-                    </p>
+              <div className="bg-yellow-50 p-4 rounded-lg mb-4">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
                   </div>
-                  
-                  <div className="max-h-64 overflow-y-auto border rounded-lg">
-                    <table className="min-w-full bg-white">
-                      <thead className="bg-gray-100 sticky top-0">
-                        <tr>
-                          <th className="py-2 px-4 text-left border-b">Agent</th>
-                          <th className="py-2 px-4 text-center border-b">Current</th>
-                          <th className="py-2 px-4 text-center border-b">Will Receive</th>
-                          <th className="py-2 px-4 text-center border-b">New Total</th>
-                          <th className="py-2 px-4 text-center border-b">Capacity</th>
-                          <th className="py-2 px-4 text-center border-b">Weight</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {autoAssignPreview.map((agent) => (
-                          <tr key={agent.agentId} className="border-b hover:bg-gray-50">
-                            <td className="py-2 px-4">{agent.agentName}</td>
-                            <td className="py-2 px-4 text-center">{agent.currentCount}</td>
-                            <td className="py-2 px-4 text-center font-medium text-blue-600">
-                              +{agent.leadCount}
-                            </td>
-                            <td className="py-2 px-4 text-center">
-                              {agent.currentCount + agent.leadCount}
-                            </td>
-                            <td className="py-2 px-4 text-center">{agent.capacity}</td>
-                            <td className="py-2 px-4 text-center">{agent.weight}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-yellow-800">
+                      Auto-Assignment is Currently Enabled
+                    </h3>
+                    <div className="mt-2 text-sm text-yellow-700">
+                      <p>
+                        Auto-assignment is currently enabled, which means new leads are automatically assigned to checked-in agents.
+                      </p>
+                      <p className="mt-2">
+                        Do you want to disable auto-assignment? This will stop automatic assignment of new leads.
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* Settings */}
-            <div className="mb-6 border-t pt-4">
-              <h3 className="text-lg font-medium mb-4">Settings</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Assignment Method
-                  </label>
-                  <select
-                    value={autoAssignmentSettings?.assignment_method ?? 'round_robin'}
-                    onChange={(e) => updateAutoAssignmentSettings({ assignment_method: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  >
-                    <option value="round_robin">Round Robin</option>
-                    <option value="weighted">Weighted Distribution</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Max Leads per Agent per Day
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={autoAssignmentSettings?.max_leads_per_agent_per_day ?? 20}
-                    onChange={(e) => updateAutoAssignmentSettings({ 
-                      max_leads_per_agent_per_day: parseInt(e.target.value) 
-                    })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  />
                 </div>
               </div>
             </div>
-
-            {/* Actions */}
-            <div className="flex space-x-4 justify-end border-t pt-4">
+            
+            <div className="flex space-x-4 justify-end">
               <button
-                onClick={() => resetRoundRobinIndex()}
+                onClick={() => setShowDisableConfirmation(false)}
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
               >
-                Reset Round-Robin
+                Cancel
               </button>
               <button
-                onClick={() => setIsAutoAssignModalOpen(false)}
-                className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                onClick={handleDisableAutoAssignment}
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
               >
-                Close
+                Disable Auto-Assignment
               </button>
-              {autoAssignStats.totalLeads > 0 && autoAssignStats.totalAgents > 0 && (
-                <button
-                  onClick={handleBulkAutoAssign}
-                  disabled={isAssigning}
-                  className={`px-4 py-2 rounded ${
-                    isAssigning
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-blue-500 text-white hover:bg-blue-600'
-                  }`}
-                >
-                  {isAssigning ? 'Assigning...' : `Assign ${autoAssignStats.leadsToAssign} Leads`}
-                </button>
-              )}
             </div>
           </div>
         </div>
       )}
+
+
     </div>
   );
 }
