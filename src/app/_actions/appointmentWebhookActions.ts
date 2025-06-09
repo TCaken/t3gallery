@@ -65,32 +65,85 @@ export async function sendAppointmentToWebhook(leadId: number, appointmentData?:
       };
     }
 
+    // Helper function to format date as DD-MM-YYYY
+    const formatAppointmentDate = (dateStr: string) => {
+      try {
+        const date = new Date(dateStr);
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}-${month}-${year}`;
+      } catch {
+        return dateStr;
+      }
+    };
+
+    // Helper function to mask phone number
+    const maskPhoneNumber = (phone: string) => {
+      if (!phone) return "";
+      // Remove any non-digits and get last 4 digits
+      const cleaned = phone.replace(/\D/g, '');
+      if (cleaned.length >= 5) {
+        const lastFive = cleaned.slice(-5);
+        return `***${lastFive}`;
+      }
+      return phone;
+    };
+
+    // Helper function to map source to loan portal
+    const mapSourceToLoanPortal = (source: string) => {
+      const mapping: Record<string, string> = {
+        "SEO": "SEO",
+        "SEM": "SEM", 
+        "1% Loan": "1%",
+        "1% Carousell": "1% Carousell",
+        "Cashlender": "Cashlender", 
+        "EZcredit": "EZcredit",
+        "Lendela": "Lendela",
+        "L.E": "L.E",
+        "L.A": "L.A", 
+        "MoneyRight": "M.R",
+        "OMY.sg": "OMY",
+        "LendingPot": "LDP",
+        "ROSHI": "ROSHI",
+        "Loanable": "L.A", // Assuming Loanable maps to L.A
+        "MoneyIQ": "L.E", // Assuming MoneyIQ maps to L.E
+        "Other": ""
+      };
+      return mapping[source ?? ""] ?? source ?? "";
+    };
+
+    // Format the lead name with (NEW) suffix
+    const formattedName = lead.full_name ? `${lead.full_name.toUpperCase()}` : "";
+    const cleanPhoneNumber = lead.phone_number?.replace(/^\+65/, '') ?? "";
+    const maskedPhone = maskPhoneNumber(lead.phone_number ?? "");
+
     // Map lead data to webhook format
     const webhookData: AppointmentWebhookData = {
       "Lead ID": leadId.toString(),
-      "Full Name": lead.full_name ?? "",
-      "Mobile Number": lead.phone_number || "",
-      "H/P": lead.phone_number || "",
+      "Full Name": formattedName,
+      "Mobile Number": cleanPhoneNumber,
+      "H/P": maskedPhone,
       "Email Address": lead.email ?? "",
       "Loan Amount Applying?": lead.amount ?? "",
       "Monthly Income": lead.employment_salary ?? "",
       "Your Employment Specialisation": lead.employment_status ?? "",
       "Employment Type": lead.employment_status ?? "",
-      "What is the purpose of the Loan?": lead.loan_purpose ?? "",
-      "Marital Status": "",
+      "What is the purpose of the Loan?": "New Loan - 新贷款",
+      "Marital Status": "", // marital_status field doesn't exist in schema
       "Place of Residence": lead.residential_status ?? "",
       
-      // Appointment specific data
-      "Appointment Date": appointmentData?.appointmentDate ?? "",
+      // Appointment specific data  
+      "Appointment Date": appointmentData?.appointmentDate ? formatAppointmentDate(appointmentData.appointmentDate) : "",
       "Appointment Time": appointmentData?.appointmentTime ?? "",
       "Appointment Type": appointmentData?.appointmentType ?? "Consultation",
-      "Created At": new Date().toISOString(),
+      "Created At": formatAppointmentDate(new Date().toISOString()),
       
       // Default values for required fields
       "Manual": "Yes",
       "Reason for manual": "Appointment booking from CRM",
-      "Loan Portal Applied": "No",
-      "New or Reloan?": "New",
+      "Loan Portal Applied": mapSourceToLoanPortal(lead.source ?? ""),
+      "New or Reloan?": "New Loan - 新贷款",
       "Are you a Declared Bankruptcy at the time of this loan application?": "No",
       "**Declaration - 声明 **": "Agreed",
       
@@ -102,7 +155,7 @@ export async function sendAppointmentToWebhook(leadId: number, appointmentData?:
       "Please choose your nationality or Work Pass": lead.residential_status ?? "",
       "Last 4 digits of the NRIC (including the alphabet)": "",
       "Which year is your bankruptcy discharge?": "",
-      "What is your work designation?": "",
+      "What is your work designation?": lead.employment_status ?? "",
       "For how long have you been working in this company?": "",
       "Number of Room HDB Flat": "",
       "How many Moneylender Company do you currently have outstanding loan?": "0",
@@ -191,17 +244,26 @@ export async function sendCustomAppointmentToWebhook(customData: AppointmentWebh
 // Function to test the webhook connection
 export async function testWebhookConnection() {
   try {
+    const today = new Date();
+    const formattedDate = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+    
     const testData: AppointmentWebhookData = {
-      "Full Name": "Test User",
-      "Mobile Number": "12345678",
+      "Full Name": "TEST USER (NEW)",
+      "Mobile Number": "91234567",
+      "H/P": "***4567",
       "Email Address": "test@example.com",
-      "Appointment Date": new Date().toISOString().split('T')[0],
-      "Appointment Time": "10:00 AM",
-      "Appointment Type": "Test",
+      "Appointment Date": formattedDate,
+      "Appointment Time": "10:00:00",
+      "Appointment Type": "Consultation",
       "Lead ID": "0",
-      "Created At": new Date().toISOString(),
+      "Created At": formattedDate,
       "Manual": "Yes",
       "Reason for manual": "Testing webhook connection",
+      "Loan Portal Applied": "SEO",
+      "New or Reloan?": "New Loan - 新贷款",
+      "What is the purpose of the Loan?": "New Loan - 新贷款",
+      "Are you a Declared Bankruptcy at the time of this loan application?": "No",
+      "**Declaration - 声明 **": "Agreed",
     };
 
     return await sendCustomAppointmentToWebhook(testData);

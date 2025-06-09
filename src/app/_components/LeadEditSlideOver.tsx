@@ -405,7 +405,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
     },
     {
       id: 'follow_up',
-      label: 'Schedule Follow-up',
+      label: 'Return Call',
       color: 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500',
       textColor: 'text-white',
       enabled: true

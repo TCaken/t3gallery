@@ -1220,7 +1220,7 @@ export default function LeadsPage() {
                       const { testWebhookConnection } = await import('~/app/_actions/appointmentWebhookActions');
                       const result = await testWebhookConnection();
                       if (result.success) {
-                        showNotification('Webhook test successful!', 'success');
+                        showNotification('Webhook test successful! (Only sends on same-day appointments)', 'success');
                       } else {
                         showNotification(`Webhook test failed: ${result.error}`, 'error');
                       }
