@@ -23,6 +23,7 @@ import { createLead } from '~/app/_actions/leadActions';
 import { truncate } from 'fs/promises';
 import { auth } from '@clerk/nextjs/server';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
+import { updateAppointmentStatusesByTime, testAppointmentStatusUpdate } from '~/app/_actions/appointmentStatusUpdateAction';
   
 const APPOINTMENT_STATUSES = {
   upcoming: { icon: ClockIcon, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
@@ -77,6 +78,10 @@ export default function AppointmentsPage() {
     phoneNumber: '',
     allowOverbook: true
   });
+
+  // Status update state
+  const [statusUpdateLoading, setStatusUpdateLoading] = useState(false);
+  const [statusUpdateResults, setStatusUpdateResults] = useState<any>(null);
 
   // TODO: Get this from user context/auth - for now assuming retail user
   const isRetailUser = true; // This should come from your auth/user context
@@ -156,6 +161,64 @@ export default function AppointmentsPage() {
       allowOverbook: false
     });
     setShowQuickCreate(true);
+  };
+
+  // Handle appointment status updates
+  const handleStatusUpdate = async (thresholdHours = 2.5) => {
+    setStatusUpdateLoading(true);
+    setStatusUpdateResults(null);
+    
+    try {
+      console.log('🔄 Triggering appointment status update...');
+      const result = await updateAppointmentStatusesByTime(thresholdHours);
+      
+      console.log('✅ Status update result:', result);
+      setStatusUpdateResults(result);
+      
+      // Refresh appointments after update
+      if (result.updated > 0) {
+        await fetchAppointmentData();
+      }
+      
+    } catch (error) {
+      console.error('❌ Error updating appointment statuses:', error);
+      setStatusUpdateResults({
+        success: false,
+        message: 'Failed to update appointment statuses',
+        error: (error as Error).message
+      });
+    } finally {
+      setStatusUpdateLoading(false);
+    }
+  };
+
+  // Test the status update functionality
+  const handleTestStatusUpdate = async () => {
+    setStatusUpdateLoading(true);
+    setStatusUpdateResults(null);
+    
+    try {
+      console.log('🧪 Testing appointment status update...');
+      const result = await testAppointmentStatusUpdate();
+      
+      console.log('✅ Test result:', result);
+      setStatusUpdateResults(result);
+      
+      // Refresh appointments after test
+      if (result.updated > 0) {
+        await fetchAppointmentData();
+      }
+      
+    } catch (error) {
+      console.error('❌ Error testing appointment status update:', error);
+      setStatusUpdateResults({
+        success: false,
+        message: 'Failed to test appointment status update',
+        error: (error as Error).message
+      });
+    } finally {
+      setStatusUpdateLoading(false);
+    }
   };
 
   const handleQuickCreateSubmit = async (e: React.FormEvent) => {
@@ -379,6 +442,45 @@ export default function AppointmentsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Appointments</h1>
           <p className="text-gray-600 mt-1">Manage and view your appointment schedule</p>
         </div>
+        
+        {/* Status Update Controls */}
+        <div className="flex gap-3">
+          {/* <button
+            onClick={() => handleStatusUpdate(2.5)}
+            disabled={statusUpdateLoading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
+          >
+            {statusUpdateLoading ? (
+              <>
+                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                Updating...
+              </>
+            ) : (
+              <>
+                <ClockIcon className="h-4 w-4" />
+                Update Status (2.5h)
+              </>
+            )}
+          </button> */}
+          
+          {/* <button
+            onClick={handleTestStatusUpdate}
+            disabled={statusUpdateLoading}
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
+          >
+            {statusUpdateLoading ? (
+              <>
+                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                Testing...
+              </>
+            ) : (
+              <>
+                <ExclamationCircleIcon className="h-4 w-4" />
+                Test Update
+              </>
+            )}
+          </button> */}
+        </div>
       </div>
 
       {/* Filters Panel */}
@@ -437,6 +539,57 @@ export default function AppointmentsPage() {
           </div>
         </div>
       </div>
+
+      {/* Status Update Results */}
+      {statusUpdateResults && (
+        <div className={`mb-6 p-4 rounded-xl border ${
+          statusUpdateResults.success 
+            ? 'bg-green-50 border-green-200 text-green-800' 
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-semibold text-lg mb-2">
+                {statusUpdateResults.success ? '✅ Status Update Complete' : '❌ Status Update Failed'}
+              </h3>
+              <p className="mb-2">{statusUpdateResults.message}</p>
+              
+              {statusUpdateResults.success && statusUpdateResults.results && statusUpdateResults.results.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="font-medium mb-2">Updated Appointments:</h4>
+                  <div className="space-y-1">
+                    {statusUpdateResults.results.map((result: any, index: number) => (
+                      <div key={index} className="text-sm bg-white p-2 rounded border">
+                        <span className="font-medium">{result.leadName}</span> - 
+                        Appointment: {result.oldAppointmentStatus} → {result.newAppointmentStatus} | 
+                        Lead: {result.oldLeadStatus} → {result.newLeadStatus} | 
+                        Reason: {result.reason}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {statusUpdateResults.success && (
+                <div className="mt-2 text-sm">
+                  📊 Processed: {statusUpdateResults.processed} | Updated: {statusUpdateResults.updated}
+                  <br />
+                  📅 Today (Singapore): {statusUpdateResults.todaySingapore}
+                  <br />
+                  ⏰ Threshold: {statusUpdateResults.thresholdHours} hours
+                </div>
+              )}
+            </div>
+            
+            <button
+              onClick={() => setStatusUpdateResults(null)}
+              className="text-gray-500 hover:text-gray-700 ml-4"
+            >
+              <XCircleIcon className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* View Controls */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">

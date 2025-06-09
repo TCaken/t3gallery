@@ -134,8 +134,7 @@ export default function NewLeadPage() {
           label: "Are you a local or foreigner?", 
           type: "radio",
           options: ["Local", "Foreigner"],
-          note: "Please select your residency status",
-          required: true
+          note: "Please select your residency status"
         } as RadioField,
         { 
           name: "has_work_pass_expiry", 
@@ -171,13 +170,11 @@ export default function NewLeadPage() {
           label: "Employment Status", 
           type: "select",
           options: ["Full-Time", "Part-Time", "Self-Employed", "Self-Employed (Platform Worker)", "Unemployed", "UNKNOWN"],
-          required: true
         } as SelectField,
         { 
           name: "employment_salary", 
           label: "Monthly Income", 
           type: "text",
-          required: true
         } as TextField,
         { 
           name: "employment_length", 
@@ -229,20 +226,17 @@ export default function NewLeadPage() {
           name: "amount", 
           label: "Requested Loan Amount", 
           type: "text",
-          required: true
         } as TextField,
         { 
           name: "loan_purpose", 
           label: "Purpose of Loan", 
           type: "text",
-          required: true
         } as TextField,
         { 
           name: "existing_loans", 
           label: "Has Existing Loans", 
           type: "select", 
           options: ["Yes", "No", "UNKNOWN"],
-          required: true
         } as SelectField,
         { 
           name: "outstanding_loan_amount", 
