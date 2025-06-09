@@ -196,14 +196,8 @@ export default function LeadsPage() {
   // Define statuses that agents can move leads to
   const agentAllowedStatuses = [
     'assigned', 
-    'no_answer', 
     'follow_up',
-    'booked',
-    'done',
-    'missed/RS',
-    'unqualified',
-    'give_up', 
-    'blacklisted'
+    'missed/RS'
   ];
 
   // Add new state for tracking pagination
@@ -666,13 +660,16 @@ export default function LeadsPage() {
   console.log('Current autoAssignmentSettings:', autoAssignmentSettings);
   console.log('isLoadingAutoSettings:', isLoadingAutoSettings);
 
-  // Update the visibleStatuses definition to include pinned leads first
+  // Update the visibleStatuses definition based on user role and search state
   const visibleStatuses = [
     // Add pinned leads column first
     // { id: 'pinned', name: 'Pinned Leads', color: 'bg-blue-100 text-blue-800' },
     // Then add other statuses
     ...(userRole === 'agent'
-      ? allStatuses.filter(col => agentAllowedStatuses.includes(col.id))
+      ? (filters.search && filters.search.trim() !== '' 
+          ? allStatuses // Show all statuses when searching
+          : allStatuses.filter(col => agentAllowedStatuses.includes(col.id)) // Show only allowed statuses when not searching
+        )
       : allStatuses)
   ];
 

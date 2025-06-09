@@ -99,8 +99,10 @@ export async function createPermission(name: string, description?: string) {
 
 // Assign a permission to a role
 export async function assignPermissionToRole(roleId: number, permissionId: number) {
+  console.log("Assigning permission to role:", roleId, permissionId);
   try {
-    await db.insert(rolePermissions).values({ roleId, permissionId });
+    const result = await db.insert(rolePermissions).values({ roleId, permissionId }).returning();
+    console.log("Result of assigning permission to role:", result);
     return true;
   } catch (error) {
     console.error("Error assigning permission to role:", error);

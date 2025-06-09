@@ -45,7 +45,7 @@ export const permissions = createTable(
   "permissions",
   (d) => ({
     id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
-    name: d.varchar({ length: 100 }).notNull().unique(),
+    name: d.varchar({ length: 100 }).notNull(),
     description: d.varchar({ length: 255 }),
     createdAt: d
       .timestamp({ withTimezone: true })
@@ -232,8 +232,8 @@ export const leads = createTable(
     follow_up_date: d.timestamp({ withTimezone: true }).default(sql`NULL`),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-    created_by: d.varchar({ length: 256 }).references(() => users.id),
-    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+    created_by: d.varchar({ length: 256 }),
+    updated_by: d.varchar({ length: 256 }),
     is_contactable: d.boolean().default(false),
     is_deleted: d.boolean().default(false),
   }),
@@ -250,12 +250,12 @@ export const lead_actions = createTable(
   "lead_actions",
   (d) => ({
     action_id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
-    lead_id: d.integer().references(() => leads.id, { onDelete: "cascade" }).notNull(),
+    lead_id: d.integer(),
     user_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
     action_type: d.varchar({ length: 50 }).notNull(),
     content: d.text(),
     timestamp: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-    created_by: d.varchar({ length: 256 }).references(() => users.id),
+    created_by: d.varchar({ length: 256 }),
   }),
   (t) => [
     index("lead_action_lead_id_idx").on(t.lead_id)
@@ -290,8 +290,8 @@ export const appointments = createTable(
     end_datetime: d.timestamp({ withTimezone: true }).notNull(),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-    created_by: d.varchar({ length: 256 }).references(() => users.id),
-    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+    created_by: d.varchar({ length: 256 }),
+    updated_by: d.varchar({ length: 256 })
   }),
   (t) => [
     index("appointment_lead_id_idx").on(t.lead_id),
