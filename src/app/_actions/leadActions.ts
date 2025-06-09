@@ -578,6 +578,54 @@ export async function updateLeadStatus(leadId: number, newStatus: string) {
 }
 
 // Add this new action
+// Get total lead counts by status for each user role
+export async function getLeadCountsByStatus() {
+  try {
+    const { userId } = await auth();
+    if (!userId) throw new Error("Not authenticated");
+
+    // Get user roles to determine what counts to return
+    const userRoles = await getUserRoles();
+    const isAgent = userRoles.some(role => role.roleName === 'agent');
+
+    let countQuery;
+    
+    if (isAgent) {
+      // For agents, only count leads assigned to them
+      countQuery = db
+        .select({
+          status: leads.status,
+          count: sql<number>`count(*)::int`
+        })
+        .from(leads)
+        .where(eq(leads.assigned_to, userId))
+        .groupBy(leads.status);
+    } else {
+      // For admins and other roles, count all leads
+      countQuery = db
+        .select({
+          status: leads.status,
+          count: sql<number>`count(*)::int`
+        })
+        .from(leads)
+        .groupBy(leads.status);
+    }
+
+    const results = await countQuery;
+    
+    // Convert to a more convenient object format
+    const statusCounts: Record<string, number> = {};
+    results.forEach(result => {
+      statusCounts[result.status] = result.count;
+    });
+
+    return { success: true, statusCounts };
+  } catch (error) {
+    console.error("Error fetching lead counts by status:", error);
+    return { success: false, statusCounts: {} };
+  }
+}
+
 export async function fetchFilteredLeads({
   status,
   search,

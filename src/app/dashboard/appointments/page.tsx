@@ -445,7 +445,7 @@ export default function AppointmentsPage() {
         
         {/* Status Update Controls */}
         <div className="flex gap-3">
-          <button
+          {/* <button
             onClick={() => handleStatusUpdate(2.5)}
             disabled={statusUpdateLoading}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
@@ -461,9 +461,9 @@ export default function AppointmentsPage() {
                 Update Status (2.5h)
               </>
             )}
-          </button>
+          </button> */}
           
-          <button
+          {/* <button
             onClick={handleTestStatusUpdate}
             disabled={statusUpdateLoading}
             className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
@@ -479,7 +479,7 @@ export default function AppointmentsPage() {
                 Test Update
               </>
             )}
-          </button>
+          </button> */}
         </div>
       </div>
 

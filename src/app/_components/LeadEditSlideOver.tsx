@@ -104,9 +104,10 @@ interface LeadEditSlideOverProps {
   onClose: () => void;
   lead: Lead;
   onSave: (updatedLead: Partial<Lead>) => Promise<void>;
+  onAction?: (action: string, leadId: number) => void;
 }
 
-export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: LeadEditSlideOverProps) {
+export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAction }: LeadEditSlideOverProps) {
   const [selectedAction, setSelectedAction] = useState<string>('save');
   const [followUpDate, setFollowUpDate] = useState<string>('');
   const [followUpTime, setFollowUpTime] = useState<string>('');
@@ -166,6 +167,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
         return 'Are you sure you want to give up on this lead? This action can be reversed later if needed.';
       case 'blacklist':
         return 'Warning: Blacklisting this lead will permanently remove them from active leads. This action cannot be undone.';
+      case 'status_reason_modal':
+        return 'Please select a reason for changing the status:';
       default:
         return '';
     }
@@ -217,6 +220,15 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
 
   // Handle action button click
   const handleActionClick = (action: string) => {
+    if (action === 'status_reason_modal') {
+      // Call the parent's action handler for status reason modal
+      // We need to add this to the props
+      if (onAction) {
+        onAction(action, lead.id);
+      }
+      return;
+    }
+    
     setSelectedAction(action);
     if (action === 'follow_up') {
       setFollowUpDate(getDefaultFollowUpDate());
@@ -309,6 +321,9 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
       case 'blacklist':
         finalValues.status = 'blacklisted';
         finalValues.follow_up_date = null;
+        break;
+      case 'status_reason_modal':
+        // This action will trigger the parent's modal, no status change here
         break;
     }
 
@@ -418,16 +433,9 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave }: Lea
       enabled: true
     },
     {
-      id: 'give_up',
-      label: 'Give Up',
+      id: 'status_reason_modal',
+      label: 'Give Up / Blacklist',
       color: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
-      textColor: 'text-white',
-      enabled: true
-    },
-    {
-      id: 'blacklist',
-      label: 'Blacklist',
-      color: 'bg-black hover:bg-gray-900 focus:ring-gray-500',
       textColor: 'text-white',
       enabled: true
     }

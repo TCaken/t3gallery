@@ -23,7 +23,7 @@ import {
 } from '@heroicons/react/24/outline';
 import LeadCard  from '~/app/_components/LeadCard';
 import { hasPermission } from '~/server/rbac/queries';
-import { updateLead,updateLeadStatus, fetchFilteredLeads } from '~/app/_actions/leadActions';
+import { updateLead,updateLeadStatus, fetchFilteredLeads, getLeadCountsByStatus } from '~/app/_actions/leadActions';
 import { type InferSelectModel } from 'drizzle-orm';
 import { type leads, type leadStatusEnum } from "~/server/db/schema";
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
@@ -35,6 +35,7 @@ import { exportAllLeadsToCSV } from '~/app/_actions/exportActions';
 import { makeCall } from '~/app/_actions/callActions';
 import LeadEditSlideOver from '~/app/_components/LeadEditSlideOver';
 import CustomWhatsAppModal from '~/app/_components/CustomWhatsAppModal';
+import LeadStatusReasonModal from '~/app/_components/LeadStatusReasonModal';
 
 
 // Infer Lead type from the schema
@@ -195,7 +196,6 @@ export default function LeadsPage() {
 
   // Define statuses that agents can move leads to
   const agentAllowedStatuses = [
-    'assigned', 
     'follow_up',
     'missed/RS'
   ];
@@ -276,6 +276,16 @@ export default function LeadsPage() {
     phoneNumber: string;
     leadId: number;
   } | null>(null);
+
+  // Add status reason modal state
+  const [isStatusReasonModalOpen, setIsStatusReasonModalOpen] = useState(false);
+  const [statusReasonLeadData, setStatusReasonLeadData] = useState<{
+    leadId: number;
+    leadName: string;
+  } | null>(null);
+
+  // Add state for total lead counts by status
+  const [totalLeadCounts, setTotalLeadCounts] = useState<Record<string, number>>({});
 
   // Function to filter leads based on search query
   const filterLeads = (leads: Lead[], query: string) => {
@@ -455,6 +465,75 @@ export default function LeadsPage() {
     }
   };
 
+  // Handle status reason modal confirmation
+  const handleStatusReasonConfirm = async (reason: string, finalStatus: 'give_up' | 'blacklisted') => {
+    if (!statusReasonLeadData) return;
+
+    try {
+      // Find the lead
+      const lead = allLoadedLeads.find(l => l.id === statusReasonLeadData.leadId);
+      if (!lead) {
+        showNotification('Lead not found', 'error');
+        return;
+      }
+
+      // // Check if agent can set this status
+      // if (userRole === 'agent' && !agentAllowedStatuses.includes(finalStatus)) {
+      //   showNotification('Agents cannot set this status: ' + finalStatus, 'error');
+      //   return;
+      // }
+
+      // Update the lead status
+      const statusResult = await updateLeadStatus(statusReasonLeadData.leadId, finalStatus);
+      if (!statusResult.success) {
+        throw new Error('Failed to update status');
+      }
+
+      // Update the lead in allLoadedLeads
+      setAllLoadedLeads(prevLeads => 
+        prevLeads.map(l => l.id === statusReasonLeadData.leadId ? { ...l, status: finalStatus } : l)
+      );
+
+      // Move lead to new status column
+      setLeads(prevLeads => {
+        const newLeads = { ...prevLeads };
+        const oldStatus = lead.status as LeadStatus;
+        // Remove from old status
+        newLeads[oldStatus] = newLeads[oldStatus]?.filter(l => l.id !== statusReasonLeadData.leadId) ?? [];
+        // Add to new status
+        newLeads[finalStatus] = [...(newLeads[finalStatus] ?? []), { ...lead, status: finalStatus }];
+        return newLeads;
+      });
+
+      showNotification(`Lead moved to ${finalStatus} with reason: ${reason}`, 'success');
+      
+      // Close modal and reset data
+      setIsStatusReasonModalOpen(false);
+      setStatusReasonLeadData(null);
+
+      // Refresh data
+      setAllLoadedLeads([]);
+      setPage(1);
+      await fetchLeadsWithFilters(1);
+
+    } catch (error) {
+      console.error('Error updating lead status with reason:', error);
+      showNotification('Failed to update lead status', 'error');
+    }
+  };
+
+  // Load total lead counts by status
+  const loadTotalLeadCounts = async () => {
+    try {
+      const result = await getLeadCountsByStatus();
+      if (result.success) {
+        setTotalLeadCounts(result.statusCounts);
+      }
+    } catch (error) {
+      console.error('Error loading total lead counts:', error);
+    }
+  };
+
   // Load auto-assignment settings
   const loadAutoAssignmentSettings = async () => {
     try {
@@ -602,6 +681,9 @@ export default function LeadsPage() {
         // Load first page of leads
         await fetchLeadsWithFilters(1);
         
+        // Load total lead counts by status
+        await loadTotalLeadCounts();
+        
         // Load pinned leads
         const pinnedResult = await getPinnedLeads();
         if (pinnedResult.success && pinnedResult.pinnedLeads) {
@@ -743,6 +825,7 @@ export default function LeadsPage() {
         setAllLoadedLeads([]);
         setPage(1);
         await fetchLeadsWithFilters(1);
+        await loadTotalLeadCounts(); // Refresh total counts
         
         // Also update pinnedLeads with fresh data
         const pinnedResult = await getPinnedLeads();
@@ -825,8 +908,25 @@ export default function LeadsPage() {
         case 'move_to_miss/RS':
         case 'move_to_booked':
         case 'move_to_unqualified':
-        case 'move_to_give_up':
-        case 'move_to_blacklisted':
+        case 'status_reason_modal':
+          // Open the status reason modal for give_up and blacklisted actions
+          setStatusReasonLeadData({
+            leadId: lead.id,
+            leadName: lead.full_name ?? `Lead ${lead.id}`
+          });
+          setIsStatusReasonModalOpen(true);
+          // Close the edit modal if it's open
+          setIsEditOpen(false);
+          break;
+
+        case 'move_to_new':
+        case 'move_to_assigned':
+        case 'move_to_no_answer':
+        case 'move_to_follow_up':
+        case 'move_to_done':
+        case 'move_to_miss/RS':
+        case 'move_to_booked':
+        case 'move_to_unqualified':
           const newStatus = action.replace('move_to_', '') as LeadStatus;
           
           if (userRole === 'agent' && !agentAllowedStatuses.includes(newStatus)) {
@@ -904,6 +1004,7 @@ export default function LeadsPage() {
         setAllLoadedLeads([]);
         setPage(1);
         await fetchLeadsWithFilters(1);
+        await loadTotalLeadCounts(); // Refresh total counts
       }
     } catch (error) {
       console.error('Error in handleLeadAction:', error);
@@ -1128,6 +1229,15 @@ export default function LeadsPage() {
     
     const statusLeads = allLoadedLeads.filter(lead => lead.status === statusId);
     return applyFrontendFilters(statusLeads);
+  };
+
+  // Function to get total leads count for a status from database
+  const getTotalLeadsForStatus = (statusId: string) => {
+    if (statusId === 'pinned') {
+      return pinnedLeads.length;
+    }
+    
+    return totalLeadCounts[statusId] ?? 0;
   };
 
   // Modify the Kanban board view
@@ -1541,6 +1651,8 @@ export default function LeadsPage() {
           <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
             {visibleStatuses.map((status) => {
               const statusLeads = getLeadsForStatus(status.id);
+              const totalLeads = getTotalLeadsForStatus(status.id);
+              const isFiltered = statusLeads.length !== totalLeads;
               
               return (
                 <div 
@@ -1554,8 +1666,15 @@ export default function LeadsPage() {
                 >
                   <div className={`p-3 rounded-t-lg ${status.color} flex justify-between items-center`}>
                     <h3 className="font-medium">{status.name}</h3>
-                    <span className="px-2 py-1 bg-white bg-opacity-80 rounded-full text-sm">
-                      {statusLeads.length}
+                    <span 
+                      className={`px-2 py-1 rounded-full text-sm font-mono ${
+                        isFiltered 
+                          ? 'bg-yellow-100 bg-opacity-90 text-yellow-800 border border-yellow-300' 
+                          : 'bg-white bg-opacity-80'
+                      }`}
+                      title={isFiltered ? `Showing ${statusLeads.length} of ${totalLeads} total leads (filtered)` : `${totalLeads} total leads`}
+                    >
+                      {isFiltered ? `${statusLeads.length}/${totalLeads}` : statusLeads.length}
                     </span>
                   </div>
                   <div 
@@ -1890,6 +2009,7 @@ export default function LeadsPage() {
         }}
         lead={selectedLead}
         onSave={handleSaveLead}
+        onAction={handleLeadAction}
       />}
 
       {/* Add page-level WhatsApp modal */}
@@ -1902,6 +2022,19 @@ export default function LeadsPage() {
           }}
           phoneNumber={whatsAppLeadData.phoneNumber}
           leadId={whatsAppLeadData.leadId}
+        />
+      )}
+
+      {/* Status Reason Modal */}
+      {statusReasonLeadData && (
+        <LeadStatusReasonModal
+          isOpen={isStatusReasonModalOpen}
+          onClose={() => {
+            setIsStatusReasonModalOpen(false);
+            setStatusReasonLeadData(null);
+          }}
+          onConfirm={handleStatusReasonConfirm}
+          leadName={statusReasonLeadData.leadName}
         />
       )}
 

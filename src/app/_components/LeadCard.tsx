@@ -11,7 +11,8 @@ import {
   ChatBubbleLeftRightIcon,
   BookmarkIcon,
   XMarkIcon,
-  ClockIcon
+  ClockIcon,
+  DocumentDuplicateIcon
 } from '@heroicons/react/24/outline';
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads } from "~/server/db/schema";
@@ -134,9 +135,10 @@ export default function LeadCard({
   };
 
   // Handle phone number copy
-  const handlePhoneCopy = async (e: React.MouseEvent) => {
+  const handlePhoneClick = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
     
+    // Copy to clipboard
     try {
       await navigator.clipboard.writeText(lead.phone_number);
       setCopySuccess(true);
@@ -144,6 +146,18 @@ export default function LeadCard({
     } catch (err) {
       console.error('Failed to copy phone number:', err);
     }
+  };
+
+  // Function to mask phone number - show only last 5 characters
+  const getMaskedPhoneNumber = (phoneNumber: string) => {
+    if (phoneNumber.length <= 4) {
+      return phoneNumber; // If phone number is 5 characters or less, show as is
+    }
+    
+    const visiblePart = phoneNumber.slice(-4); // Last 5 characters
+    const maskedPart = '*'.repeat(phoneNumber.length - 7); // Replace the rest with asterisks
+    
+    return `${maskedPart} ${visiblePart}`;
   };
 
   const loadNotes = async () => {
@@ -204,13 +218,25 @@ export default function LeadCard({
             </a>
           </h3>
           <div className="relative">
-            <p 
-              className="text-sm text-gray-500 hover:text-blue-600 hover:underline transition-colors cursor-pointer inline-block"
-              onClick={handlePhoneCopy}
-              title="Click to copy phone number"
-            >
-              {lead.phone_number}
-            </p>
+            <div className="flex items-center space-x-1">
+              <span 
+                className="text-sm text-gray-500 font-mono"
+                title={`Full number: ${lead.phone_number}`}
+              >
+                {getMaskedPhoneNumber(lead.phone_number)}
+              </span>
+              <button
+                onClick={handlePhoneClick}
+                className={`p-1.5 rounded transition-colors duration-200 ${
+                  copySuccess 
+                    ? 'bg-green-100 text-green-600' 
+                    : 'hover:bg-gray-100 text-gray-400 hover:text-blue-600'
+                }`}
+                title="Click to copy phone number"
+              >
+                <DocumentDuplicateIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
             {copySuccess && (
               <div className="absolute top-full left-0 mt-1 px-2 py-1 bg-green-600 text-white text-xs rounded shadow-lg z-[5] whitespace-nowrap">
                 Phone number copied!
@@ -221,9 +247,9 @@ export default function LeadCard({
         
         {/* Status and Tags */}
         <div className="flex flex-col items-end space-y-1 flex-shrink-0">
-          <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${statusInfo.color}`}>
+          {/* <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${statusInfo.color}`}>
             {statusInfo.name}
-          </span>
+          </span> */}
           {lead.contact_preference !== "No Preferences" && 
             <span className="px-2.5 py-0.5 rounded-full text-xs font-medium text-yellow-800 bg-yellow-100 whitespace-nowrap">
               {lead.contact_preference}
