@@ -45,7 +45,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "svix": "^1.64.1",
-    "tailwind-merge": "^3.2.0",
+    "tailwind-merge": "^3.3.0",
     "uploadthing": "^7.6.0",
     "xlsx": "^0.18.5",
     "zod": "^3.24.2"
