@@ -4,6 +4,7 @@ import { appointments, leads } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { format, addHours } from 'date-fns';
+import { updateLead } from "~/app/_actions/leadActions";
 
 // Types for Excel data structure (based on the provided JSON)
 interface ExcelRow {
@@ -337,17 +338,24 @@ export async function POST(request: NextRequest) {
             shouldUpdateToDone = true;
             
             // Lead status depends on the specific code
-            if (code === 'RS') {
-              newLeadStatus = 'missed/RS';
-              updateReason = `Excel Code: ${code} → Appointment Done, Lead missed/RS`;
+            if (code === 'R') {
+              newLeadStatus = 'done';
+              updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
               
-              // Call RS rejection webhook for RS codes
+              // Call rejection webhook for R codes
               try {
                 const cleanPhoneNumber = lead.phone_number?.replace(/^\+65/, '').replace(/[^\d]/g, '') ?? '';
                 if (cleanPhoneNumber) {
                   console.log(`📞 Calling RS rejection webhook for ${cleanPhoneNumber}`);
                   
-                  const webhookResponse = await fetch('https://webhooks.sg.workato.com/webhooks/rest/948768ee-3ac7-4215-b07d-24e2585f7884/rs-rejection', {
+                  const rejectionWebhookUrl = process.env.WORKATO_SEND_REJECTION_WEBHOOK_URL;
+
+                  if(!rejectionWebhookUrl) {
+                    console.error('❌ WORKATO_SEND_REJECTION_WEBHOOK_URL is not set');
+                    return;
+                  }
+
+                  const webhookResponse = await fetch(rejectionWebhookUrl, {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
@@ -377,6 +385,9 @@ export async function POST(request: NextRequest) {
                 console.error(`❌ Error calling RS rejection webhook:`, webhookError);
                 updateReason += ` + Webhook error`;
               }
+            } else if (code === 'RS') {
+              newLeadStatus = 'missed/RS';
+              updateReason = `Excel Code: ${code} → Appointment Done, Lead missed/RS (No webhook)`;
             } else {
               newLeadStatus = 'done';
               updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
@@ -409,7 +420,13 @@ export async function POST(request: NextRequest) {
             .where(eq(appointments.id, appointment.id));
 
           // Update lead status
-          await db
+          if(timeDiffHours >= thresholdHours) {
+            await updateLead(lead.id, {
+              status: 'missed/RS'
+            });
+          }
+          else{
+            await db
             .update(leads)
             .set({
               status: finalLeadStatus,
@@ -417,6 +434,7 @@ export async function POST(request: NextRequest) {
               updated_by: fallbackUserId
             })
             .where(eq(leads.id, lead.id));
+          }
 
           updatedCount++;
           

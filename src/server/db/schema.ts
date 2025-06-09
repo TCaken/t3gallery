@@ -375,8 +375,8 @@ export const lead_notes = createTable(
     content: d.text().notNull(),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-    created_by: d.varchar({ length: 256 }).references(() => users.id),
-    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+    created_by: d.varchar({ length: 256 }),
+    updated_by: d.varchar({ length: 256 }),
   }),
   (t) => [
     index("lead_notes_lead_id_idx").on(t.lead_id)
