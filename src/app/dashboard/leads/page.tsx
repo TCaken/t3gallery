@@ -208,6 +208,7 @@ export default function LeadsPage() {
   // Add state for all loaded leads
   const [allLoadedLeads, setAllLoadedLeads] = useState<Lead[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Add refs for each column
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -287,6 +288,14 @@ export default function LeadsPage() {
 
   // Add state for total lead counts by status
   const [totalLeadCounts, setTotalLeadCounts] = useState<Record<string, number>>({});
+
+  // Add state for smart auto-loading for agents
+  const [loadingAttempts, setLoadingAttempts] = useState<Record<string, number>>({});
+  const [statusHasMoreData, setStatusHasMoreData] = useState<Record<string, boolean>>({});
+
+  // Add state to prevent multiple auto-loading attempts
+  const [isAutoLoading, setIsAutoLoading] = useState(false);
+  const [autoLoadingAttempts, setAutoLoadingAttempts] = useState(0);
 
   // Function to filter leads based on search query
   const filterLeads = (leads: Lead[], query: string) => {
@@ -416,7 +425,7 @@ export default function LeadsPage() {
     await fetchLeadsWithFilters(1);
   };
 
-  // Modify fetchLeadsWithFilters to load more leads when needed - remove sort params
+  // Enhanced fetchLeadsWithFilters with controlled auto-loading
   const fetchLeadsWithFilters = async (pageNum = 1) => {
     try {
       setIsLoadingMore(true);
@@ -431,22 +440,114 @@ export default function LeadsPage() {
       
       
       if (result.success && result.leads) {
-        const newLeads = [...(pageNum === 1 ? [] : allLoadedLeads), ...result.leads.map(lead => ({
-          ...lead,
-        }))];
+        const newLeads = [...(pageNum === 1 ? [] : allLoadedLeads), ...result.leads] as Lead[];
         setAllLoadedLeads(newLeads);
         setHasMore(result.hasMore ?? false);
         
+        // Reset auto-loading state when starting fresh  
+        if (pageNum === 1) {
+          setAutoLoadingAttempts(0);
+          setIsAutoLoading(false);
+        }
+        
         // Update filter options based on all loaded leads
         updateFilterOptions(newLeads);
+        
+        // 🎯 Smart Auto-loading for Agents: CONTROLLED VERSION
+        if (userRole === 'agent' && result.hasMore && pageNum < 5 && !isAutoLoading && autoLoadingAttempts < 3) {
+          // Note: The backend transforms assigned_to to user's full name, but sorts by userId
+          // So we need to get the current user's name to filter properly
+          // For now, let's use a different approach - count all leads and check if agent gets any
+          const agentLeads = newLeads; // Use all leads since backend handles sorting
+          
+          // Group leads by status to check each column
+          const leadsByStatus = agentLeads.reduce((acc, lead) => {
+            acc[lead.status] = (acc[lead.status] ?? 0) + 1;
+            return acc;
+          }, {} as Record<string, number>);
+          
+          // Check if any important statuses have zero leads
+          const importantStatuses = ['assigned', 'no_answer', 'follow_up'];
+          const emptyStatuses = importantStatuses.filter(status => (leadsByStatus[status] ?? 0) === 0);
+          
+          // More restrictive conditions: only auto-load if ALL important statuses are empty
+          if (emptyStatuses.length === importantStatuses.length && newLeads.length < 100) {
+            console.log(`🔄 Auto-loading attempt ${autoLoadingAttempts + 1}: All important statuses empty, loading page ${pageNum + 1}...`);
+            setIsAutoLoading(true);
+            setAutoLoadingAttempts(prev => prev + 1);
+            
+            setTimeout(() => {
+              void fetchLeadsWithFilters(pageNum + 1).finally(() => {
+                setIsAutoLoading(false);
+              });
+            }, 1000); // Increased to 1 second delay
+          } else {
+            console.log(`✅ Auto-loading stopped: Found leads in statuses or reached limits. Empty: [${emptyStatuses.join(', ')}]`);
+            setAutoLoadingAttempts(0); // Reset counter when stopping
+          }
+        }
       } else {
         throw new Error(result.error ?? 'Failed to fetch leads');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
+      setIsAutoLoading(false); // Reset flag on error
     } finally {
       setIsLoadingMore(false);
     }
+  };
+
+  // Function to refresh all data from page 1 to current page
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      setAllLoadedLeads([]); // Clear existing leads
+      
+      const currentPageNum = page;
+      let allRefreshedLeads: Lead[] = [];
+      
+      // Fetch all pages from 1 to current page
+      for (let pageNum = 1; pageNum <= currentPageNum; pageNum++) {
+        const result = await fetchFilteredLeads({
+          search: '',
+          sortBy: "updated_at",
+          sortOrder: "desc",
+          page: pageNum,
+          limit: 50
+        });
+        
+        if (result.success && result.leads) {
+          allRefreshedLeads = [...allRefreshedLeads, ...result.leads] as Lead[];
+          setHasMore(result.hasMore ?? false);
+        } else {
+          throw new Error(result.error ?? 'Failed to refresh leads');
+        }
+      }
+      
+      setAllLoadedLeads(allRefreshedLeads);
+      updateFilterOptions(allRefreshedLeads);
+      
+      // Reset auto-loading state
+      setAutoLoadingAttempts(0);
+      setIsAutoLoading(false);
+      
+      showNotification(`Refreshed ${allRefreshedLeads.length} leads (${currentPageNum} pages)`, 'success');
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred during refresh');
+      showNotification('Failed to refresh leads', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Function to load more leads (increment page and fetch)
+  const handleLoadMore = async () => {
+    if (isLoadingMore || !hasMore) return;
+    
+    const nextPage = page + 1;
+    setPage(nextPage);
+    await fetchLeadsWithFilters(nextPage);
   };
 
   // Function to check if an agent is checked in
@@ -728,14 +829,33 @@ export default function LeadsPage() {
     void loadInitialData();
   }, []);
 
-  // Modify handleScroll to fix auto-scroll functionality
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !isLoadingMore) {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      void fetchLeadsWithFilters(nextPage);
-    }
+  // Enhanced column scroll handler with per-column loading
+  const handleColumnScroll = (statusId: string) => {
+    return (e: React.UIEvent<HTMLDivElement>) => {
+      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+      const isNearBottom = scrollHeight - scrollTop <= clientHeight * 1.2;
+      
+      if (isNearBottom && hasMore && !isLoadingMore) {
+        console.log(`📜 Column "${statusId}" scroll detected - loading more data...`);
+        const nextPage = page + 1;
+        setPage(nextPage);
+        void fetchLeadsWithFilters(nextPage);
+      }
+    };
+  };
+
+  // Function to check if a status column needs a "Load More" indicator
+  const getColumnLoadingState = (statusId: string) => {
+    const columnLeads = getLeadsForStatus(statusId);
+    const hasLeads = columnLeads.length > 0;
+    const couldHaveMore = hasMore || statusHasMoreData[statusId];
+    
+    return {
+      hasLeads,
+      couldHaveMore,
+      showLoadMore: hasLeads && couldHaveMore,
+      isEmpty: !hasLeads && !isLoadingMore
+    };
   };
 
   // Debug logging - remove this after fixing
@@ -1680,11 +1800,32 @@ export default function LeadsPage() {
                   </div>
                   <div 
                     className="bg-gray-50 rounded-b-lg p-2 h-[calc(100vh-420px)] overflow-y-auto"
-                    onScroll={handleScroll}
+                    onScroll={handleColumnScroll(status.id)}
                   >
                     {statusLeads.length === 0 ? (
-                      <div className="text-center py-4 text-gray-500 italic text-sm">
-                        {isLoadingMore ? 'Loading more...' : 'No leads'}
+                      <div className="text-center py-8 text-gray-500">
+                        {isLoadingMore ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
+                            <span className="text-sm">Loading leads...</span>
+                          </div>
+                        ) : hasMore ? (
+                          <div className="space-y-2">
+                            <p className="text-sm italic">No {status.name.toLowerCase()} leads yet</p>
+                            <button
+                              onClick={() => {
+                                const nextPage = page + 1;
+                                setPage(nextPage);
+                                void fetchLeadsWithFilters(nextPage);
+                              }}
+                              className="text-xs text-blue-600 hover:text-blue-800 underline"
+                            >
+                              Load more data to find leads
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-sm italic">No {status.name.toLowerCase()} leads</p>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -1705,6 +1846,29 @@ export default function LeadsPage() {
                         {isLoadingMore && (
                           <div className="flex justify-center py-2">
                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
+                          </div>
+                        )}
+                        {/* Scroll indicator for more data */}
+                        {!isLoadingMore && hasMore && statusLeads.length > 0 && (
+                          <div className="text-center py-3 border-t border-gray-200 mt-2">
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="text-xs text-gray-400 flex items-center gap-1">
+                                <svg className="w-3 h-3 animate-bounce" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                                Scroll for more
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const nextPage = page + 1;
+                                  setPage(nextPage);
+                                  void fetchLeadsWithFilters(nextPage);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-50"
+                              >
+                                Load More ({totalLeadCounts[status.id] ? `${statusLeads.length}/${totalLeadCounts[status.id]}` : '+'})
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -2096,6 +2260,34 @@ export default function LeadsPage() {
         </div>
       )}
 
+      {/* Smart Loading Notification for Agents with Stop Button */}
+      {userRole === 'agent' && (isLoadingMore || isAutoLoading) && page > 1 && (
+                 <div className="fixed bottom-4 right-4 bg-blue-100 text-blue-800 px-4 py-2 rounded-lg shadow-lg border-l-4 border-blue-500 z-40 max-w-sm">
+           <div className="flex items-center justify-between gap-3">
+             <div className="flex items-center gap-2">
+               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+               <div>
+                 <div className="text-sm font-medium">Finding your assigned leads...</div>
+                 <div className="text-xs text-blue-600">
+                   Loaded {allLoadedLeads.length} leads, attempt {autoLoadingAttempts}/3
+                 </div>
+               </div>
+             </div>
+             {isAutoLoading && (
+               <button
+                 onClick={() => {
+                   setIsAutoLoading(false);
+                   setAutoLoadingAttempts(3); // Set to max to prevent further auto-loading
+                   showNotification('Auto-loading stopped', 'info');
+                 }}
+                 className="text-xs bg-blue-200 hover:bg-blue-300 text-blue-900 px-2 py-1 rounded"
+               >
+                 Stop
+               </button>
+             )}
+           </div>
+         </div>
+       )}
 
     </div>
   );
