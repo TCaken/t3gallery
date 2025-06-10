@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { 
@@ -174,6 +174,7 @@ export default function LeadsPage() {
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
   const router = useRouter();
   const [userRole, setUserRole] = useState<UserRole>('user');
+  const [isLoadingUserRole, setIsLoadingUserRole] = useState(true);
   const { userId } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showAssignConfirmation, setShowAssignConfirmation] = useState(false);
@@ -189,16 +190,17 @@ export default function LeadsPage() {
     sortBy: 'created_at',
     sortOrder: 'desc',
     page: 1,
-    limit: 50
+    limit: 100
   });
   const [statusFilter, setStatusFilter] = useState<LeadStatus>('new');
   const validStatuses = LEAD_STATUSES;
 
-  // Define statuses that agents can move leads to
+  // Define statuses that agents can access - priority order: assigned, follow_up, missed/RS, done
   const agentAllowedStatuses = [
     'assigned',
     'follow_up',
-    'missed/RS'
+    'missed/RS',
+    'done'
   ];
 
   // Add new state for tracking pagination
@@ -297,6 +299,10 @@ export default function LeadsPage() {
   const [isAutoLoading, setIsAutoLoading] = useState(false);
   const [autoLoadingAttempts, setAutoLoadingAttempts] = useState(0);
 
+  // Add state for search-based auto-loading
+  const [isSearchAutoLoading, setIsSearchAutoLoading] = useState(false);
+  const [searchAutoLoadingAttempts, setSearchAutoLoadingAttempts] = useState(0);
+
   // Function to filter leads based on search query
   const filterLeads = (leads: Lead[], query: string) => {
     if (!query) return leads;
@@ -327,10 +333,11 @@ export default function LeadsPage() {
   const applyFrontendFilters = (leads: Lead[]) => {
     let filteredLeads = [...leads];
 
-    // Apply search filter
-    if (filters.search) {
-      filteredLeads = filterLeads(filteredLeads, filters.search);
-    }
+    // Skip search filter since it's now handled in backend when in search mode
+    // Apply search filter only for advanced filters, not the main search
+    // if (filters.search) {
+    //   filteredLeads = filterLeads(filteredLeads, filters.search);
+    // }
 
     // Apply amount range filter
     if (activeFilters.amountRange) {
@@ -425,17 +432,59 @@ export default function LeadsPage() {
     await fetchLeadsWithFilters(1);
   };
 
+  // Function to handle search-based loading
+  const handleSearchLoad = async (searchQuery: string) => {
+    if (!searchQuery.trim() || isSearchAutoLoading) {
+      return;
+    }
+
+    console.log(`🔍 Starting search for: "${searchQuery}"`);
+    setIsSearchAutoLoading(true);
+    setSearchAutoLoadingAttempts(1);
+    
+    // Clear existing leads and reset page when starting a new search
+    setAllLoadedLeads([]);
+    setPage(1);
+    
+    try {
+      await fetchLeadsWithFilters(1, true); // isSearch = true
+    } finally {
+      setIsSearchAutoLoading(false);
+    }
+  };
+
+  // Function to handle search-based auto-loading (for pagination)
+  const handleSearchAutoLoad = async () => {
+    if (!filters.search?.trim() || isSearchAutoLoading || !hasMore || searchAutoLoadingAttempts >= 5) {
+      return;
+    }
+
+    console.log(`🔍 Search auto-loading attempt ${searchAutoLoadingAttempts + 1} for: "${filters.search}"`);
+    setIsSearchAutoLoading(true);
+    setSearchAutoLoadingAttempts(prev => prev + 1);
+    
+    const nextPage = page + 1;
+    setPage(nextPage);
+    
+    setTimeout(() => {
+      void fetchLeadsWithFilters(nextPage, true).finally(() => { // isSearch = true
+        setIsSearchAutoLoading(false);
+      });
+    }, 500);
+  };
+
   // Enhanced fetchLeadsWithFilters with controlled auto-loading
-  const fetchLeadsWithFilters = async (pageNum = 1) => {
+  const fetchLeadsWithFilters = async (pageNum = 1, isSearch = false) => {
     try {
       setIsLoadingMore(true);
       
       const result = await fetchFilteredLeads({
-        search: '', // Don't send search to server, handle it frontend
+        search: isSearch ? filters.search : '', // Send search to server when in search mode
         sortBy: "updated_at", // Always sort by updated_at from server
         sortOrder: "desc", // Always descending from server
         page: pageNum,
-        limit: 50
+        limit: 100,
+        isSearchMode: isSearch // Enable search mode
       });
       
       
@@ -448,13 +497,15 @@ export default function LeadsPage() {
         if (pageNum === 1) {
           setAutoLoadingAttempts(0);
           setIsAutoLoading(false);
+          setSearchAutoLoadingAttempts(0);
+          setIsSearchAutoLoading(false);
         }
         
         // Update filter options based on all loaded leads
         updateFilterOptions(newLeads);
         
-        // 🎯 Smart Auto-loading for Agents: CONTROLLED VERSION
-        if (userRole === 'agent' && result.hasMore && pageNum < 5 && !isAutoLoading && autoLoadingAttempts < 3) {
+        // 🎯 Smart Auto-loading for Agents: CONTROLLED VERSION (but not during search)
+        if (userRole === 'agent' && result.hasMore && pageNum < 5 && !isAutoLoading && autoLoadingAttempts < 3 && !isSearch && !isSearchAutoLoading) {
           // Note: The backend transforms assigned_to to user's full name, but sorts by userId
           // So we need to get the current user's name to filter properly
           // For now, let's use a different approach - count all leads and check if agent gets any
@@ -492,6 +543,7 @@ export default function LeadsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setIsAutoLoading(false); // Reset flag on error
+      setIsSearchAutoLoading(false); // Reset search auto-loading flag on error
     } finally {
       setIsLoadingMore(false);
     }
@@ -530,6 +582,8 @@ export default function LeadsPage() {
       // Reset auto-loading state
       setAutoLoadingAttempts(0);
       setIsAutoLoading(false);
+      setSearchAutoLoadingAttempts(0);
+      setIsSearchAutoLoading(false);
       
       showNotification(`Refreshed ${allRefreshedLeads.length} leads (${currentPageNum} pages)`, 'success');
       
@@ -820,14 +874,43 @@ export default function LeadsPage() {
         } else {
           console.log('No roles found, defaulting to user'); // Debug log
         }
+        
+        // Mark user role loading as complete
+        setIsLoadingUserRole(false);
       } catch (err) {
         console.error('Error in loadInitialData:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
+        setIsLoadingUserRole(false); // Also set to false on error
       }
     };
 
     void loadInitialData();
   }, []);
+
+  // Effect to handle search-based loading
+  useEffect(() => {
+    const searchQuery = filters.search;
+    if (searchQuery && searchQuery.trim() !== '') {
+      // Small delay to avoid triggering on every keystroke
+      const timeoutId = setTimeout(() => {
+        void handleSearchLoad(searchQuery);
+      }, 1000);
+      
+      return () => clearTimeout(timeoutId);
+    } else {
+      // Reset search auto-loading when search is cleared and reload normal data
+      setSearchAutoLoadingAttempts(0);
+      setIsSearchAutoLoading(false);
+      
+      // Always reload normal data when search is cleared (regardless of current leads)
+      if (!searchQuery) {
+        console.log('🔄 Search cleared, reloading original leads...');
+        setAllLoadedLeads([]);
+        setPage(1);
+        void fetchLeadsWithFilters(1, false); // isSearch = false
+      }
+    }
+  }, [filters.search]);
 
   // Enhanced column scroll handler with per-column loading
   const handleColumnScroll = (statusId: string) => {
@@ -835,11 +918,19 @@ export default function LeadsPage() {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
       const isNearBottom = scrollHeight - scrollTop <= clientHeight * 1.2;
       
-      if (isNearBottom && hasMore && !isLoadingMore) {
+      // Prevent auto-scroll during search loading or if already loading
+      if (isNearBottom && hasMore && !isLoadingMore && !isSearchAutoLoading) {
         console.log(`📜 Column "${statusId}" scroll detected - loading more data...`);
-        const nextPage = page + 1;
-        setPage(nextPage);
-        void fetchLeadsWithFilters(nextPage);
+        
+        if (filters.search && filters.search.trim() !== '') {
+          // In search mode, continue searching
+          void handleSearchAutoLoad();
+        } else {
+          // Normal pagination
+          const nextPage = page + 1;
+          setPage(nextPage);
+          void fetchLeadsWithFilters(nextPage, false);
+        }
       }
     };
   };
@@ -863,18 +954,7 @@ export default function LeadsPage() {
   console.log('Current autoAssignmentSettings:', autoAssignmentSettings);
   console.log('isLoadingAutoSettings:', isLoadingAutoSettings);
 
-  // Update the visibleStatuses definition based on user role and search state
-  const visibleStatuses = [
-    // Add pinned leads column first
-    // { id: 'pinned', name: 'Pinned Leads', color: 'bg-blue-100 text-blue-800' },
-    // Then add other statuses
-    ...(userRole === 'agent'
-      ? (filters.search && filters.search.trim() !== '' 
-          ? allStatuses // Show all statuses when searching
-          : allStatuses.filter(col => agentAllowedStatuses.includes(col.id)) // Show only allowed statuses when not searching
-        )
-      : allStatuses)
-  ];
+  // This will be defined later after getLeadsForStatus is available
 
   // Filter leads for agent
   const visibleLeads = userRole === 'agent'
@@ -1039,6 +1119,16 @@ export default function LeadsPage() {
           // Close the edit modal if it's open
           setIsEditOpen(false);
           break;
+
+        // case 'reschedule_appointment':
+        //   // Open appointment page for reschedule
+        //   window.open(`leads/${lead.id}/appointment?action=reschedule`, '_blank');
+        //   break;
+
+        // case 'cancel_appointment':
+        //   // Open appointment page for cancel
+        //   window.open(`leads/${lead.id}/appointment?action=cancel`, '_blank');
+        //   break;
 
         case 'move_to_new':
         case 'move_to_assigned':
@@ -1361,6 +1451,60 @@ export default function LeadsPage() {
     return totalLeadCounts[statusId] ?? 0;
   };
 
+  // State to track stable column visibility during search
+  const [stableVisibleStatuses, setStableVisibleStatuses] = useState<(typeof allStatuses[number])[]>([]);
+
+  // Update the visibleStatuses definition based on user role and search state
+  const getVisibleStatuses = () => {
+    let statuses;
+    
+    if (userRole === 'agent') {
+      if (filters.search && filters.search.trim() !== '') {
+        // During search: use stable statuses, don't change columns until search is done
+        if (isSearchAutoLoading || isLoadingMore) {
+          return stableVisibleStatuses.length > 0 ? stableVisibleStatuses : allStatuses;
+        }
+        statuses = allStatuses; // Show all statuses when searching is complete
+      } else {
+        statuses = allStatuses.filter(col => agentAllowedStatuses.includes(col.id)); // Show only allowed statuses when not searching
+      }
+    } else {
+      if (filters.search && filters.search.trim() !== '') {
+        // During search: use stable statuses for admins too
+        if (isSearchAutoLoading || isLoadingMore) {
+          return stableVisibleStatuses.length > 0 ? stableVisibleStatuses : allStatuses;
+        }
+      }
+      statuses = allStatuses;
+    }
+    
+    // In search mode, only show columns that have leads (only when search is completely finished)
+    if (filters.search && filters.search.trim() !== '' && !isSearchAutoLoading && !isLoadingMore) {
+      statuses = statuses.filter(status => {
+        const statusLeads = getLeadsForStatus(status.id);
+        return statusLeads.length > 0;
+      });
+    }
+    
+    return statuses;
+  };
+
+  const visibleStatuses = useMemo(() => getVisibleStatuses(), [
+    userRole, 
+    filters.search, 
+    isSearchAutoLoading, 
+    isLoadingMore, 
+    stableVisibleStatuses.length,
+    leads
+  ]);
+
+  // Update stable statuses when not searching or when search is complete
+  useEffect(() => {
+    if (!filters.search || (!isSearchAutoLoading && !isLoadingMore)) {
+      setStableVisibleStatuses([...visibleStatuses]); // Convert readonly array to mutable
+    }
+  }, [filters.search, isSearchAutoLoading, isLoadingMore, visibleStatuses]);
+
   // Modify the Kanban board view
   return (
     <div className="container mx-auto px-4 py-8">
@@ -1539,9 +1683,17 @@ export default function LeadsPage() {
           
           {/* Search Results Count */}
           {filters.search && (
-            <div className="text-sm text-gray-500">
-              {getFilteredLeadsForDisplay().length} results
-              {isLoadingMore && ' (loading more...)'}
+            <div className="text-sm text-gray-500 space-x-4">
+              <span>
+                {getFilteredLeadsForDisplay().length} results
+                {(isLoadingMore || isSearchAutoLoading) && ' (loading more...)'}
+                {isSearchAutoLoading && ` - searching..`}
+              </span>
+              {activeTab === 'kanban' && (
+                <span className="text-xs text-gray-400">
+                  • {visibleStatuses.length} of {allStatuses.length} columns shown
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -1769,8 +1921,60 @@ export default function LeadsPage() {
       {activeTab === 'kanban' ? (
         // Kanban board view with filtered leads
         <div className="overflow-x-auto pb-4">
-          <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
-            {visibleStatuses.map((status) => {
+          {/* Loading State for User Role or Search */}
+          {(isLoadingUserRole || (filters.search && filters.search.trim() !== '' && isSearchAutoLoading)) ? (
+            <div className="relative">
+              {/* Blur overlay */}
+              <div className="absolute inset-0 bg-white bg-opacity-60 backdrop-blur-sm z-10 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600 font-medium">
+                    {isLoadingUserRole ? 'Loading your dashboard...' : 'Searching leads...'}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {isLoadingUserRole ? 'Determining your access level' : `Looking for "${filters.search}"`}
+                  </p>
+                </div>
+              </div>
+              {/* Placeholder content (blurred) */}
+              <div className="filter blur-sm pointer-events-none">
+                <div className="flex space-x-4" style={{ minWidth: '1280px' }}>
+                  {allStatuses.slice(0, 4).map((status) => (
+                    <div key={status.id} className="flex-none w-80">
+                      <div className={`p-3 rounded-t-lg ${status.color} flex justify-between items-center`}>
+                        <h3 className="font-medium">{status.name}</h3>
+                        <span className="px-2 py-1 rounded-full text-sm bg-white bg-opacity-80">0</span>
+                      </div>
+                      <div className="bg-gray-50 rounded-b-lg p-2 h-96">
+                        <div className="text-center py-8 text-gray-500">
+                          <p className="text-sm italic">Loading...</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : filters.search && filters.search.trim() !== '' && visibleStatuses.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-gray-500 mb-4">
+                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No results found</h3>
+              <p className="text-gray-500">
+                No leads found for &ldquo;{filters.search}&rdquo;
+              </p>
+              {hasMore && (
+                <p className="text-sm text-blue-600 mt-2">
+                  {isSearchAutoLoading ? 'Searching more data...' : 'Try loading more data or adjust your search'}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
+              {visibleStatuses.map((status) => {
               const statusLeads = getLeadsForStatus(status.id);
               const totalLeads = getTotalLeadsForStatus(status.id);
               const isFiltered = statusLeads.length !== totalLeads;
@@ -1804,21 +2008,30 @@ export default function LeadsPage() {
                   >
                     {statusLeads.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
-                        {isLoadingMore ? (
+                        {(isLoadingMore || isSearchAutoLoading) ? (
                           <div className="flex flex-col items-center gap-2">
                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
-                            <span className="text-sm">Loading leads...</span>
+                            <span className="text-sm">
+                              {isSearchAutoLoading ? `Searching...` : 'Loading leads...'}
+                            </span>
                           </div>
                         ) : hasMore ? (
                           <div className="space-y-2">
                             <p className="text-sm italic">No {status.name.toLowerCase()} leads yet</p>
                             <button
                               onClick={() => {
-                                const nextPage = page + 1;
-                                setPage(nextPage);
-                                void fetchLeadsWithFilters(nextPage);
+                                if (!isSearchAutoLoading && !isLoadingMore) {
+                                  if (filters.search && filters.search.trim() !== '') {
+                                    void handleSearchAutoLoad();
+                                  } else {
+                                    const nextPage = page + 1;
+                                    setPage(nextPage);
+                                    void fetchLeadsWithFilters(nextPage, false);
+                                  }
+                                }
                               }}
-                              className="text-xs text-blue-600 hover:text-blue-800 underline"
+                              disabled={isSearchAutoLoading || isLoadingMore}
+                              className="text-xs text-blue-600 hover:text-blue-800 underline disabled:text-gray-400 disabled:cursor-not-allowed"
                             >
                               Load more data to find leads
                             </button>
@@ -1843,7 +2056,7 @@ export default function LeadsPage() {
                             onView={handleViewLead}
                           />
                         ))}
-                        {isLoadingMore && (
+                        {(isLoadingMore || isSearchAutoLoading) && (
                           <div className="flex justify-center py-2">
                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
                           </div>
@@ -1860,11 +2073,18 @@ export default function LeadsPage() {
                               </div>
                               <button
                                 onClick={() => {
-                                  const nextPage = page + 1;
-                                  setPage(nextPage);
-                                  void fetchLeadsWithFilters(nextPage);
+                                  if (!isSearchAutoLoading && !isLoadingMore) {
+                                    if (filters.search && filters.search.trim() !== '') {
+                                      void handleSearchAutoLoad();
+                                    } else {
+                                      const nextPage = page + 1;
+                                      setPage(nextPage);
+                                      void fetchLeadsWithFilters(nextPage, false);
+                                    }
+                                  }
                                 }}
-                                className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-50"
+                                disabled={isSearchAutoLoading || isLoadingMore}
+                                className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-50 disabled:text-gray-400 disabled:cursor-not-allowed"
                               >
                                 Load More ({totalLeadCounts[status.id] ? `${statusLeads.length}/${totalLeadCounts[status.id]}` : '+'})
                               </button>
@@ -1877,12 +2097,43 @@ export default function LeadsPage() {
                 </div>
               );
             })}
-          </div>
+            </div>
+          )}
         </div>
       ) : (
         // List view for All or Pinned tabs with filtered leads
         <div className="space-y-4">
-          {getFilteredLeadsForDisplay().map((lead) => {
+          {/* Loading State for User Role or Search in List View */}
+          {(isLoadingUserRole || (filters.search && filters.search.trim() !== '' && isSearchAutoLoading)) ? (
+            <div className="relative">
+              {/* Blur overlay */}
+              <div className="absolute inset-0 bg-white bg-opacity-60 backdrop-blur-sm z-10 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600 font-medium">
+                    {isLoadingUserRole ? 'Loading your dashboard...' : 'Searching leads...'}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {isLoadingUserRole ? 'Determining your access level' : `Looking for "${filters.search}"`}
+                  </p>
+                </div>
+              </div>
+              {/* Placeholder content (blurred) */}
+              <div className="filter blur-sm pointer-events-none space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 h-32">
+                    <div className="animate-pulse">
+                      <div className="h-4 bg-gray-200 rounded w-1/3 mb-2"></div>
+                      <div className="h-3 bg-gray-200 rounded w-1/2 mb-2"></div>
+                      <div className="h-3 bg-gray-200 rounded w-1/4"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {getFilteredLeadsForDisplay().map((lead) => {
             const statusInfo = allStatuses.find(s => s.id === lead.status) ?? {
               id: 'new',
               name: 'New',
@@ -1898,23 +2149,31 @@ export default function LeadsPage() {
                 onView={handleViewLead}
               />
             );
-          })}
-          
-          {/* Load More Button */}
-          {hasMore && activeTab !== 'pinned' && (
-            <div className="mt-6 text-center">
-              <button
-                onClick={() => {
-                  const nextPage = page + 1;
-                  setPage(nextPage);
-                  void fetchLeadsWithFilters(nextPage);
-                }}
-                disabled={isLoadingMore}
-                className="rounded-lg bg-blue-500 px-6 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
-              >
-                {isLoadingMore ? 'Loading...' : 'Load More'}
-              </button>
-            </div>
+                        })}
+              
+              {/* Load More Button */}
+              {hasMore && activeTab !== 'pinned' && (
+                <div className="mt-6 text-center">
+                  <button
+                    onClick={() => {
+                      if (!isSearchAutoLoading && !isLoadingMore) {
+                        if (filters.search && filters.search.trim() !== '') {
+                          void handleSearchAutoLoad();
+                        } else {
+                          const nextPage = page + 1;
+                          setPage(nextPage);
+                          void fetchLeadsWithFilters(nextPage, false);
+                        }
+                      }
+                    }}
+                    disabled={isLoadingMore || isSearchAutoLoading}
+                    className="rounded-lg bg-blue-500 px-6 py-2 text-white hover:bg-blue-600 disabled:opacity-50"
+                  >
+                    {(isLoadingMore || isSearchAutoLoading) ? 'Loading...' : 'Load More'}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -2261,7 +2520,7 @@ export default function LeadsPage() {
       )}
 
       {/* Smart Loading Notification for Agents with Stop Button */}
-      {userRole === 'agent' && (isLoadingMore || isAutoLoading) && page > 1 && (
+      {userRole === 'agent' && (isLoadingMore || isAutoLoading) && page > 1 && !isSearchAutoLoading && (
                  <div className="fixed bottom-4 right-4 bg-blue-100 text-blue-800 px-4 py-2 rounded-lg shadow-lg border-l-4 border-blue-500 z-40 max-w-sm">
            <div className="flex items-center justify-between gap-3">
              <div className="flex items-center gap-2">
@@ -2288,6 +2547,33 @@ export default function LeadsPage() {
            </div>
          </div>
        )}
+
+      {/* Search Auto-Loading Notification */}
+      {isSearchAutoLoading && filters.search && (
+        <div className="fixed bottom-4 right-4 bg-green-100 text-green-800 px-4 py-2 rounded-lg shadow-lg border-l-4 border-green-500 z-40 max-w-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+              <div>
+                <div className="text-sm font-medium">Searching for &ldquo;{filters.search}&rdquo;...</div>
+                <div className="text-xs text-green-600">
+                  Loaded {allLoadedLeads.length} leads, attempt {searchAutoLoadingAttempts}/5
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setIsSearchAutoLoading(false);
+                setSearchAutoLoadingAttempts(5); // Set to max to prevent further auto-loading
+                showNotification('Search auto-loading stopped', 'info');
+              }}
+              className="text-xs bg-green-200 hover:bg-green-300 text-green-900 px-2 py-1 rounded"
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -19,10 +19,14 @@ interface ReasonOption {
 const REASON_OPTIONS: ReasonOption[] = [
   { value: 'blacklisted_do_not_call', label: 'Blacklisted - Do Not Call', finalStatus: 'blacklisted' },
   { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted' },
+  { value: 'blacklisted_drs_bankrupt', label: 'Blacklist - DRS / Bankrupt', finalStatus: 'blacklisted' },
   { value: 'give_up_trouble_maker', label: 'Give Up - Trouble Maker', finalStatus: 'give_up' },
   { value: 'give_up_already_got_loan', label: 'Give Up - Already Got Loan', finalStatus: 'give_up' },
   { value: 'give_up_income_too_low', label: 'Give Up - Income Too Low', finalStatus: 'give_up' },
-  { value: 'give_up_not_enough_age', label: 'Give Up - Not Enough Age', finalStatus: 'give_up' },
+  { value: 'give_up_underage', label: 'Give Up - Underage', finalStatus: 'give_up' },
+  { value: 'give_up_not_interested', label: 'Give Up - Not Interested', finalStatus: 'give_up' },
+  { value: 'give_up_no_income_proof', label: 'Give Up - No Income Proof', finalStatus: 'give_up' },
+  { value: 'give_up_unemployed', label: 'Give Up - Unemployed', finalStatus: 'give_up' },
 ];
 
 export default function LeadStatusReasonModal({

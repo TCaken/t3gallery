@@ -128,7 +128,13 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   useEffect(() => {
     const newValues = {
       ...lead,
-      follow_up_time: ''
+      follow_up_time: '',
+      created_at: lead.created_at ? new Date(lead.created_at).toLocaleDateString('en-SG', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'Asia/Singapore'
+      }) : ''
     };
     setFormValues(newValues);
     setInitialValues(newValues);
@@ -1260,6 +1266,8 @@ const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] =>
   {
     title: isQuestionnaireMode ? "Let's start with some basic information" : "Personal Information",
     fields: [
+      { name: "source", label: isQuestionnaireMode ? "How did you hear about us?" : "Lead Source", type: "text", disabled: true } as TextField,
+      { name: "created_at", label: isQuestionnaireMode ? "When did you first contact us?" : "Lead Date", type: "text", disabled: true } as TextField,
       { name: "full_name", label: isQuestionnaireMode ? "What is your full name?" : "Full Name", type: "text" } as TextField,
       { name: "email", label: isQuestionnaireMode ? "What is your email address?" : "Email", type: "text" } as TextField,
       { name: "phone_number", label: isQuestionnaireMode ? "What is your primary contact number?" : "Primary Phone", type: "tel", disabled: true } as TextField,
