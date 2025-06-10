@@ -196,6 +196,7 @@ export default function LeadsPage() {
 
   // Define statuses that agents can move leads to
   const agentAllowedStatuses = [
+    'assigned',
     'follow_up',
     'missed/RS'
   ];

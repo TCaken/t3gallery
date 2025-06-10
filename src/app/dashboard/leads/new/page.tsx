@@ -106,14 +106,14 @@ export default function NewLeadPage() {
           type: "select", 
           required: true,
           options: [
-            "SEO",
-            "Loanable",
             "1% Loan",
-            "OMY.sg",
-            "MoneyRight",
             "Lendela",
             "LendingPot",
+            "Loanable",
             "MoneyIQ",
+            "MoneyRight",
+            "OMY.sg",
+            "SEO",
             "Other"
           ]
         } as SelectField,
