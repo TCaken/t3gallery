@@ -277,6 +277,14 @@ export default function LeadCard({
             {formatDistanceToNow(new Date(lead.created_at ?? ''), { addSuffix: true })}
           </span>
         </div>
+        {lead.source && (
+          <div className="flex items-center space-x-1 col-span-2">
+            <DocumentTextIcon className="h-3 w-3 flex-shrink-0 text-gray-400" />
+            <span className="text-gray-600 truncate" title={`Source: ${lead.source}`}>
+              Source: {lead.source}
+            </span>
+          </div>
+        )}
         {lead.assigned_to !== null && (
           <div className="flex items-center space-x-1 col-span-2">
             <UserCircleIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />

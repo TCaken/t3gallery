@@ -286,7 +286,7 @@ export default function AppointmentsPage() {
       await fetchAppointmentData();
       console.log('Appointment result:', appointmentResult);
 
-      window.open(`/dashboard/appointments/${appointmentResult.results?.[0]?.result?.data?.appointment?.id}`, '_blank');
+      // window.open(`/dashboard/appointments/${appointmentResult.results?.[0]?.result?.data?.appointment?.id}`, '_blank');
     } catch (error) {
       console.error('Error creating quick appointment:', error);
       alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -375,7 +375,7 @@ export default function AppointmentsPage() {
     const endTime = format(new Date(appointment.end_datetime), 'h:mm a');
 
     const handleAppointmentClick = (e: React.MouseEvent) => {
-      const url = `/dashboard/appointments/${appointment.id}`;
+      const url = `/dashboard/leads/${appointment.lead?.id}/appointment`;
       window.open(url, '_blank');
     };
 

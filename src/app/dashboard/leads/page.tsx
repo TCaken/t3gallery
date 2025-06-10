@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { 
@@ -1120,6 +1120,16 @@ export default function LeadsPage() {
           setIsEditOpen(false);
           break;
 
+        // case 'reschedule_appointment':
+        //   // Open appointment page for reschedule
+        //   window.open(`leads/${lead.id}/appointment?action=reschedule`, '_blank');
+        //   break;
+
+        // case 'cancel_appointment':
+        //   // Open appointment page for cancel
+        //   window.open(`leads/${lead.id}/appointment?action=cancel`, '_blank');
+        //   break;
+
         case 'move_to_new':
         case 'move_to_assigned':
         case 'move_to_no_answer':
@@ -1479,7 +1489,14 @@ export default function LeadsPage() {
     return statuses;
   };
 
-  const visibleStatuses = getVisibleStatuses();
+  const visibleStatuses = useMemo(() => getVisibleStatuses(), [
+    userRole, 
+    filters.search, 
+    isSearchAutoLoading, 
+    isLoadingMore, 
+    stableVisibleStatuses.length,
+    leads
+  ]);
 
   // Update stable statuses when not searching or when search is complete
   useEffect(() => {
