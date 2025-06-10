@@ -632,7 +632,8 @@ export async function fetchFilteredLeads({
   sortBy = 'updated_at',
   sortOrder = 'desc',
   page = 1,
-  limit = 200
+  limit = 200,
+  isSearchMode = false
 }: {
   status?: typeof leadStatusEnum.enumValues[number];
   search?: string;
@@ -640,6 +641,7 @@ export async function fetchFilteredLeads({
   sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
+  isSearchMode?: boolean;
 }) {
   try {
     const { userId } = await auth();
@@ -657,16 +659,25 @@ export async function fetchFilteredLeads({
     // Build query conditions
     const conditions: SQL[] = [];
     
-    // Remove role-based access control - both admins and agents see all leads
-    // The sorting will prioritize agent assignments instead
-
-    if (status) {
-      conditions.push(eq(leads.status, status));
+    // In search mode, ignore role restrictions and status filters
+    // Otherwise maintain existing logic
+    if (!isSearchMode) {
+      // Normal mode: apply status filter if provided
+      if (status) {
+        conditions.push(eq(leads.status, status));
+      }
+      
+      // For agents in normal mode: only show leads assigned to them
+      if (isAgent) {
+        conditions.push(eq(leads.assigned_to, userId));
+      }
     }
+    // In search mode: don't apply status filter or agent filter to search across all statuses and all leads
     if (search) {
       const searchConditions = [
         like(leads.full_name, `%${search}%`),
-        like(leads.phone_number, `%${search}%`)
+        like(leads.phone_number, `%${search}%`),
+        like(sql`${leads.id}::text`, `%${search}%`) // Allow searching by ID
       ].filter(Boolean);
       
       if (searchConditions.length > 0) {
@@ -725,13 +736,12 @@ export async function fetchFilteredLeads({
     // Build final query with conditions, sorting, and pagination
     let finalQuery;
     
-    if (isAgent) {
-      // For agents: Layer 1 (assignment priority) + Layer 2 (updated_at) + Layer 3 (follow_up_date)
+    if (isSearchMode) {
+      // Search mode: Simple sorting by relevance and updated_at, no role restrictions
       if (conditions.length > 0) {
         finalQuery = baseQuery
           .where(and(...conditions))
           .orderBy(
-            sql`CASE WHEN ${leads.assigned_to} = ${userId} THEN 0 ELSE 1 END`,
             desc(leads.updated_at),
             asc(leads.follow_up_date)
           )
@@ -740,7 +750,40 @@ export async function fetchFilteredLeads({
       } else {
         finalQuery = baseQuery
           .orderBy(
-            sql`CASE WHEN ${leads.assigned_to} = ${userId} THEN 0 ELSE 1 END`,
+            desc(leads.updated_at),
+            asc(leads.follow_up_date)
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      }
+    } else if (isAgent) {
+      // For agents: Layer 1 (status priority: assigned, follow_up, missed/RS, done) + Layer 2 (updated_at) + Layer 3 (follow_up_date)
+      if (conditions.length > 0) {
+        finalQuery = baseQuery
+          .where(and(...conditions))
+          .orderBy(
+            sql`CASE 
+              WHEN ${leads.status} = 'assigned' THEN 1
+              WHEN ${leads.status} = 'follow_up' THEN 2
+              WHEN ${leads.status} = 'missed/RS' THEN 3
+              WHEN ${leads.status} = 'done' THEN 4
+              ELSE 5
+            END`,
+            desc(leads.updated_at),
+            asc(leads.follow_up_date)
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      } else {
+        finalQuery = baseQuery
+          .orderBy(
+            sql`CASE 
+              WHEN ${leads.status} = 'assigned' THEN 1
+              WHEN ${leads.status} = 'follow_up' THEN 2
+              WHEN ${leads.status} = 'missed/RS' THEN 3
+              WHEN ${leads.status} = 'done' THEN 4
+              ELSE 5
+            END`,
             desc(leads.updated_at),
             asc(leads.follow_up_date)
           )
