@@ -3,7 +3,7 @@
 import { db } from "~/server/db";
 import { appointments, leads } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, gte, lte } from "drizzle-orm";
 
 export async function triggerTodayAppointmentWebhooks() {
   try {
@@ -17,10 +17,22 @@ export async function triggerTodayAppointmentWebhooks() {
     const singaporeTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // Add 8 hours to UTC
     const todayDateString = singaporeTime.toISOString().split('T')[0]; // Get YYYY-MM-DD format
     
+    // Create start and end of day in Singapore time, then convert to UTC for DB query
+    const startOfDaySingapore = new Date(`${todayDateString}T00:00:00`);
+    const endOfDaySingapore = new Date(`${todayDateString}T23:59:59`);
+    
+    // Convert Singapore times to UTC for database query (subtract 8 hours)
+    const startOfDayUTC = new Date(startOfDaySingapore.getTime() - (8 * 60 * 60 * 1000));
+    const endOfDayUTC = new Date(endOfDaySingapore.getTime() - (8 * 60 * 60 * 1000));
+    
     console.log('🕐 Current Singapore time:', singaporeTime.toISOString());
     console.log('📅 Looking for appointments on date:', todayDateString);
+    console.log('🌅 Start of day (Singapore):', startOfDaySingapore.toISOString());
+    console.log('🌅 Start of day (UTC for DB):', startOfDayUTC.toISOString());
+    console.log('🌆 End of day (Singapore):', endOfDaySingapore.toISOString());
+    console.log('🌆 End of day (UTC for DB):', endOfDayUTC.toISOString());
 
-    // Fetch all appointments for today
+    // Fetch all appointments for today using UTC time range
     const todayAppointments = await db
       .select({
         id: appointments.id,
@@ -35,10 +47,10 @@ export async function triggerTodayAppointmentWebhooks() {
       .from(appointments)
       .leftJoin(leads, eq(appointments.lead_id, leads.id))
       .where(
-        // Filter appointments where start_datetime is on today's date in Singapore time
-        eq(
-          sql`DATE(${appointments.start_datetime} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Singapore')`, 
-          todayDateString
+        // Filter appointments that start within today's date range in Singapore time
+        and(
+          gte(appointments.start_datetime, startOfDayUTC),
+          lte(appointments.start_datetime, endOfDayUTC)
         )
       );
 
@@ -73,7 +85,7 @@ export async function triggerTodayAppointmentWebhooks() {
           appointmentDate: appointmentDate,
           appointmentTime: appointmentTime,
           appointmentType: "Consultation",
-          notes: appointment.notes || ""
+          notes: appointment.notes ?? ""
         });
 
         if (webhookResult?.success) {
@@ -95,7 +107,7 @@ export async function triggerTodayAppointmentWebhooks() {
             leadPhone: appointment.leadPhone,
             startTime: appointmentTime,
             status: 'error',
-            message: webhookResult?.error || 'Unknown error'
+            message: webhookResult?.error ?? 'Unknown error'
           });
           console.log(`❌ Failed to send webhook for appointment ${appointment.id}: ${webhookResult?.error}`);
         }
