@@ -97,6 +97,7 @@ export async function createPermission(name: string, description?: string) {
   }
 }
 
+
 // Assign a permission to a role
 export async function assignPermissionToRole(roleId: number, permissionId: number) {
   console.log("Assigning permission to role:", roleId, permissionId);
