@@ -150,7 +150,7 @@ export default function LeadCard({
 
   // Function to mask phone number - show only last 5 characters
   const getMaskedPhoneNumber = (phoneNumber: string) => {
-    if (phoneNumber.length <= 4) {
+    if (phoneNumber.length <= 8) {
       return phoneNumber; // If phone number is 5 characters or less, show as is
     }
     

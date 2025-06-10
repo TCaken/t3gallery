@@ -103,7 +103,13 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       href: "/dashboard/users/templates",
       icon: <DocumentTextIcon className="h-5 w-5" />,
       roles: ["admin"]
-    }
+    },
+    // {
+    //   title: "Settings",
+    //   href: "/dashboard/settings",
+    //   icon: <Cog6ToothIcon className="h-5 w-5" />,
+    //   roles: ["admin"] // Only admin can access settings
+    // }
   ];
 
   // Filter nav items based on user roles
