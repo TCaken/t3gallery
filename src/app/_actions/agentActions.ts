@@ -241,11 +241,16 @@ export async function autoAssignLeads() {
 // Get auto-assignment settings
 export async function getAutoAssignmentSettings() {
   try {
+    console.log("📋 getAutoAssignmentSettings: Fetching settings from database...");
+    
     const settings = await db.query.autoAssignmentSettings.findFirst({
       orderBy: [desc(autoAssignmentSettings.id)]
     });
     
+    console.log("📋 getAutoAssignmentSettings: Raw settings from DB:", settings);
+    
     if (!settings) {
+      console.log("📋 getAutoAssignmentSettings: No settings found, creating default...");
       // Create default settings if none exist
       const defaultSettings = await db.insert(autoAssignmentSettings).values({
         is_enabled: false,
@@ -254,18 +259,22 @@ export async function getAutoAssignmentSettings() {
         max_leads_per_agent_per_day: 20
       }).returning();
       
+      console.log("📋 getAutoAssignmentSettings: Created default settings:", defaultSettings[0]);
+      
       return {
         success: true,
         settings: defaultSettings[0]
       };
     }
     
+    console.log("✅ getAutoAssignmentSettings: Returning existing settings:", settings);
+    
     return {
       success: true,
       settings
     };
   } catch (error) {
-    console.error("Error getting auto-assignment settings:", error);
+    console.error("❌ Error getting auto-assignment settings:", error);
     return {
       success: false,
       error: "Failed to get auto-assignment settings"
@@ -282,13 +291,24 @@ export async function updateAutoAssignmentSettings(settingsData: {
   try {
     const { userId } = await auth();
     if (!userId) {
+      console.log("❌ updateAutoAssignmentSettings: Not authenticated");
       return { success: false, message: "Not authenticated" };
     }
 
+    console.log("🔧 updateAutoAssignmentSettings: Starting with data:", settingsData);
+
     const currentSettings = await getAutoAssignmentSettings();
     if (!currentSettings.success || !currentSettings.settings) {
+      console.log("❌ updateAutoAssignmentSettings: Could not get current settings:", currentSettings);
       return { success: false, message: "Could not get current settings" };
     }
+
+    console.log("📋 updateAutoAssignmentSettings: Current settings:", currentSettings.settings);
+    console.log("🔄 updateAutoAssignmentSettings: Updating with:", {
+      ...settingsData,
+      updated_at: new Date(),
+      updated_by: userId
+    });
 
     const updatedSettings = await db
       .update(autoAssignmentSettings)
@@ -300,13 +320,15 @@ export async function updateAutoAssignmentSettings(settingsData: {
       .where(eq(autoAssignmentSettings.id, currentSettings.settings.id))
       .returning();
 
+    console.log("✅ updateAutoAssignmentSettings: Updated settings:", updatedSettings[0]);
+
     return {
       success: true,
       settings: updatedSettings[0],
       message: "Auto-assignment settings updated successfully"
     };
   } catch (error) {
-    console.error("Error updating auto-assignment settings:", error);
+    console.error("❌ Error updating auto-assignment settings:", error);
     return {
       success: false,
       message: "Failed to update auto-assignment settings"
@@ -1104,7 +1126,6 @@ export async function assignLeadToAgent(leadId: number, agentId: string) {
         .update(leads)
         .set({
           assigned_to: agentId,
-          status: 'assigned',
           updated_at: new Date(),
           updated_by: userId
         })

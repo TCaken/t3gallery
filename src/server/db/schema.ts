@@ -582,6 +582,52 @@ export const templateTriggerEnum = pgEnum('template_trigger', [
   'appointment_reminder'
 ]);
 
+// Simple Playbook Management Tables
+export const playbooks = createTable(
+  "playbooks",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    samespace_playbook_id: d.varchar({ length: 255 }).notNull().unique(), // ID from Samespace
+    name: d.varchar({ length: 255 }).notNull(),
+    agent_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    is_active: d.boolean().default(true),
+    last_synced_at: d.timestamp({ withTimezone: true }),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("playbooks_agent_idx").on(t.agent_id),
+    index("playbooks_samespace_idx").on(t.samespace_playbook_id)
+  ]
+);
+
+export const playbook_contacts = createTable(
+  "playbook_contacts",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    playbook_id: d.integer().references(() => playbooks.id, { onDelete: "cascade" }).notNull(),
+    lead_id: d.integer().references(() => leads.id, { onDelete: "cascade" }).notNull(),
+    samespace_contact_id: d.varchar({ length: 255 }), // ID from Samespace
+    phone_number: d.varchar({ length: 20 }).notNull(),
+    first_name: d.varchar({ length: 255 }).default(''),
+    last_name: d.varchar({ length: 255 }).default(''),
+    data_source: d.varchar({ length: 100 }).default('AirConnect'),
+    status: d.varchar({ length: 50 }).default('pending'), // pending, created, failed, removed
+    sync_status: d.varchar({ length: 50 }).default('pending'), // pending, synced, failed
+    api_response: d.json(),
+    error_message: d.text(),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("playbook_contacts_playbook_idx").on(t.playbook_id),
+    index("playbook_contacts_lead_idx").on(t.lead_id),
+    index("playbook_contacts_phone_idx").on(t.phone_number),
+    // Ensure no duplicate contacts for same playbook + lead
+    index("playbook_contacts_unique_idx").on(t.playbook_id, t.lead_id)
+  ]
+);
+
 // Add these relations after all table definitions
 export const checkedInAgentsRelations = relations(checkedInAgents, ({ one }) => ({
   agent: one(users, {

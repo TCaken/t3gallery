@@ -3,6 +3,7 @@ import { Dialog, Transition } from '@headlessui/react'
 import { XMarkIcon, QuestionMarkCircleIcon, ExclamationTriangleIcon, CalendarIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 import { type InferSelectModel } from 'drizzle-orm';
 import { type leads } from "~/server/db/schema";
+import { useRouter } from 'next/navigation';
 
 type Lead = InferSelectModel<typeof leads>;
 
@@ -109,6 +110,7 @@ interface LeadEditSlideOverProps {
 
 export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAction }: LeadEditSlideOverProps) {
   const [selectedAction, setSelectedAction] = useState<string>('save');
+  const router = useRouter();
   const [followUpDate, setFollowUpDate] = useState<string>('');
   const [followUpTime, setFollowUpTime] = useState<string>('');
   const [formValues, setFormValues] = useState<FormValues>({
@@ -398,7 +400,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
       
       // Open booking page in new tab
       if (lead.id) {
-        window.open(`leads/${lead.id}/appointment`, '_blank');
+        router.push(`/dashboard/leads/${lead.id}/appointment`);
       }
     } catch (error) {
       console.error('Error during booking:', error);

@@ -72,6 +72,7 @@ export default function LeadActionButtons({
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -294,7 +295,7 @@ export default function LeadActionButtons({
                   {/* Schedule Appointment */}
                   <button
                     onClick={() => {
-                      window.open(`/dashboard/leads/${leadId}/appointment`, '_blank');
+                      router.push(`/dashboard/leads/${leadId}/appointment`);
                       setIsMenuOpen(false);
                     }}
                     className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"

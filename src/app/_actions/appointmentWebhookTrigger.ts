@@ -50,7 +50,8 @@ export async function triggerTodayAppointmentWebhooks() {
         // Filter appointments that start within today's date range in Singapore time
         and(
           gte(appointments.start_datetime, startOfDayUTC),
-          lte(appointments.start_datetime, endOfDayUTC)
+          lte(appointments.start_datetime, endOfDayUTC),
+          eq(appointments.status, 'upcoming')
         )
       );
 
