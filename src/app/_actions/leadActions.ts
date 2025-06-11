@@ -82,7 +82,7 @@ interface CreateLeadInput {
 }
 
 
-export async function createLead(input: CreateLeadInput) {
+export async function createLead(input: CreateLeadInput, assignedToMe = false) {
   try {
     const { userId } = await auth();
     
@@ -147,7 +147,38 @@ export async function createLead(input: CreateLeadInput) {
 
     // Auto-assign the lead only if eligible
     if (lead?.id && eligibilityStatus === 'eligible') {
-      await autoAssignSingleLead(lead.id);
+      if (assignedToMe) {
+        // Check if the creator is an agent and assign directly to them
+        const userRoles = await getUserRoles();
+        const isAgent = userRoles.some(role => role.roleName.toLowerCase() === 'agent');
+        
+        if (isAgent) {
+          // Assign the lead directly to the creator (agent)
+          await db.update(leads)
+            .set({ 
+              assigned_to: userId,
+              status: 'assigned',
+              updated_at: new Date(),
+              updated_by: userId
+            })
+            .where(eq(leads.id, lead.id));
+          
+          // Add log entry for direct assignment
+          await db.insert(logs).values({
+            description: `Lead assigned to creator ${userId}`,
+            entity_type: 'lead',
+            entity_id: lead.id.toString(),
+            action: 'assign',
+            performed_by: userId,
+          });
+        } else {
+          // If creator is not an agent, fall back to auto-assignment
+          await autoAssignSingleLead(lead.id);
+        }
+      } else {
+        // Normal auto-assignment process
+        await autoAssignSingleLead(lead.id);
+      }
     }
 
     return { success: true, lead: lead };
@@ -281,7 +312,7 @@ export async function importLeads(leadsData: ImportLeadData[]) {
           phone_number: leadData.phone_number?.toString() ?? '',
           full_name: leadData.full_name ?? leadData.first_name ?? '',
           email: leadData.email ?? '',
-          source: 'Firebase', // Default source for imports
+          source: 'SEO', // Default source for imports
           amount: leadData.amount ?? '',
           lead_type: ['new', 'reloan'].includes((leadData.lead_type ?? '').toString().toLowerCase())
             ? (leadData.lead_type ?? '').toString().toLowerCase()
@@ -840,5 +871,46 @@ export async function fetchFilteredLeads({
       error: 'Failed to fetch leads',
       details: error instanceof Error ? error.message : String(error)
     };
+  }
+}
+
+export async function deleteLead(leadId: number) {
+  const { userId } = await auth();
+  if (!userId) {
+    return { success: false, message: 'Not authenticated' };
+  }
+
+  try {
+    // Check if user has admin role
+    const userRolesResult = await getUserRoles();
+    const isAdmin = userRolesResult.some(r => r.roleName.toLowerCase() === 'admin');
+    
+    if (!isAdmin) {
+      return { success: false, message: 'Unauthorized - Admin access required' };
+    }
+
+    // Get lead details before deletion for logging
+    const [leadToDelete] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    
+    if (!leadToDelete) {
+      return { success: false, message: 'Lead not found' };
+    }
+
+    // Delete the lead (cascade will handle related records)
+    await db.delete(leads).where(eq(leads.id, leadId));
+
+    // Add log entry for lead deletion
+    await db.insert(logs).values({
+      description: `Deleted lead with phone ${leadToDelete.phone_number}${leadToDelete.full_name ? ` for ${leadToDelete.full_name}` : ''}`,
+      entity_type: 'lead',
+      entity_id: leadId.toString(),
+      action: 'delete',
+      performed_by: userId,
+    });
+
+    return { success: true, message: 'Lead deleted successfully' };
+  } catch (error) {
+    console.error('Error deleting lead:', error);
+    return { success: false, message: 'Failed to delete lead' };
   }
 }

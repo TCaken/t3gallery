@@ -28,8 +28,9 @@ import { type InferSelectModel } from 'drizzle-orm';
 import { type leads, type leadStatusEnum } from "~/server/db/schema";
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
 import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
-import { fetchUserData } from '~/app/_actions/userActions';
 import { checkInAgent, checkOutAgent, autoAssignLeads, checkAgentStatus, getAutoAssignmentSettings, updateAutoAssignmentSettings, getAssignmentPreviewWithRoundRobin, bulkAutoAssignLeads, updateAgentCapacity, resetRoundRobinIndex, getManualAssignmentPreview } from '~/app/_actions/agentActions';
+import { useUserRole } from './useUserRole';
+import type { UserRole } from './useUserRole';
 import AssignLeadModal from '~/app/_components/AssignLeadModal';
 import { exportAllLeadsToCSV } from '~/app/_actions/exportActions';
 import { makeCall } from '~/app/_actions/callActions';
@@ -105,8 +106,7 @@ const getStatusColor = (status: string) => {
   return statusMap[status] ?? "bg-gray-100 text-gray-800";
 };
 
-// Define user role type
-type UserRole = 'admin' | 'agent' | 'retail' | 'user';
+
 
 // Helper component to safely display dates
 const SafeDate = ({ date }: { date: Date | string | null }) => {
@@ -173,8 +173,7 @@ export default function LeadsPage() {
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
   const router = useRouter();
-  const [userRole, setUserRole] = useState<UserRole>('user');
-  const [isLoadingUserRole, setIsLoadingUserRole] = useState(true);
+  const { userRole, hasRole, hasAnyRole } = useUserRole();
   const { userId } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showAssignConfirmation, setShowAssignConfirmation] = useState(false);
@@ -719,18 +718,33 @@ export default function LeadsPage() {
   // Toggle auto-assignment
   const toggleAutoAssignment = async (enabled: boolean) => {
     try {
+      console.log("🔄 toggleAutoAssignment: Starting with enabled =", enabled);
+      console.log("📋 toggleAutoAssignment: Current settings before update:", autoAssignmentSettings);
+      
       const result = await updateAutoAssignmentSettings({ is_enabled: enabled });
+      console.log("📤 toggleAutoAssignment: Update result:", result);
+      
       if (result.success) {
-        setAutoAssignmentSettings(prev => prev ? { ...prev, is_enabled: enabled } : null);
+        console.log("✅ toggleAutoAssignment: Update successful, updating local state");
+        setAutoAssignmentSettings(prev => {
+          const newSettings = prev ? { ...prev, is_enabled: enabled } : null;
+          console.log("🔄 toggleAutoAssignment: New local settings:", newSettings);
+          return newSettings;
+        });
         showNotification(
           enabled ? 'Auto-assignment enabled' : 'Auto-assignment disabled', 
           'success'
         );
+        
+        // Reload settings to verify the change
+        console.log("🔄 toggleAutoAssignment: Reloading settings to verify...");
+        await loadAutoAssignmentSettings();
       } else {
+        console.log("❌ toggleAutoAssignment: Update failed:", result.message);
         showNotification('Failed to update auto-assignment settings', 'error');
       }
     } catch (error) {
-      console.error('Error toggling auto-assignment:', error);
+      console.error('❌ Error toggling auto-assignment:', error);
       showNotification('Error updating settings', 'error');
     }
   };
@@ -851,15 +865,11 @@ export default function LeadsPage() {
         }
         
         // Load user role
-        const { roles } = await fetchUserData();
-        console.log('User roles fetched:', roles); // Debug log
-        if (roles && roles.length > 0) {
-          const roleName = roles[0]?.roleName ?? 'user';
-          console.log('Setting userRole to:', roleName); // Debug log
-          setUserRole(roleName as UserRole);
-          
+        if (userRole && userRole.length > 0) {
+          console.log('Setting userRole to:', userRole); // Debug log
+
           // If user is an agent, check their check-in status
-          if (roleName === 'agent') {
+          if (userRole === 'agent') {
             const statusResult = await checkAgentStatus();
             if (statusResult.success) {
               setIsCheckedIn(statusResult.isCheckedIn);
@@ -867,20 +877,16 @@ export default function LeadsPage() {
           }
           
           // If user is an admin, load auto assignment settings
-          if (roleName === 'admin') {
+          if (userRole === 'admin') {
             console.log('Loading auto assignment settings for admin...'); // Debug log
             await loadAutoAssignmentSettings();
           }
         } else {
           console.log('No roles found, defaulting to user'); // Debug log
         }
-        
-        // Mark user role loading as complete
-        setIsLoadingUserRole(false);
       } catch (err) {
         console.error('Error in loadInitialData:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
-        setIsLoadingUserRole(false); // Also set to false on error
       }
     };
 
@@ -1922,17 +1928,17 @@ export default function LeadsPage() {
         // Kanban board view with filtered leads
         <div className="overflow-x-auto pb-4">
           {/* Loading State for User Role or Search */}
-          {(isLoadingUserRole || (filters.search && filters.search.trim() !== '' && isSearchAutoLoading)) ? (
+          {(filters.search && filters.search.trim() !== '' && isSearchAutoLoading) ? (
             <div className="relative">
               {/* Blur overlay */}
               <div className="absolute inset-0 bg-white bg-opacity-60 backdrop-blur-sm z-10 flex items-center justify-center">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto mb-4"></div>
                   <p className="text-gray-600 font-medium">
-                    {isLoadingUserRole ? 'Loading your dashboard...' : 'Searching leads...'}
+                    {'Searching leads...'}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    {isLoadingUserRole ? 'Determining your access level' : `Looking for "${filters.search}"`}
+                    {`Looking for "${filters.search}"`}
                   </p>
                 </div>
               </div>
@@ -2104,17 +2110,17 @@ export default function LeadsPage() {
         // List view for All or Pinned tabs with filtered leads
         <div className="space-y-4">
           {/* Loading State for User Role or Search in List View */}
-          {(isLoadingUserRole || (filters.search && filters.search.trim() !== '' && isSearchAutoLoading)) ? (
+          {(filters.search && filters.search.trim() !== '' && isSearchAutoLoading) ? (
             <div className="relative">
               {/* Blur overlay */}
               <div className="absolute inset-0 bg-white bg-opacity-60 backdrop-blur-sm z-10 flex items-center justify-center">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto mb-4"></div>
                   <p className="text-gray-600 font-medium">
-                    {isLoadingUserRole ? 'Loading your dashboard...' : 'Searching leads...'}
+                    {'Searching leads...'}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    {isLoadingUserRole ? 'Determining your access level' : `Looking for "${filters.search}"`}
+                    {`Looking for "${filters.search}"`}
                   </p>
                 </div>
               </div>

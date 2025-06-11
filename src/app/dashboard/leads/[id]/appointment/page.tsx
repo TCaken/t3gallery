@@ -13,13 +13,16 @@ import {
   InformationCircleIcon,
   ExclamationCircleIcon,
   ChevronLeftIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  CheckCircleIcon,
+  XCircleIcon
 } from '@heroicons/react/24/outline';
 import { fetchLeadById } from '~/app/_actions/leadActions';
 import { 
   checkExistingAppointment, 
   fetchAvailableTimeslots, 
   cancelAppointment,
+  getAppointmentsForLead,
   type Timeslot
 } from '~/app/_actions/appointmentAction';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
@@ -443,6 +446,17 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
             )}
           </div>
           
+          {/* Previous Appointments Section */}
+          <div className="bg-white p-4 rounded-lg shadow-md mb-6">
+            <h2 className="font-semibold text-lg mb-4 flex items-center">
+              <CalendarIcon className="h-5 w-5 mr-2 text-blue-600" />
+              Previous Appointments
+            </h2>
+            
+            {/* Load appointments using the existing getAppointmentsForLead from the leadId */}
+            <PreviousAppointments leadId={leadId} />
+          </div>
+          
           {/* Calendar selection */}
           <div className="bg-white p-4 rounded-lg shadow-md">
             <h2 className="font-semibold text-lg mb-4 flex items-center">
@@ -647,6 +661,111 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Previous Appointments Component
+function PreviousAppointments({ leadId }: { leadId: number }) {
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadAppointments = async () => {
+      try {
+        setLoading(true);
+        const response = await getAppointmentsForLead(leadId);
+        if (response.success && response.appointments) {
+          // Sort appointments by date, newest first
+          const sortedAppointments = response.appointments.sort((a: Appointment, b: Appointment) => 
+            new Date(b.start_datetime).getTime() - new Date(a.start_datetime).getTime()
+          );
+          setAppointments(sortedAppointments);
+        }
+      } catch (error) {
+        console.error('Error loading appointments:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadAppointments();
+  }, [leadId]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <div className="animate-pulse text-gray-500 text-sm">Loading appointments...</div>
+      </div>
+    );
+  }
+
+  if (appointments.length === 0) {
+    return (
+      <div className="text-center py-6">
+        <CalendarIcon className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+        <p className="text-gray-500 text-sm">No previous appointments</p>
+      </div>
+    );
+  }
+
+  const getStatusColor = (status: string) => {
+    const colors: Record<string, string> = {
+      upcoming: "bg-blue-50 text-blue-700 border-blue-200",
+      done: "bg-green-50 text-green-700 border-green-200", 
+      missed: "bg-orange-50 text-orange-700 border-orange-200",
+      cancelled: "bg-red-50 text-red-700 border-red-200"
+    };
+    return colors[status] ?? "bg-gray-50 text-gray-700 border-gray-200";
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'upcoming': return <ClockIcon className="h-4 w-4" />;
+      case 'done': return <CheckCircleIcon className="h-4 w-4" />;
+      case 'missed': return <ExclamationCircleIcon className="h-4 w-4" />;
+      case 'cancelled': return <XCircleIcon className="h-4 w-4" />;
+      default: return <ClockIcon className="h-4 w-4" />;
+    }
+  };
+
+  return (
+    <div className="space-y-3 max-h-64 overflow-y-auto">
+      {appointments.map((appointment) => (
+        <div 
+          key={appointment.id} 
+          className={`p-3 rounded-lg border ${getStatusColor(appointment.status)}`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center space-x-2">
+              {getStatusIcon(appointment.status)}
+              <span className="font-medium text-sm capitalize">{appointment.status}</span>
+            </div>
+            <span className="text-xs text-gray-500">
+              #{appointment.id}
+            </span>
+          </div>
+          
+          <div className="text-sm space-y-1">
+            <div className="flex items-center">
+              <CalendarIcon className="h-3 w-3 mr-1" />
+              <span>{format(new Date(appointment.start_datetime), 'MMM dd, yyyy')}</span>
+            </div>
+            <div className="flex items-center">
+              <ClockIcon className="h-3 w-3 mr-1" />
+              <span>
+                {format(new Date(appointment.start_datetime), 'h:mm a')} - 
+                {format(new Date(appointment.end_datetime), 'h:mm a')}
+              </span>
+            </div>
+            {appointment.notes && (
+              <div className="text-xs italic text-gray-600 mt-2 p-2 bg-white/50 rounded">
+                {appointment.notes}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

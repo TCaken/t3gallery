@@ -688,3 +688,27 @@ export async function generateTimeslots(data: {
     };
   }
 }
+
+/**
+ * Get appointments for a specific lead
+ */
+export async function getAppointmentsForLead(leadId: number) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    const results = await db
+      .select()
+      .from(appointments)
+      .where(eq(appointments.lead_id, leadId))
+      .orderBy(desc(appointments.created_at));
+    
+    return { 
+      success: true, 
+      appointments: results
+    };
+  } catch (error) {
+    console.error("Error fetching appointments for lead:", error);
+    return { success: false, message: "Failed to fetch appointments", appointments: [] };
+  }
+}

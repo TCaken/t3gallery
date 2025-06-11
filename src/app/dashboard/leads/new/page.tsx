@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createLead } from '~/app/_actions/leadActions';
+import { useUserRole } from '../useUserRole';
 import { 
   UserIcon, 
   HomeIcon, 
@@ -66,6 +67,7 @@ const isCheckboxGroupField = (field: Field): field is CheckboxGroupField => fiel
 
 export default function NewLeadPage() {
   const router = useRouter();
+  const { hasRole } = useUserRole();
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -357,7 +359,7 @@ export default function NewLeadPage() {
         bypassEligibility: true,
       };
 
-      const result = await createLead(formattedData);
+      const result = await createLead(formattedData, true);
       
       if (result.success) {
         setNotification({ message: 'Lead created successfully!', type: 'success' });
