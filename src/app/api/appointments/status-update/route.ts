@@ -372,17 +372,17 @@ export async function POST(request: NextRequest) {
                   
                   if (webhookResponse.ok) {
                     const webhookResult = await webhookResponse.json();
-                    console.log(`✅ RS rejection webhook called successfully for ${cleanPhoneNumber}:`, webhookResult);
+                    console.log(`✅ Lead rejection webhook called successfully for ${cleanPhoneNumber}:`, webhookResult);
                     updateReason += ` + Webhook called`;
                   } else {
-                    console.error(`❌ RS rejection webhook failed for ${cleanPhoneNumber}:`, webhookResponse.status, webhookResponse.statusText);
+                    console.error(`❌ Lead rejection webhook failed for ${cleanPhoneNumber}:`, webhookResponse.status, webhookResponse.statusText);
                     updateReason += ` + Webhook failed`;
                   }
                 } else {
-                  console.warn(`⚠️ No valid phone number found for RS rejection webhook (Lead ID: ${lead.id})`);
+                  console.warn(`⚠️ No valid phone number found for Lead rejection webhook (Lead ID: ${lead.id})`);
                 }
               } catch (webhookError) {
-                console.error(`❌ Error calling RS rejection webhook:`, webhookError);
+                console.error(`❌ Error calling Lead rejection webhook:`, webhookError);
                 updateReason += ` + Webhook error`;
               }
             } else if (code === 'RS') {
@@ -399,6 +399,7 @@ export async function POST(request: NextRequest) {
       // If no Excel data or no match, check time threshold
       if (!shouldUpdateToDone && timeDiffHours >= thresholdHours) {
         shouldUpdateToMissed = true;
+        newLeadStatus = 'missed/RS';
         updateReason = `Time threshold exceeded: ${timeDiffHours.toFixed(2)}h >= ${thresholdHours}h → Appointment missed, Lead missed/RS`;
       }
 

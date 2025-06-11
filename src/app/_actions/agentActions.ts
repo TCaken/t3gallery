@@ -1104,7 +1104,6 @@ export async function assignLeadToAgent(leadId: number, agentId: string) {
         .update(leads)
         .set({
           assigned_to: agentId,
-          status: 'assigned',
           updated_at: new Date(),
           updated_by: userId
         })
