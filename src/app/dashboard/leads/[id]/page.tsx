@@ -207,7 +207,7 @@ export default function LeadDetailPage({ params }: PageProps) {
             <p className="text-red-800 font-medium">Error loading lead</p>
             <p className="text-red-600 mt-2">{error}</p>
             <button 
-              onClick={() => router.back()}
+              onClick={() => router.push('/dashboard/leads')}
               className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
             >
               Go Back
@@ -225,7 +225,7 @@ export default function LeadDetailPage({ params }: PageProps) {
         <div className="text-center">
           <p className="text-gray-600">Lead not found</p>
           <button 
-            onClick={() => router.back()}
+            onClick={() => router.push('/dashboard/leads')}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Go Back
@@ -244,7 +244,7 @@ export default function LeadDetailPage({ params }: PageProps) {
             {/* Left side - Back button and title */}
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => router.back()}
+                onClick={() => router.push('/dashboard/leads')}
                 className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
               >
                 <ArrowLeftIcon className="h-5 w-5 mr-2" />

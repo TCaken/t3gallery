@@ -97,6 +97,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
     if (!input.bypassEligibility) {
       // Run eligibility check
       const eligibilityResult = await checkLeadEligibility(formattedPhone);
+      console.log('eligibilityResult', eligibilityResult);
       eligibilityStatus = eligibilityResult.isEligible ? 'eligible' : 'ineligible';
       eligibilityNotes = eligibilityResult.notes;
       finalStatus = eligibilityResult.isEligible ? 'new' : 'unqualified';
@@ -147,6 +148,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
 
     // Auto-assign the lead only if eligible
     if (lead?.id && eligibilityStatus === 'eligible') {
+      console.log("Inside auto-assignment", assignedToMe);
       if (assignedToMe) {
         // Check if the creator is an agent and assign directly to them
         const userRoles = await getUserRoles();
@@ -177,7 +179,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
         }
       } else {
         // Normal auto-assignment process
-        await autoAssignSingleLead(lead.id);
+        // await autoAssignSingleLead(lead.id);
       }
     }
 
@@ -326,8 +328,8 @@ export async function importLeads(leadsData: ImportLeadData[]) {
         
         if (result.success && result.lead) {
           results.successful.push(result.lead);
-          const autoAssignResult = await autoAssignSingleLead(result.lead.id);
-          console.log('autoAssignResult', autoAssignResult);
+          // const autoAssignResult = await autoAssignSingleLead(result.lead.id);
+          // console.log('autoAssignResult', autoAssignResult);
           
           // If the lead is ineligible, push to Workato retention sheets
           if (result.lead.eligibility_status === 'ineligible') {
