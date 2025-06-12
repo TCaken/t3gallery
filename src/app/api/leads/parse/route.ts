@@ -562,6 +562,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    
 
     // Create the lead
     const createResult = await createLead({
