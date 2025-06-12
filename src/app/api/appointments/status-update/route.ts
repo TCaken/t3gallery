@@ -249,12 +249,207 @@ export async function POST(request: NextRequest) {
 
     let processedCount = 0;
     let updatedCount = 0;
-    const results = [];
+    const results: Array<{
+      appointmentId: string;
+      leadId: string;
+      leadName: string;
+      oldAppointmentStatus: string;
+      newAppointmentStatus: string;
+      oldLeadStatus: string;
+      newLeadStatus: string;
+      reason: string;
+      appointmentTime: string;
+      timeDiffHours: string;
+      error?: string;
+    }> = [];
 
     // Use fallback userId for updates (since auth is commented out)
     const fallbackUserId = "system-update";
 
-    // Process each appointment
+    // First, process Excel rows for new loan cases
+    if (excelData?.rows) {
+      for (const row of excelData.rows) {
+        processedCount++;
+        
+        // Skip if not a new loan case
+        if (row["col_New or Reloan? "]?.trim() !== "New Loan - 新贷款") {
+          console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
+          continue;
+        }
+
+        // Parse the timestamp from Excel (which is in GMT+8)
+        let excelTimestamp: Date;
+        try {
+          // Handle both DD/MM/YYYY and YYYY-MM-DD formats
+          const timestampStr = row.col_Timestamp;
+          if (timestampStr.includes('/')) {
+            // DD/MM/YYYY format
+            const [day, month, yearTime] = timestampStr.split('/');
+            if (!yearTime) {
+              throw new Error('Invalid timestamp format');
+            }
+            const [year, time] = yearTime.split(' ');
+            excelTimestamp = new Date(`${year}-${month}-${day}T${time}`);
+          } else {
+            // YYYY-MM-DD format
+            excelTimestamp = new Date(timestampStr);
+          }
+          
+          // Ensure the timestamp is treated as GMT+8
+          excelTimestamp = new Date(excelTimestamp.getTime() - (8 * 60 * 60 * 1000));
+        } catch (error) {
+          console.error(`❌ Error parsing timestamp for row ${row.row_number}:`, error);
+          continue;
+        }
+
+        // Convert Excel timestamp to UTC for comparison
+        const excelDateUTC = excelTimestamp.toISOString().split('T')[0];
+        
+        // Only process if the Excel row is from today
+        if (excelDateUTC !== todaySingapore) {
+          console.log(`⏭️ Skipping row ${row.row_number} - not from today (${excelDateUTC})`);
+          continue;
+        }
+
+        // Clean and format the phone number from Excel
+        const cleanExcelPhone = row["col_Mobile Number"]?.toString().replace(/\D/g, '');
+        if (!cleanExcelPhone) {
+          console.log(`⚠️ No phone number found in row ${row.row_number}`);
+          continue;
+        }
+
+        // Find matching appointment
+        const matchingAppointment = upcomingAppointments.find(record => {
+          const leadPhone = record.lead?.phone_number?.replace(/\D/g, '');
+          return leadPhone === cleanExcelPhone;
+        });
+
+        if (!matchingAppointment) {
+          console.log(`❌ No matching appointment found for phone "${cleanExcelPhone}"`);
+          continue;
+        }
+
+        const { appointment, lead } = matchingAppointment;
+        
+        if (!lead) {
+          console.warn(`⚠️ No lead found for appointment ${appointment.id}`);
+          continue;
+        }
+
+        // Update appointment status based on code
+        const code = row.col_Code?.trim().toUpperCase();
+        let newStatus = 'upcoming';
+        let newLeadStatus = lead.status;
+        let updateReason = '';
+
+        switch (code) {
+          case 'P':
+            newStatus = 'done';
+            newLeadStatus = 'done';
+            updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
+            break;
+          case 'RS':
+            newStatus = 'done';
+            newLeadStatus = 'missed/rs';
+            updateReason = `Excel Code: ${code} → Appointment Done, Lead missed/RS`;
+            
+            // Add RS detailed notes to eligibility_notes
+            const rsDetailed = row["col_RS -Detailed"]?.trim();
+            if (rsDetailed) {
+              try {
+                await db
+                  .update(leads)
+                  .set({
+                    eligibility_notes: rsDetailed,
+                    updated_at: new Date(),
+                    updated_by: fallbackUserId
+                  })
+                  .where(eq(leads.id, lead.id));
+                console.log(`📝 Added RS detailed notes to lead ${lead.id}: ${rsDetailed}`);
+              } catch (error) {
+                console.error(`❌ Error updating RS detailed notes for lead ${lead.id}:`, error);
+              }
+            }
+            break;
+          case 'R':
+            newStatus = 'done';
+            newLeadStatus = 'done';
+            updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
+            
+            // Call rejection webhook for R codes
+            try {
+              const cleanPhoneNumber = lead.phone_number?.replace(/^\+65/, '').replace(/[^\d]/g, '') ?? '';
+              if (cleanPhoneNumber) {
+                console.log(`📞 Calling RS rejection webhook for ${cleanPhoneNumber}`);
+                
+                const rejectionWebhookUrl = process.env.WORKATO_SEND_REJECTION_WEBHOOK_URL;
+
+                if(!rejectionWebhookUrl) {
+                  console.error('❌ WORKATO_SEND_REJECTION_WEBHOOK_URL is not set');
+                  return;
+                }
+
+                const webhookResponse = await fetch(rejectionWebhookUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    phone_number: cleanPhoneNumber,
+                    lead_id: lead.id,
+                    lead_name: lead.full_name,
+                    appointment_id: appointment.id,
+                    code: code,
+                    timestamp: new Date().toISOString()
+                  })
+                });
+                
+                if (webhookResponse.ok) {
+                  const webhookResult = await webhookResponse.json();
+                  console.log(`✅ Lead rejection webhook called successfully for ${cleanPhoneNumber}:`, webhookResult);
+                  updateReason += ` + Webhook called`;
+                } else {
+                  console.error(`❌ Lead rejection webhook failed for ${cleanPhoneNumber}:`, webhookResponse.status, webhookResponse.statusText);
+                  updateReason += ` + Webhook failed`;
+                }
+              } else {
+                console.warn(`⚠️ No valid phone number found for Lead rejection webhook (Lead ID: ${lead.id})`);
+              }
+            } catch (webhookError) {
+              console.error(`❌ Error calling Lead rejection webhook:`, webhookError);
+              updateReason += ` + Webhook error`;
+            }
+            break;
+          default:
+            console.log(`⚠️ Unknown code "${code}" for appointment ${appointment.id}`);
+            continue;
+        }
+
+        // Update appointment status
+        await db
+          .update(appointments)
+          .set({ 
+            status: newStatus,
+            updated_at: new Date(),
+            updated_by: fallbackUserId
+          })
+          .where(eq(appointments.id, appointment.id));
+
+        // Update lead status if it changed
+        if (newLeadStatus !== lead.status) {
+          await updateLead(lead.id, { 
+            status: newLeadStatus,
+            updated_at: new Date(),
+            updated_by: fallbackUserId
+          });
+        }
+
+        updatedCount++;
+        console.log(`✅ Updated appointment ${appointment.id} to ${newStatus} (Code: ${code}) - ${updateReason}`);
+      }
+    }
+
+    // Then, check remaining appointments for time threshold
     for (const record of upcomingAppointments) {
       const appointment = record.appointment;
       const lead = record.lead;
@@ -264,7 +459,10 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      processedCount++;
+      // Skip if this appointment was already processed by Excel data
+      if (appointment.status !== 'upcoming') {
+        continue;
+      }
 
       // Convert appointment time to Singapore timezone for comparison
       const appointmentTimeUTC = new Date(appointment.start_datetime);
@@ -277,207 +475,42 @@ export async function POST(request: NextRequest) {
 
       console.log(`🕐 Appointment ${appointment.id}: ${format(appointmentTimeSGT, 'HH:mm')} | Current: ${format(currentTimeSGT, 'HH:mm')} | Diff: ${timeDiffHours.toFixed(2)}h`);
 
-      let shouldUpdateToMissed = false;
-      let shouldUpdateToDone = false;
-      let newLeadStatus = '';
-      let updateReason = '';
-
-      // Check if Excel data is provided and find matching row
-      let matchingExcelRow: ExcelRow | undefined;
-      if (excelData?.rows) {
-        // Try to match by phone number (remove any formatting)
-        const cleanLeadPhone = lead.phone_number?.replace(/[^\d]/g, '') ?? '';
-        
-        console.log(`🔍 Debug appointment ${appointment.id}: Lead phone "${lead.phone_number}" → cleaned "${cleanLeadPhone}"`);
-        
-        matchingExcelRow = excelData.rows.find(row => {
-          const cleanExcelPhone = row["col_Mobile Number"]?.toString().replace(/[^\d]/g, '') ?? '';
-          
-          // Handle Singapore phone number matching
-          // Database: +6581467005 → 6581467005
-          // Excel: 81467005 → 81467005
-          // We need to match both formats
-          let isMatch = false;
-          
-          if (cleanExcelPhone && cleanLeadPhone) {
-            // Direct match
-            isMatch = cleanExcelPhone === cleanLeadPhone;
-            
-            // If no direct match, try adding/removing Singapore country code (65)
-            if (!isMatch) {
-              // Case 1: Excel has 8 digits, database has 65 + 8 digits
-              if (cleanExcelPhone.length === 8 && cleanLeadPhone === `65${cleanExcelPhone}`) {
-                isMatch = true;
-              }
-              // Case 2: Excel has 65 + 8 digits, database has 8 digits
-              else if (cleanLeadPhone.length === 8 && cleanExcelPhone === `65${cleanLeadPhone}`) {
-                isMatch = true;
-              }
-              // Case 3: Both have country code but different format
-              else if (cleanExcelPhone.startsWith('65') && cleanLeadPhone.startsWith('65')) {
-                isMatch = cleanExcelPhone === cleanLeadPhone;
-              }
-            }
-          }
-          
-        //   if (cleanExcelPhone) {
-        //     console.log(`📊 Checking Excel row ${row.row_number}: "${row["col_Mobile Number"]}" → cleaned "${cleanExcelPhone}", Code: "${row.col_Code}", Match: ${isMatch}`);
-        //   }
-          
-          return isMatch;
-        });
-
-        if (matchingExcelRow) {
-          console.log(`📊 Found Excel match for appointment ${appointment.id}: Code="${matchingExcelRow.col_Code}"`);
-          
-          // Process based on Excel Code
-          const code = matchingExcelRow.col_Code?.trim().toUpperCase();
-          
-                    // ANY code found means appointment is done
-          if (code && code.length > 0) {
-            shouldUpdateToDone = true;
-            
-            // Lead status depends on the specific code
-            if (code === 'R') {
-              newLeadStatus = 'done';
-              updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
-              
-              // Call rejection webhook for R codes
-              try {
-                const cleanPhoneNumber = lead.phone_number?.replace(/^\+65/, '').replace(/[^\d]/g, '') ?? '';
-                if (cleanPhoneNumber) {
-                  console.log(`📞 Calling RS rejection webhook for ${cleanPhoneNumber}`);
-                  
-                  const rejectionWebhookUrl = process.env.WORKATO_SEND_REJECTION_WEBHOOK_URL;
-
-                  if(!rejectionWebhookUrl) {
-                    console.error('❌ WORKATO_SEND_REJECTION_WEBHOOK_URL is not set');
-                    return;
-                  }
-
-                  const webhookResponse = await fetch(rejectionWebhookUrl, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      phone_number: cleanPhoneNumber,
-                      lead_id: lead.id,
-                      lead_name: lead.full_name,
-                      appointment_id: appointment.id,
-                      code: code,
-                      timestamp: new Date().toISOString()
-                    })
-                  });
-                  
-                  if (webhookResponse.ok) {
-                    const webhookResult = await webhookResponse.json();
-                    console.log(`✅ Lead rejection webhook called successfully for ${cleanPhoneNumber}:`, webhookResult);
-                    updateReason += ` + Webhook called`;
-                  } else {
-                    console.error(`❌ Lead rejection webhook failed for ${cleanPhoneNumber}:`, webhookResponse.status, webhookResponse.statusText);
-                    updateReason += ` + Webhook failed`;
-                  }
-                } else {
-                  console.warn(`⚠️ No valid phone number found for Lead rejection webhook (Lead ID: ${lead.id})`);
-                }
-              } catch (webhookError) {
-                console.error(`❌ Error calling Lead rejection webhook:`, webhookError);
-                updateReason += ` + Webhook error`;
-              }
-            } else if (code === 'RS') {
-              newLeadStatus = 'missed/RS';
-              updateReason = `Excel Code: ${code} → Appointment Done, Lead missed/RS (No webhook)`;
-            } else {
-              newLeadStatus = 'done';
-              updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
-            }
-          }
-        }
-      }
-
-      // If no Excel data or no match, check time threshold
-      if (!shouldUpdateToDone && timeDiffHours >= thresholdHours) {
-        shouldUpdateToMissed = true;
-        newLeadStatus = 'missed/RS';
-        updateReason = `Time threshold exceeded: ${timeDiffHours.toFixed(2)}h >= ${thresholdHours}h → Appointment missed, Lead missed/RS`;
-      }
-
-      // Update appointment and lead if needed
-      if (shouldUpdateToDone || shouldUpdateToMissed) {
+      // If appointment is late by threshold hours, mark as missed
+      if (timeDiffHours >= thresholdHours) {
         try {
-          const newAppointmentStatus = shouldUpdateToDone ? 'done' : 'missed';
-          const defaultLeadStatus = shouldUpdateToMissed ? 'missed/RS' : 'done';
-          const finalLeadStatus = newLeadStatus || defaultLeadStatus;
-
           // Update appointment status
           await db
             .update(appointments)
             .set({
-              status: newAppointmentStatus,
+              status: 'missed',
               updated_at: new Date(),
               updated_by: fallbackUserId
             })
             .where(eq(appointments.id, appointment.id));
 
           // Update lead status
-          if(timeDiffHours >= thresholdHours) {
-            await updateLead(lead.id, {
-              status: 'missed/RS'
-            });
-          }
-          else{
-            await db
-            .update(leads)
-            .set({
-              status: finalLeadStatus,
-              updated_at: new Date(),
-              updated_by: fallbackUserId
-            })
-            .where(eq(leads.id, lead.id));
-          }
+          await updateLead(lead.id, {
+            status: 'missed/rs',
+            updated_at: new Date(),
+            updated_by: fallbackUserId
+          });
 
           updatedCount++;
-          
-          results.push({
-            appointmentId: appointment.id,
-            leadId: lead.id,
-            leadName: lead.full_name,
-            oldAppointmentStatus: 'upcoming',
-            newAppointmentStatus,
-            oldLeadStatus: lead.status,
-            newLeadStatus: finalLeadStatus,
-            reason: updateReason,
-            appointmentTime: format(appointmentTimeSGT, 'HH:mm'),
-            timeDiffHours: timeDiffHours.toFixed(2)
-          });
-
-          console.log(`✅ Updated appointment ${appointment.id}: ${newAppointmentStatus} | Lead: ${finalLeadStatus} | Reason: ${updateReason}`);
+          console.log(`✅ Marked appointment ${appointment.id} as missed (${timeDiffHours.toFixed(2)}h late)`);
         } catch (error) {
           console.error(`❌ Error updating appointment ${appointment.id}:`, error);
-          results.push({
-            appointmentId: appointment.id,
-            leadId: lead.id,
-            leadName: lead.full_name,
-            error: `Failed to update: ${(error as Error).message}`,
-            reason: updateReason
-          });
         }
       } else {
-        console.log(`ℹ️ No update needed for appointment ${appointment.id}: Time diff ${timeDiffHours.toFixed(2)}h < ${thresholdHours}h, No Excel match`);
+        console.log(`ℹ️ No update needed for appointment ${appointment.id}: Time diff ${timeDiffHours.toFixed(2)}h < ${thresholdHours}h`);
       }
     }
 
-    console.log(`🎯 Process completed: ${processedCount} processed, ${updatedCount} updated`);
-
     return NextResponse.json({
       success: true,
-      message: `Processed ${processedCount} appointments, updated ${updatedCount}`,
+      message: "Appointment status update completed",
       processed: processedCount,
       updated: updatedCount,
-      results,
-      todaySingapore,
-      thresholdHours
+      results
     });
 
   } catch (error) {

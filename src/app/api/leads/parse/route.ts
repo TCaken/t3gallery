@@ -423,7 +423,7 @@ export async function POST(request: Request) {
     const emailFromFields = findValueInLine('Email') ?? findValueAfterLabel('Email:');
 
     // Then attempt to extract from full message if needed
-    let emailToUse = 'UNKNOWN';
+    let emailToUse = '';
     if (emailFromFields && isValidEmail(emailFromFields)) {
       emailToUse = emailFromFields.trim();
     } else {
