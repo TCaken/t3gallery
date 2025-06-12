@@ -293,9 +293,15 @@ export async function POST(request: NextRequest) {
               throw new Error('Invalid date format: expected DD/MM/YY or DD/MM/YYYY');
             }
 
-            const [day, month, yearPart] = parts;
-            if (!day || !month || !yearPart) {
+            const [day, month, yearTime] = parts;
+            if (!day || !month || !yearTime) {
               throw new Error('Invalid date format: missing day, month, or year');
+            }
+
+            // Split year and time if present
+            const [yearPart] = yearTime.split(' ');
+            if (!yearPart) {
+              throw new Error('Invalid date format: missing year');
             }
 
             // Handle both 2-digit and 4-digit years
