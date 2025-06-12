@@ -12,6 +12,7 @@ interface Playbook {
   last_synced_at: string;
   contact_count: number;
   samespace_status: string;
+  is_running: boolean;
   created_at: string;
 }
 
@@ -131,17 +132,16 @@ export default function PlaybooksPage() {
     setResult(null);
 
     try {
-      const response = await fetch("/api/playbooks/sync", {
+      const response = await fetch(`/api/playbooks/${playbookId}/sync`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ playbookId }),
       });
 
-      const data = await response.json();
+      const data = await response.json() as ApiResponse<ResultData>;
       setResult(data);
-      loadPlaybooks(); // Refresh the list
+      
+      if (data.success) {
+        void loadPlaybooks(); // Refresh the list
+      }
     } catch (error) {
       console.error("Error syncing playbook:", error);
       setResult({
@@ -191,17 +191,16 @@ export default function PlaybooksPage() {
     setResult(null);
 
     try {
-      const response = await fetch(`/api/playbooks/${playbookId}`, {
+      const response = await fetch(`/api/playbooks/${playbookId}/start`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "start" }),
       });
 
-      const data = await response.json();
+      const data = await response.json() as ApiResponse<ResultData>;
       setResult(data);
-      loadPlaybooks(); // Refresh the list
+      
+      if (data.success) {
+        void loadPlaybooks(); // Refresh the list
+      }
     } catch (error) {
       console.error("Error starting playbook:", error);
       setResult({
@@ -219,17 +218,16 @@ export default function PlaybooksPage() {
     setResult(null);
 
     try {
-      const response = await fetch(`/api/playbooks/${playbookId}`, {
+      const response = await fetch(`/api/playbooks/${playbookId}/stop`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "stop" }),
       });
 
-      const data = await response.json();
+      const data = await response.json() as ApiResponse<ResultData>;
       setResult(data);
-      loadPlaybooks(); // Refresh the list
+      
+      if (data.success) {
+        void loadPlaybooks(); // Refresh the list
+      }
     } catch (error) {
       console.error("Error stopping playbook:", error);
       setResult({
@@ -251,13 +249,20 @@ export default function PlaybooksPage() {
     setResult(null);
 
     try {
-      const response = await fetch(`/api/playbooks/${playbookId}`, {
+      const response = await fetch("/api/playbooks", {
         method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ playbookId }),
       });
 
-      const data = await response.json();
+      const data = await response.json() as ApiResponse<ResultData>;
       setResult(data);
-      loadPlaybooks(); // Refresh the list
+      
+      if (data.success) {
+        void loadPlaybooks(); // Refresh the list
+      }
     } catch (error) {
       console.error("Error deleting playbook:", error);
       setResult({
@@ -455,19 +460,28 @@ export default function PlaybooksPage() {
                     <td className="p-4">
                       <div className="flex flex-col space-y-2">
                         <div className="flex items-center space-x-2"> 
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          {/* <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                             playbook.is_active 
                               ? 'bg-green-100 text-green-800 border border-green-200' 
                               : 'bg-gray-100 text-gray-700 border border-gray-200'
                           }`}>
-                            {playbook.is_active ? 'Active' : 'Inactive'}
-                          </span>
+                            {playbook.is_active ? 'Registered' : 'Inactive'}
+                          </span> */}
                         </div>
-                        {/* {playbook.samespace_status && playbook.samespace_status !== 'unknown' && (
-                          <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">
-                            Status: {playbook.samespace_status}
-                          </div>
-                        )} */}
+                        <div className="flex items-center space-x-2">
+                          {/* <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            playbook.is_running 
+                              ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                              : 'bg-orange-100 text-orange-800 border border-orange-200'
+                          }`}>
+                            {playbook.is_running ? 'Running' : 'Stopped'}
+                          </span> */}
+                          {playbook.samespace_status !== 'unknown' && (
+                            <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">
+                              {playbook.samespace_status}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="p-4">
@@ -480,25 +494,29 @@ export default function PlaybooksPage() {
                     </td>
                     <td className="p-4">
                       <div className="flex flex-wrap gap-2">
-                        {/* Start/Stop buttons */}
-                        {playbook.is_active ? (
-                          <button
-                            onClick={() => handleStopPlaybook(playbook.id)}
-                            disabled={isLoading}
-                            className="bg-red-500 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center space-x-1"
-                          >
-                            <span className="w-2 h-2 bg-white rounded-full"></span>
-                            <span>Stop</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleStartPlaybook(playbook.id)}
-                            disabled={isLoading}
-                            className="bg-green-500 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center space-x-1"
-                          >
-                            <span className="w-0 h-0 border-l-[6px] border-l-white border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent ml-0.5"></span>
-                            <span>Start</span>
-                          </button>
+                        {/* Start/Stop buttons - Based on live Samespace status */}
+                        {playbook.is_active && (
+                          <>
+                            {playbook.is_running ? (
+                              <button
+                                onClick={() => handleStopPlaybook(playbook.id)}
+                                disabled={isLoading}
+                                className="bg-red-500 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center space-x-1"
+                              >
+                                <span className="w-2 h-2 bg-white rounded-full"></span>
+                                <span>Stop</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleStartPlaybook(playbook.id)}
+                                disabled={isLoading}
+                                className="bg-green-500 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-green-600 disabled:opacity-50 transition-colors flex items-center space-x-1"
+                              >
+                                <span className="w-0 h-0 border-l-[6px] border-l-white border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent ml-0.5"></span>
+                                <span>Start</span>
+                              </button>
+                            )}
+                          </>
                         )}
                         
                         {/* Sync button */}
@@ -616,17 +634,7 @@ export default function PlaybooksPage() {
           </div>
         </div>
       )}
-
-        {/* Environment Setup */}
-        <div className="mt-6 rounded-lg border border-yellow-200 bg-yellow-50 p-6">
-          <h3 className="text-lg font-semibold mb-2">⚠️ Environment Setup Required</h3>
-          <p className="text-gray-700">
-            Make sure to add your Samespace API key to your environment file:
-          </p>
-          <code className="block mt-2 p-2 bg-gray-100 rounded text-sm">
-            SAMESPACE_API_KEY=your_api_key_here
-          </code>
-        </div>
+      
       </div>
     </div>
   );

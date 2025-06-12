@@ -85,8 +85,8 @@ async function createSamespaceContact(contact: {
       { key: "dataSource", value: contact.dataSource },
       { key: "firstName", value: contact.firstName },
       { key: "lastName", value: contact.lastName },
-      { key: "phoneNumber", value: contact.phoneNumber },
-      { key: "work", value: ["6583992504","6588756328"][Math.floor(Math.random() * 2)] },
+      { key: "phoneNumber", value: contact.phoneNumber}
+      // { key: "work", value: ["6583992504","6588756328"][Math.floor(Math.random() * 2)] },
     ],
   };
 
@@ -187,6 +187,82 @@ async function updatePlaybookContacts(playbookId: string, phoneNumbers: string[]
   }
 
   return result.data?.updatePlaybook;
+}
+
+// Start playbook in Samespace
+async function startSamespacePlaybook(playbookId: string) {
+  const apiKey = getApiKey();
+  
+  const query = `
+    mutation StartPlaybook($id: ID!) {
+      startPlaybook(_id: $id)
+    }
+  `;
+
+  const response = await fetch('https://api.capcfintech.com/api/playbook/start', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': apiKey,
+    },
+    body: JSON.stringify({
+      query,
+      variables: { id: playbookId },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Samespace start playbook error ${response.status}: ${errorText}`);
+  }
+
+  const result = await response.json();
+  
+  if (result.errors && result.errors.length > 0) {
+    const errorMessages = result.errors.map((err: any) => err.message).join(', ');
+    throw new Error(`Samespace start playbook returned errors: ${errorMessages}`);
+  }
+
+  // Return success indicator since mutation doesn't return data
+  return { success: true };
+}
+
+// Stop playbook in Samespace
+async function stopSamespacePlaybook(playbookId: string) {
+  const apiKey = getApiKey();
+  
+  const query = `
+    mutation StopPlaybook($id: ID!) {
+      stopPlaybook(_id: $id)
+    }
+  `;
+
+  const response = await fetch('https://api.capcfintech.com/api/playbook/stop', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': apiKey,
+    },
+    body: JSON.stringify({
+      query,
+      variables: { id: playbookId },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Samespace stop playbook error ${response.status}: ${errorText}`);
+  }
+
+  const result = await response.json();
+  
+  if (result.errors && result.errors.length > 0) {
+    const errorMessages = result.errors.map((err: any) => err.message).join(', ');
+    throw new Error(`Samespace stop playbook returned errors: ${errorMessages}`);
+  }
+
+  // Return success indicator since mutation doesn't return data
+  return { success: true };
 }
 
 // Create and register a new playbook
@@ -453,11 +529,7 @@ export async function deletePlaybook(playbookId: number): Promise<PlaybookResult
 
     // Mark playbook as inactive (soft delete)
     await db
-      .update(playbooks)
-      .set({ 
-        is_active: false,
-        updated_at: new Date(),
-      })
+      .delete(playbooks)
       .where(eq(playbooks.id, playbookId));
 
     return {
@@ -657,11 +729,25 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
       }
     }
 
-    // Update playbook with successful contacts
+    // Update playbook with ALL contacts (existing + new successful ones)
     let playbookUpdated = false;
     if (successfulContacts.length > 0) {
       try {
-        await updatePlaybookContacts(playbook.samespace_playbook_id, successfulContacts);
+        // Get ALL contacts for this playbook (existing + new)
+        const allPlaybookContacts = await db
+          .select({
+            phone_number: playbook_contacts.phone_number,
+          })
+          .from(playbook_contacts)
+          .where(eq(playbook_contacts.playbook_id, playbookId));
+
+        const allPhoneNumbers = allPlaybookContacts.map(contact => 
+          contact.phone_number.replace(/^\+65/, '65')
+        );
+
+        console.log(`Updating playbook with ${allPhoneNumbers.length} total contacts (${allPlaybookContacts.length - successfulContacts.length} existing + ${successfulContacts.length} new)`);
+        
+        await updatePlaybookContacts(playbook.samespace_playbook_id, allPhoneNumbers);
         playbookUpdated = true;
         
         // Update last synced timestamp
@@ -670,7 +756,7 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
           .set({ last_synced_at: new Date() })
           .where(eq(playbooks.id, playbookId));
 
-        console.log(`Updated playbook ${playbook.samespace_playbook_id} with ${successfulContacts.length} contacts`);
+        console.log(`Updated playbook ${playbook.samespace_playbook_id} with ${allPhoneNumbers.length} total contacts`);
       } catch (error) {
         console.error('Failed to update playbook:', error);
       }
@@ -919,11 +1005,15 @@ export async function getAllPlaybooks(): Promise<PlaybookResult> {
         const samespaceStatus = await checkPlaybookStatus(playbook.samespace_playbook_id);
 
         console.log('Samespace status:', samespaceStatus);
+        
+        // Determine if running based on status
+        const isRunning = samespaceStatus?.status === 'active' || samespaceStatus?.status === 'running';
+        
         return {
           ...playbook,
           contact_count: contactCount?.count || 0,
           samespace_status: samespaceStatus?.status || 'unknown',
-          is_running: samespaceStatus?.isRunning || false,
+          is_running: isRunning,
         };
       })
     );
@@ -939,6 +1029,219 @@ export async function getAllPlaybooks(): Promise<PlaybookResult> {
     return {
       success: false,
       message: 'Failed to get playbooks',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Cron job function: Start playbooks, sync contacts, then stop all playbooks
+export async function cronSyncPlaybooks(): Promise<PlaybookResult> {
+  try {
+    console.log('Starting cron job: sync all playbooks');
+    
+    // Get all active playbooks
+    const playbooksResult = await getAllPlaybooks();
+    if (!playbooksResult.success || !playbooksResult.data) {
+      return {
+        success: false,
+        message: 'Failed to get playbooks for sync',
+        error: playbooksResult.error,
+      };
+    }
+
+    const activePlaybooks = playbooksResult.data.filter((p: any) => p.is_active);
+    
+    if (activePlaybooks.length === 0) {
+      return {
+        success: true,
+        message: 'No active playbooks to sync',
+        data: { synced: 0, started: 0, stopped: 0 },
+      };
+    }
+
+    console.log(`Found ${activePlaybooks.length} active playbooks to sync`);
+
+    const results = {
+      synced: 0,
+      started: 0,
+      stopped: 0,
+      details: [] as any[],
+    };
+
+    // Process each playbook
+    for (const playbook of activePlaybooks) {
+      try {
+        console.log(`Processing playbook ${playbook.id}: ${playbook.name}`);
+        
+        // Step 1: Start the playbook if needed
+        let startResult = null;
+        if (!playbook.is_running) {
+          console.log(`Starting playbook ${playbook.samespace_playbook_id}`);
+          startResult = await startPlaybook(playbook.id);
+          if (startResult.success) {
+            results.started++;
+            console.log(`Started playbook ${playbook.id}`);
+          } else {
+            console.error(`Failed to start playbook ${playbook.id}:`, startResult.message);
+          }
+        } else {
+          console.log(`Playbook ${playbook.id} is already running`);
+        }
+
+        // Step 2: Sync contacts
+        console.log(`Syncing contacts for playbook ${playbook.id}`);
+        const syncResult = await syncPlaybookContacts(playbook.id);
+        if (syncResult.success) {
+          results.synced++;
+          console.log(`Synced playbook ${playbook.id}: ${syncResult.message}`);
+        } else {
+          console.error(`Failed to sync playbook ${playbook.id}:`, syncResult.message);
+        }
+
+        // Step 3: Stop the playbook
+        // console.log(`Stopping playbook ${playbook.id}`);
+        // const stopResult = await stopPlaybook(playbook.id);
+        // if (stopResult.success) {
+        //   results.stopped++;
+        //   console.log(`Stopped playbook ${playbook.id}`);
+        // } else {
+        //   console.error(`Failed to stop playbook ${playbook.id}:`, stopResult.message);
+        // }
+
+        results.details.push({
+          playbook_id: playbook.id,
+          name: playbook.name,
+          started: startResult?.success ?? false,
+          synced: syncResult.success,
+          // stopped: stopResult.success,
+          sync_details: syncResult.data,
+        });
+
+      } catch (error) {
+        console.error(`Error processing playbook ${playbook.id}:`, error);
+        results.details.push({
+          playbook_id: playbook.id,
+          name: playbook.name,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    console.log('Cron job completed:', results);
+
+    return {
+      success: true,
+      message: `Cron sync completed: ${results.synced} synced, ${results.started} started, ${results.stopped} stopped`,
+      data: results,
+    };
+
+  } catch (error) {
+    console.error('Error in cron sync playbooks:', error);
+    return {
+      success: false,
+      message: 'Failed to run cron sync',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Stop all running playbooks
+export async function stopAllPlaybooks(): Promise<PlaybookResult> {
+  try {
+    console.log('Stopping all playbooks');
+    
+    // Get all active playbooks
+    const playbooksResult = await getAllPlaybooks();
+    if (!playbooksResult.success || !playbooksResult.data) {
+      return {
+        success: false,
+        message: 'Failed to get playbooks',
+        error: playbooksResult.error,
+      };
+    }
+
+    const activePlaybooks = playbooksResult.data
+    
+    if (activePlaybooks.length === 0) {
+      return {
+        success: true,
+        message: 'No running playbooks to stop',
+        data: { stopped: 0 },
+      };
+    }
+
+    console.log(`Found ${activePlaybooks.length} running playbooks to stop`);
+
+    const results = {
+      stopped: 0,
+      failed: 0,
+      contacts_cleaned: 0,
+      details: [] as any[],
+    };
+
+    // Stop each playbook and cleanup contacts
+    for (const playbook of activePlaybooks) {
+      try {
+        console.log(`Stopping and cleaning playbook ${playbook.id}: ${playbook.name}`);
+        
+        // Step 1: Stop the playbook
+        const stopResult = await stopPlaybook(playbook.id);
+        
+        // Step 2: Cleanup contacts (regardless of stop result)
+        let cleanupResult = null;
+        try {
+          console.log(`Cleaning up contacts for playbook ${playbook.id}`);
+          cleanupResult = await cleanupPlaybookContacts(playbook.id);
+          if (cleanupResult.success && cleanupResult.data?.contactsRemoved) {
+            results.contacts_cleaned += cleanupResult.data.contactsRemoved;
+            console.log(`Cleaned ${cleanupResult.data.contactsRemoved} contacts from playbook ${playbook.id}`);
+          }
+        } catch (cleanupError) {
+          console.error(`Failed to cleanup contacts for playbook ${playbook.id}:`, cleanupError);
+        }
+        
+        if (stopResult.success) {
+          results.stopped++;
+          console.log(`Stopped playbook ${playbook.id}`);
+        } else {
+          results.failed++;
+          console.error(`Failed to stop playbook ${playbook.id}:`, stopResult.message);
+        }
+
+        results.details.push({
+          playbook_id: playbook.id,
+          name: playbook.name,
+          stopped: stopResult.success,
+          stop_message: stopResult.message,
+          contacts_cleaned: cleanupResult?.data?.contactsRemoved || 0,
+          cleanup_success: cleanupResult?.success || false,
+          cleanup_message: cleanupResult?.message || 'No cleanup attempted',
+        });
+
+      } catch (error) {
+        results.failed++;
+        console.error(`Error stopping/cleaning playbook ${playbook.id}:`, error);
+        results.details.push({
+          playbook_id: playbook.id,
+          name: playbook.name,
+          stopped: false,
+          contacts_cleaned: 0,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: `Stop all completed: ${results.stopped} stopped, ${results.failed} failed, ${results.contacts_cleaned} contacts cleaned`,
+      data: results,
+    };
+
+  } catch (error) {
+    console.error('Error stopping all playbooks:', error);
+    return {
+      success: false,
+      message: 'Failed to stop all playbooks',
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
