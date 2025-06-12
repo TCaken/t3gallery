@@ -85,8 +85,8 @@ async function createSamespaceContact(contact: {
       { key: "dataSource", value: contact.dataSource },
       { key: "firstName", value: contact.firstName },
       { key: "lastName", value: contact.lastName },
-      { key: "phoneNumber", value: contact.phoneNumber},
-      { key: "work", value: ["6583992504","6588756328"][Math.floor(Math.random() * 2)] },
+      { key: "phoneNumber", value: contact.phoneNumber}
+      // { key: "work", value: ["6583992504","6588756328"][Math.floor(Math.random() * 2)] },
     ],
   };
 
