@@ -278,36 +278,44 @@ export async function POST(request: NextRequest) {
         }
 
         // Parse the timestamp from Excel (which is in GMT+8)
-        let excelTimestamp: Date;
+        let excelDate: string;
         try {
-          // Handle both DD/MM/YYYY and YYYY-MM-DD formats
           const timestampStr = row.col_Timestamp;
-          if (timestampStr.includes('/')) {
-            // DD/MM/YYYY format
-            const [day, month, yearTime] = timestampStr.split('/');
-            if (!yearTime) {
-              throw new Error('Invalid timestamp format');
-            }
-            const [year, time] = yearTime.split(' ');
-            excelTimestamp = new Date(`${year}-${month}-${day}T${time}`);
-          } else {
-            // YYYY-MM-DD format
-            excelTimestamp = new Date(timestampStr);
+          if (!timestampStr) {
+            throw new Error('Empty timestamp');
           }
-          
-          // Ensure the timestamp is treated as GMT+8
-          excelTimestamp = new Date(excelTimestamp.getTime() - (8 * 60 * 60 * 1000));
+
+          // Handle DD/MM/YY or DD/MM/YYYY format
+          if (timestampStr.includes('/') || timestampStr.includes('-')) {
+            // Split by either / or -
+            const parts = timestampStr.split(/[\/-]/);
+            if (parts.length !== 3) {
+              throw new Error('Invalid date format: expected DD/MM/YY or DD/MM/YYYY');
+            }
+
+            const [day, month, yearPart] = parts;
+            if (!day || !month || !yearPart) {
+              throw new Error('Invalid date format: missing day, month, or year');
+            }
+
+            // Handle both 2-digit and 4-digit years
+            const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
+
+            // Create YYYY-MM-DD format for comparison
+            excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            console.log(`📅 Parsed date: ${timestampStr} → ${excelDate}`);
+          } else {
+            throw new Error('Unsupported date format');
+          }
         } catch (error) {
           console.error(`❌ Error parsing timestamp for row ${row.row_number}:`, error);
+          console.error(`📝 Raw timestamp value: "${row.col_Timestamp}"`);
           continue;
         }
 
-        // Convert Excel timestamp to UTC for comparison
-        const excelDateUTC = excelTimestamp.toISOString().split('T')[0];
-        
         // Only process if the Excel row is from today
-        if (excelDateUTC !== todaySingapore) {
-          console.log(`⏭️ Skipping row ${row.row_number} - not from today (${excelDateUTC})`);
+        if (excelDate !== todaySingapore) {
+          console.log(`⏭️ Skipping row ${row.row_number} - not from today (${excelDate} vs ${todaySingapore})`);
           continue;
         }
 
