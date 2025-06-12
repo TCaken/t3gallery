@@ -455,12 +455,12 @@ export default function PlaybooksPage() {
                     <td className="p-4">
                       <div className="flex flex-col space-y-2">
                         <div className="flex items-center space-x-2"> 
-                          <span className={`px-1 rounded-full text-xs font-medium ${
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                             playbook.is_active 
                               ? 'bg-green-100 text-green-800 border border-green-200' 
                               : 'bg-gray-100 text-gray-700 border border-gray-200'
                           }`}>
-                            {playbook.is_active ? '● Active' : '○ Inactive'}
+                            {playbook.is_active ? 'Active' : 'Inactive'}
                           </span>
                         </div>
                         {/* {playbook.samespace_status && playbook.samespace_status !== 'unknown' && (

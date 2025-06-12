@@ -97,7 +97,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
 
     void loadLead();
   }, [leadId]);
-
+  
   // Define comprehensive sections based on LeadEditSlideOver
   const formSections: Section[] = [
     {
@@ -355,7 +355,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
         setOriginalData(formData);
         // Auto-redirect after 2 seconds
         setTimeout(() => {
-          router.push(`/dashboard/leads/${leadId}`);
+        router.push(`/dashboard/leads/${leadId}`);
         }, 2000);
       } else {
         setError(result.message || 'Failed to update lead');
@@ -501,7 +501,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
 
     return null;
   };
-
+  
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -520,18 +520,18 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6">
             <p className="text-red-800 font-medium">Error loading lead</p>
             <p className="text-red-600 mt-2">{error}</p>
-            <button 
+        <button
               onClick={() => router.push('/dashboard/leads')}
               className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-            >
-              Back to Leads
-            </button>
+        >
+          Back to Leads
+        </button>
           </div>
         </div>
       </div>
     );
   }
-
+  
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -539,29 +539,29 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-6">
             <div className="flex items-center space-x-4">
-              <button
-                onClick={() => router.push(`/dashboard/leads/${leadId}`)}
+            <button
+              onClick={() => router.push(`/dashboard/leads/${leadId}`)}
                 className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
-              >
+            >
                 <ArrowLeftIcon className="h-5 w-5 mr-2" />
                 Back to Lead
-              </button>
+            </button>
               <div className="h-6 border-l border-gray-300"></div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Edit Lead</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Edit Lead</h1>
                 <p className="text-sm text-gray-500">{formData.full_name || 'Unnamed Lead'}</p>
-              </div>
-            </div>
-            
+          </div>
+        </div>
+        
             {hasChanges && (
               <div className="flex items-center space-x-2 text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-lg">
                 <ExclamationTriangleIcon className="h-4 w-4" />
                 <span>Unsaved changes</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+                  </div>
+                  )}
+                </div>
+                  </div>
+                </div>
 
       {/* Form */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -573,7 +573,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 <CheckCircleIcon className="h-5 w-5 text-green-400 mr-2" />
                 <p className="text-green-800">{success}</p>
               </div>
-            </div>
+                </div>
           )}
 
           {error && (
@@ -582,7 +582,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 <ExclamationTriangleIcon className="h-5 w-5 text-red-400 mr-2" />
                 <p className="text-red-800">{error}</p>
               </div>
-            </div>
+                  </div>
           )}
 
           {/* Form Sections */}
@@ -629,8 +629,8 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
                 <span>{saving ? 'Saving...' : 'Save Changes'}</span>
               </button>
             </div>
-          </div>
-        </form>
+            </div>
+          </form>
       </div>
     </div>
   );

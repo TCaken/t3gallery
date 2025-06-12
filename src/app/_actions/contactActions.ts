@@ -281,7 +281,7 @@ export async function syncContactsForPlaybook(
         const lastName = lastNameParts.join(' ') || '';
 
         const contact = await createSamespaceContact({
-          firstName: firstName || 'Unknown',
+          firstName: firstName || '',
           lastName: lastName,
           phoneNumber: lead.phone_number.replace(/^\+65/, '65'),
           dataSource: 'AirConnect',
