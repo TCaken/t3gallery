@@ -3,7 +3,7 @@
 
 import { db } from "~/server/db";
 import { leads, playbooks, playbook_contacts, users } from "~/server/db/schema";
-import { eq, and, inArray, not } from "drizzle-orm";
+import { eq, and, inArray, not, sql } from "drizzle-orm";
 
 interface PlaybookResult {
   success: boolean;
@@ -31,7 +31,6 @@ async function checkPlaybookStatus(playbookId: string) {
         _id
         name
         status
-        isRunning
       }
     }
   `;
@@ -72,8 +71,8 @@ async function createSamespaceContact(contact: {
   const apiKey = getApiKey();
   
   const query = `
-    mutation CreateContact($properties: [KeyValueInput!]!, $module: ID) {
-      createContact(properties: $properties, module: $module) {
+    mutation CreateContact($properties: [KeyValueInput!]!, $module: ID, $moduleName: String) {
+      createContact(properties: $properties, module: $module, moduleName: $moduleName) {
         _id
       }
     }
@@ -82,14 +81,16 @@ async function createSamespaceContact(contact: {
   const variables = {
     module: "6303289128a0e96163bd0dcd",
     properties: [
+      { key: "company", value: "AirConnect" },
       { key: "dataSource", value: contact.dataSource },
       { key: "firstName", value: contact.firstName },
       { key: "lastName", value: contact.lastName },
-      { key: "phoneNumber", value: contact.phoneNumber }
+      { key: "phoneNumber", value: contact.phoneNumber },
+      { key: "work", value: ["6583992504","6588756328"][Math.floor(Math.random() * 2)] },
     ],
   };
 
-  console.log('Creating Samespace contact:', { contact, variables });
+  // console.log('Creating Samespace contact:', { contact, variables });
 
   const response = await fetch('https://api.capcfintech.com/api/playbook/contacts/create', {
     method: 'POST',
@@ -137,7 +138,7 @@ async function updatePlaybookContacts(playbookId: string, phoneNumbers: string[]
         {
           or: [
             {
-              key: 'dataSource',
+              key: 'company',
               condition: 'IS',
               value: 'AirConnect',
             },
@@ -205,6 +206,7 @@ export async function createAndRegisterPlaybook(
         id: leads.id,
         phone_number: leads.phone_number,
         full_name: leads.full_name,
+        source: leads.source,
       })
       .from(leads)
       .where(
@@ -261,7 +263,7 @@ export async function createAndRegisterPlaybook(
         phone_number: lead.phone_number,
         first_name: firstName || 'Unknown',
         last_name: lastNameParts.join(' ') || '',
-        data_source: 'AirConnect',
+        data_source: lead.source || 'Unknown',
         status: 'created',
         sync_status: 'synced',
       };
@@ -550,26 +552,23 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
 
     const existingIds = existingLeadIds.map(row => row.lead_id);
 
-    let leadsQuery = db
+    const leadsQuery = db
       .select({
         id: leads.id,
         phone_number: leads.phone_number,
         full_name: leads.full_name,
+        source: leads.source,
       })
       .from(leads)
       .where(
         and(
           eq(leads.assigned_to, playbook.agent_id),
           eq(leads.status, 'assigned'),
-          eq(leads.is_deleted, false)
+          eq(leads.is_deleted, false),
+          not(inArray(leads.id, existingIds))
         )
       )
-      .limit(100);
-
-    // Exclude already added leads
-    if (existingIds.length > 0) {
-      leadsQuery = leadsQuery.where(not(inArray(leads.id, existingIds)));
-    }
+      .limit(300);
 
     const followUpLeads = await leadsQuery;
 
@@ -592,16 +591,18 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
     const successfulContacts = [];
 
     for (const lead of followUpLeads) {
+      console.log('Creating contact for lead:', lead);
       try {
-        const [firstName, ...lastNameParts] = (lead.full_name || 'Unknown').split(' ');
-        const lastName = lastNameParts.join(' ') || '';
+        const name = lead.full_name?.replace(/[^\p{L}\p{N} ]/ug, ' ');
+        const firstName = (name ?? 'Lead');
+        const lastName = 'AirConnect';
 
         // Create contact in Samespace
         const contact = await createSamespaceContact({
-          firstName: firstName || 'Unknown',
+          firstName: firstName ?? 'AirConnect',
           lastName: lastName,
           phoneNumber: lead.phone_number.replace(/^\+65/, '65'),
-          dataSource: 'AirConnect',
+          dataSource: lead.source ?? 'AirConnect',
         });
 
         if (contact?._id) {
@@ -613,7 +614,7 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
             phone_number: lead.phone_number,
             first_name: firstName || 'Unknown',
             last_name: lastName,
-            data_source: 'AirConnect',
+            data_source: lead.source || 'Unknown',
             status: 'created',
             sync_status: 'synced',
             api_response: contact,
@@ -640,7 +641,7 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
           phone_number: lead.phone_number,
           first_name: (lead.full_name ?? 'Unknown').split(' ')[0] ?? 'Unknown',
           last_name: (lead.full_name ?? 'Unknown').split(' ').slice(1).join(' ') ?? '',
-          data_source: 'AirConnect',
+          data_source: lead.source ?? 'Unknown',
           status: 'failed',
           sync_status: 'failed',
           error_message: error instanceof Error ? error.message : 'Unknown error',
@@ -699,6 +700,77 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
   }
 }
 
+// Delete contacts from Samespace
+async function deleteSamespaceContacts(phoneNumbers: string[]) {
+  const apiKey = getApiKey();
+  
+  const query = `
+    mutation DeleteContacts($module: ID, $moduleName: String, $id: [ID!], $filter: JSON, $all: Boolean) {
+      deleteContacts(
+        module: $module
+        moduleName: $moduleName
+        _id: $id
+        filter: $filter
+        all: $all
+      )
+    }
+  `;
+
+  // Create filter to match contacts by phone number and company
+  const phoneFilters = phoneNumbers.map(phone => ({
+    key: 'phoneNumber',
+    condition: 'IS',
+    value: phone.replace(/^\+65/, '65'),
+  }));
+
+  const filter = {
+    and: [
+      {
+        or: phoneFilters,
+      },
+      {
+        key: 'company',
+        condition: 'IS',
+        value: 'AirConnect',
+      },
+    ],
+  };
+
+  const variables = {
+    module: "6303289128a0e96163bd0dcd",
+    filter: filter,
+    all: false,
+  };
+
+  console.log('Deleting Samespace contacts:', { phoneNumbers, filter });
+
+  const response = await fetch('https://api.capcfintech.com/api/playbook/contacts/delete', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': apiKey,
+    },
+    body: JSON.stringify({
+      query,
+      variables,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Samespace delete API error ${response.status}: ${errorText}`);
+  }
+
+  const result = await response.json();
+  
+  if (result.errors && result.errors.length > 0) {
+    const errorMessages = result.errors.map((err: any) => err.message).join(', ');
+    throw new Error(`Samespace delete API returned errors: ${errorMessages}`);
+  }
+
+  return result.data?.deleteContacts;
+}
+
 // Hygiene: Remove contacts for leads that are no longer follow-up
 export async function cleanupPlaybookContacts(playbookId: number): Promise<PlaybookResult> {
   try {
@@ -730,8 +802,7 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
       .innerJoin(leads, eq(playbook_contacts.lead_id, leads.id))
       .where(
         and(
-          eq(playbook_contacts.playbook_id, playbookId),
-          not(eq(leads.status, 'follow_up'))
+          eq(playbook_contacts.playbook_id, playbookId)
         )
       );
 
@@ -743,25 +814,67 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
       };
     }
 
-    // Mark contacts as removed in our database
-    const contactIds = contactsToRemove.map(c => c.contact_id);
-    await db
-      .update(playbook_contacts)
-      .set({ 
-        status: 'removed',
-        sync_status: 'pending',
-        updated_at: new Date(),
-      })
-      .where(inArray(playbook_contacts.id, contactIds));
+    console.log(`Found ${contactsToRemove.length} contacts to remove from Samespace`);
 
-    console.log(`Marked ${contactsToRemove.length} contacts for removal from playbook ${playbookId}`);
+    // Delete contacts from Samespace
+    const phoneNumbers = contactsToRemove.map(c => c.phone_number);
+    const results = [];
+    let successfulDeletions = 0;
+    let failedDeletions = 0;
+
+    try {
+      const deleteResult = await deleteSamespaceContacts(phoneNumbers);
+      console.log('Samespace deletion result:', deleteResult);
+      
+      // Mark contacts as removed in our database
+      const contactIds = contactsToRemove.map(c => c.contact_id);
+      await db
+        .delete(playbook_contacts)
+        .where(inArray(playbook_contacts.id, contactIds));
+
+      successfulDeletions = contactsToRemove.length;
+      
+      results.push({
+        action: 'bulk_delete',
+        phoneNumbers: phoneNumbers,
+        status: 'success',
+        samespace_result: deleteResult,
+      });
+
+    } catch (error) {
+      console.error('Failed to delete contacts from Samespace:', error);
+      
+      // Mark contacts as failed removal in our database
+      const contactIds = contactsToRemove.map(c => c.contact_id);
+      await db
+        .update(playbook_contacts)
+        .set({ 
+          status: 'removal_failed',
+          sync_status: 'failed',
+          error_message: error instanceof Error ? error.message : 'Unknown error',
+          updated_at: new Date(),
+        })
+        .where(inArray(playbook_contacts.id, contactIds));
+
+      failedDeletions = contactsToRemove.length;
+      
+      results.push({
+        action: 'bulk_delete',
+        phoneNumbers: phoneNumbers,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+
+    console.log(`Cleanup completed: ${successfulDeletions} deleted, ${failedDeletions} failed`);
 
     return {
       success: true,
-      message: `Cleanup completed: ${contactsToRemove.length} contacts marked for removal`,
+      message: `Cleanup completed: ${successfulDeletions} contacts deleted from Samespace, ${failedDeletions} failed`,
       data: {
-        contactsRemoved: contactsToRemove.length,
-        details: contactsToRemove,
+        contactsRemoved: successfulDeletions,
+        contactsFailed: failedDeletions,
+        details: results,
       },
     };
 
@@ -798,13 +911,14 @@ export async function getAllPlaybooks(): Promise<PlaybookResult> {
     const playbooksWithCounts = await Promise.all(
       allPlaybooks.map(async (playbook) => {
         const [contactCount] = await db
-          .select({ count: playbook_contacts.id })
+          .select({ count: sql<number>`count(*)` })
           .from(playbook_contacts)
           .where(eq(playbook_contacts.playbook_id, playbook.id));
 
         // Check Samespace status
         const samespaceStatus = await checkPlaybookStatus(playbook.samespace_playbook_id);
 
+        console.log('Samespace status:', samespaceStatus);
         return {
           ...playbook,
           contact_count: contactCount?.count || 0,

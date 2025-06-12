@@ -153,6 +153,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
         // Check if the creator is an agent and assign directly to them
         const userRoles = await getUserRoles();
         const isAgent = userRoles.some(role => role.roleName.toLowerCase() === 'agent');
+      
         
         if (isAgent) {
           // Assign the lead directly to the creator (agent)
@@ -179,7 +180,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
         }
       } else {
         // Normal auto-assignment process
-        // await autoAssignSingleLead(lead.id);
+        await autoAssignSingleLead(lead.id);
       }
     }
 
