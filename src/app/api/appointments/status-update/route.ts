@@ -333,8 +333,10 @@ export async function POST(request: NextRequest) {
         }
 
         // Find matching appointment
+        // console.log(`🔍 Finding matching appointment for phone "${cleanExcelPhone}"`);
         const matchingAppointment = upcomingAppointments.find(record => {
-          const leadPhone = record.lead?.phone_number?.replace(/\D/g, '');
+          const leadPhone = record.lead?.phone_number?.replace(/\+65/g, '');
+          console.log(`🔍 Found lead phone "${leadPhone}"`);
           return leadPhone === cleanExcelPhone;
         });
 
@@ -356,6 +358,36 @@ export async function POST(request: NextRequest) {
         let newLeadStatus = lead.status;
         let updateReason = '';
 
+        // Format eligibility notes based on code
+        let eligibilityNotes = '';
+        if (code === 'RS') {
+          const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
+          eligibilityNotes = `RS - ${rsDetailed}`;
+        } else if (code === 'R') {
+          eligibilityNotes = 'R - Rejected';
+        } else if (code === 'PRS') {
+          eligibilityNotes = 'PRS - Present but Rescheduled';
+        } else if (code === 'P') {
+          eligibilityNotes = 'P - Done';
+        }
+
+        // Update eligibility notes
+        if (eligibilityNotes) {
+          try {
+            await db
+              .update(leads)
+              .set({
+                eligibility_notes: eligibilityNotes,
+                updated_at: new Date(),
+                updated_by: fallbackUserId
+              })
+              .where(eq(leads.id, lead.id));
+            console.log(`📝 Added eligibility notes to lead ${lead.id}: ${eligibilityNotes}`);
+          } catch (error) {
+            console.error(`❌ Error updating eligibility notes for lead ${lead.id}:`, error);
+          }
+        }
+
         switch (code) {
           case 'P':
             newStatus = 'done';
@@ -364,26 +396,8 @@ export async function POST(request: NextRequest) {
             break;
           case 'RS':
             newStatus = 'done';
-            newLeadStatus = 'missed/rs';
+            newLeadStatus = 'missed/RS';
             updateReason = `Excel Code: ${code} → Appointment Done, Lead missed/RS`;
-            
-            // Add RS detailed notes to eligibility_notes
-            const rsDetailed = row["col_RS -Detailed"]?.trim();
-            if (rsDetailed) {
-              try {
-                await db
-                  .update(leads)
-                  .set({
-                    eligibility_notes: rsDetailed,
-                    updated_at: new Date(),
-                    updated_by: fallbackUserId
-                  })
-                  .where(eq(leads.id, lead.id));
-                console.log(`📝 Added RS detailed notes to lead ${lead.id}: ${rsDetailed}`);
-              } catch (error) {
-                console.error(`❌ Error updating RS detailed notes for lead ${lead.id}:`, error);
-              }
-            }
             break;
           case 'R':
             newStatus = 'done';
@@ -440,6 +454,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Update appointment status
+        console.log(`🔍 Updating appointment ${appointment.id} to ${newStatus}`);
         await db
           .update(appointments)
           .set({ 
@@ -448,15 +463,16 @@ export async function POST(request: NextRequest) {
             updated_by: fallbackUserId
           })
           .where(eq(appointments.id, appointment.id));
+        console.log(`✅ Updated appointment ${appointment.id} to ${newStatus}`);
 
         // Update lead status if it changed
-        if (newLeadStatus !== lead.status) {
-          await updateLead(lead.id, { 
-            status: newLeadStatus,
-            updated_at: new Date(),
-            updated_by: fallbackUserId
-          });
-        }
+        console.log(`🔍 Updating lead ${lead.id} to ${newLeadStatus}`);
+        await updateLead(lead.id, { 
+          status: newLeadStatus,
+          updated_at: new Date(),
+          updated_by: fallbackUserId
+        });
+        console.log(`✅ Updated lead ${lead.id} to ${newLeadStatus}`);
 
         updatedCount++;
         console.log(`✅ Updated appointment ${appointment.id} to ${newStatus} (Code: ${code}) - ${updateReason}`);
@@ -504,7 +520,7 @@ export async function POST(request: NextRequest) {
 
           // Update lead status
           await updateLead(lead.id, {
-            status: 'missed/rs',
+            status: 'missed/RS',
             updated_at: new Date(),
             updated_by: fallbackUserId
           });

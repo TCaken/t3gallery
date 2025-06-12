@@ -469,13 +469,13 @@ export async function updateLead(
   leadData: Partial<InferSelectModel<typeof leads>>
 ) {
   const { userId } = await auth();
-  console.log('userId', userId);
-  if (!userId) {
-    return { 
-      success: false, 
-      message: "Not authenticated" 
-    };
-  }
+  // console.log('userId', userId);
+  // if (!userId) {
+  //   return { 
+  //     success: false, 
+  //     message: "Not authenticated" 
+  //   };
+  // }
 
   try {
     // First check if lead exists
