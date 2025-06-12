@@ -17,7 +17,8 @@ import {
   ChevronLeftIcon,
   CalendarIcon,
   ShoppingBagIcon,
-  UserGroupIcon
+  UserGroupIcon,
+  BookOpenIcon
 } from "@heroicons/react/24/solid";
 
 interface NavItem {
@@ -102,6 +103,12 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       title: "WhatsApp Templates",
       href: "/dashboard/users/templates",
       icon: <DocumentTextIcon className="h-5 w-5" />,
+      roles: ["admin"]
+    },
+    {
+      title: "Playbooks",
+      href: "/dashboard/playbooks",
+      icon: <BookOpenIcon className="h-5 w-5" />,
       roles: ["admin"]
     }
   ];
