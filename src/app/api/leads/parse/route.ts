@@ -25,58 +25,30 @@ const LeadSchema = z.object({
   created_at: z.string().optional(),
 });
 
-// Helper function to clean phone number
+// Helper function to clean phone number - just ensure it has + format
 function cleanPhoneNumber(phone: string): string {
-  if (!phone) return 'INVALID_EMPTY';
+  if (!phone) return '+65unknown';
   
-  console.log('Processing phone number:', phone);
+  // Remove spaces and formatting but keep + and digits
+  const cleaned = phone.replace(/\s+|-|\(|\)/g, '');
   
-  // First, standardize by removing any invisible characters or formatting
-  const standardized = phone.replace(/\s+/g, '').replace(/[^\d+]/g, '');
-  
-  console.log('Standardized phone:', standardized);
-  
-  // Check if it's a non-Singapore country code and reject it
-  if (standardized.startsWith('+60') || standardized.startsWith('+62') || 
-      standardized.startsWith('+66') || standardized.startsWith('+84') ||
-      standardized.startsWith('+86') || standardized.startsWith('+91') ||
-      standardized.startsWith('+1') || standardized.startsWith('+44') ||
-      standardized.startsWith('+61') || standardized.startsWith('+81') ||
-      standardized.startsWith('+63') || standardized.startsWith('+852') ||
-      standardized.startsWith('+853') || standardized.startsWith('+855')) {
-    console.log(`Rejecting non-Singapore phone number: ${phone}`);
-    return 'INVALID_COUNTRY_CODE';
+  // If it already starts with +, return as is
+  if (cleaned.startsWith('+')) {
+    return cleaned;
   }
   
-  // Remove any existing +65 prefix to avoid duplication
-  const withoutPrefix = standardized.startsWith('+65') 
-    ? standardized.substring(3) 
-    : standardized.startsWith('65') 
-      ? standardized.substring(2) 
-      : standardized;
-  
-  console.log('Without prefix:', withoutPrefix);
-  
-  // Check if the remaining number is a valid Singapore mobile number (8 digits starting with 8 or 9)
-  const isValidSingaporeNumber = /^[89]\d{7}$/.test(withoutPrefix);
-  
-  if (isValidSingaporeNumber) {
-    // Return a properly formatted number with +65 prefix
-    console.log(`Valid Singapore number: +65${withoutPrefix}`);
-    return `+65${withoutPrefix}`;
+  // If it starts with 65 (Singapore), add +
+  if (cleaned.startsWith('65')) {
+    return `+${cleaned}`;
   }
   
-  // For invalid numbers, attempt to extract any 8-digit sequence starting with 8 or 9
-  const numberRegex = /[89]\d{7}/;
-  const numberMatch = numberRegex.exec(withoutPrefix);
-  if (numberMatch) {
-    console.log(`Extracted valid number: +65${numberMatch[0]}`);
-    return `+65${numberMatch[0]}`;
+  // If it's 8 digits starting with 8 or 9, assume Singapore
+  if (/^[89]\d{7}$/.test(cleaned)) {
+    return `+65${cleaned}`;
   }
   
-  // If we can't extract a valid number, return invalid
-  console.log(`Invalid Singapore phone number format: ${phone}`);
-  return 'INVALID_FORMAT';
+  // For any other format, just add + if it doesn't have it
+  return `+${cleaned}`;
 }
 
 // Helper function to extract amount
@@ -489,41 +461,11 @@ export async function POST(request: Request) {
     // Only try to get name from subject if not found in message and not found from OMY extraction
     const nameFromSubject = !fullName && !omyData.full_name ? extractNameFromSubject(subject ?? '') : null;
 
-    // Clean and validate phone number first
-    const cleanedPhoneNumber = omyData?.phone_number ? cleanPhoneNumber(omyData.phone_number) : 
-                               phoneNumber ? cleanPhoneNumber(phoneNumber) : 'INVALID_EMPTY';
-    
-    // Check if phone number is invalid and reject the lead
-    if (cleanedPhoneNumber === 'INVALID_COUNTRY_CODE') {
-      console.log('Rejecting lead due to non-Singapore phone number');
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Invalid phone number - non-Singapore country code',
-          details: 'Only Singapore phone numbers (+65) are accepted.',
-          phone_number: omyData?.phone_number ?? phoneNumber
-        },
-        { status: 400 }
-      );
-    }
-    
-    if (cleanedPhoneNumber === 'INVALID_FORMAT' || cleanedPhoneNumber === 'INVALID_EMPTY') {
-      console.log('Rejecting lead due to invalid phone number format');
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Invalid phone number format',
-          details: 'Phone number must be a valid Singapore mobile number (8 digits starting with 8 or 9).',
-          phone_number: omyData?.phone_number ?? phoneNumber ?? 'empty'
-        },
-        { status: 400 }
-      );
-    }
-
     // Clean and format the data
     const leadData = {
       full_name: (omyData?.full_name?.trim() ?? fullName?.trim() ?? nameFromSubject ?? 'UNKNOWN').substring(0, 255),
-      phone_number: cleanedPhoneNumber.substring(0, 20),
+      phone_number: omyData?.phone_number ? cleanPhoneNumber(omyData.phone_number).substring(0, 20) : 
+                    phoneNumber ? cleanPhoneNumber(phoneNumber).substring(0, 20) : '+65unknown',
       residential_status: omyData?.residential_status ?? (determineResidentialStatus(nationality?.trim()) || 'UNKNOWN'),
       amount: omyData?.amount ? extractAmount(omyData.amount).substring(0, 50) : amount ? extractAmount(amount).substring(0, 50) : 'UNKNOWN',
       email: emailToUse.substring(0, 255),
@@ -562,7 +504,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    
 
     // Create the lead
     const createResult = await createLead({
