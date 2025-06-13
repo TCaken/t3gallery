@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from "~/server/db";
 import { leads } from "~/server/db/schema";
 import { eq, and, lt, or, sql, gt } from "drizzle-orm";
+import { updateLead } from "~/app/_actions/leadActions";
 
 // Define the request schema
 const RequestSchema = z.object({
@@ -15,6 +16,7 @@ const RequestSchema = z.object({
  * API endpoint to automatically move stale leads to "Give Up" status
  * Affects leads with status: New, Assigned, No Answer, Follow Up, Missed, RS
  * Moves them to "Give Up" if they haven't been updated in X days (default 14)
+ * For assigned leads that arrived on the reference date, moves them to "No Answer" regardless of threshold
  */
 export async function POST(request: Request) {
   try {
@@ -60,26 +62,79 @@ export async function POST(request: Request) {
     // Use system user ID for tracking updates
     const systemUserId = process.env.SYSTEM_USER_ID ?? 'system';
 
-    // Update leads that match the criteria
-    const result = await db
-      .update(leads)
-      .set({ 
-        status: 'give_up',
-        updated_at: new Date(),
-        updated_by: systemUserId
-      })
+    // First, get all leads that need updating
+    // For assigned leads created today, we don't check the threshold
+    const leadsToUpdate = await db
+      .select()
+      .from(leads)
       .where(
-        and(
-          or(...statusesToUpdate.map(status => eq(leads.status, status))),
-          lt(leads.updated_at, thresholdDate)
+        or(
+          // Get assigned leads updated within 25 hours before reference date
+          and(
+            eq(leads.status, 'assigned'),
+            sql`${leads.updated_at} >= DATE(${referenceDate}) - INTERVAL '25 hours' AND ${leads.updated_at} <= ${referenceDate}`
+          ),
+          // Get other leads that exceed threshold
+          and(
+            or(...statusesToUpdate.map(status => eq(leads.status, status))),
+            lt(leads.updated_at, thresholdDate)
+          )
         )
-      )
-      .returning({ id: leads.id, phone_number: leads.phone_number, status: leads.status });
+      );
+
+    const results = {
+      give_up: [] as typeof leadsToUpdate,
+      no_answer: [] as typeof leadsToUpdate,
+      errors: [] as { id: number; error: string }[]
+    };
+
+    // Process each lead
+    for (const lead of leadsToUpdate) {
+      try {
+        // Check if this is an assigned lead updated within 25 hours before reference date
+        const isAssignedLeadOnReferenceDate = 
+          lead.status === 'assigned' && 
+          lead.updated_at && 
+          new Date(lead.updated_at) >= new Date(new Date(referenceDate).getTime() - (25 * 60 * 60 * 1000)) &&
+          new Date(lead.updated_at) <= referenceDate;
+
+        console.log(`Lead ID: ${lead.id} - Status: ${lead.status} - Updated At: ${lead.updated_at ? new Date(lead.updated_at).toLocaleString() : 'N/A'} - Reference Date: ${referenceDate.toLocaleString()} - isAssignedLeadOnReferenceDate: ${isAssignedLeadOnReferenceDate}`);
+
+        // Update the lead using updateLead function
+        const result = await updateLead(lead.id, {
+          status: isAssignedLeadOnReferenceDate ? 'no_answer' : 'give_up',
+          updated_by: systemUserId,
+          updated_at: new Date(),
+          eligibility_notes: isAssignedLeadOnReferenceDate 
+            ? 'Auto-updated to No Answer - Lead updated within 25 hours'
+            : 'Auto-updated to Give Up - No activity'
+        });
+
+        if (result.success) {
+          if (isAssignedLeadOnReferenceDate) {
+            results.no_answer.push(lead);
+          } else {
+            results.give_up.push(lead);
+          }
+        } else {
+          results.errors.push({ id: lead.id, error: result.message || 'Unknown error' });
+        }
+      } catch (error) {
+        results.errors.push({ 
+          id: lead.id, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      message: `${result.length} leads moved to Give Up status`,
-      updated_leads: result
+      message: `Updated ${results.give_up.length} leads to Give Up, ${results.no_answer.length} leads to No Answer`,
+      results: {
+        give_up: results.give_up.map(l => ({ id: l.id, phone_number: l.phone_number })),
+        no_answer: results.no_answer.map(l => ({ id: l.id, phone_number: l.phone_number })),
+        errors: results.errors
+      }
     });
   } catch (error) {
     console.error('Error updating leads:', error);
