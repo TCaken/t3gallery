@@ -4,6 +4,8 @@ import { XMarkIcon, QuestionMarkCircleIcon, ExclamationTriangleIcon, CalendarIco
 import { type InferSelectModel } from 'drizzle-orm';
 import { type leads } from "~/server/db/schema";
 import { useRouter } from 'next/navigation';
+import { createQuestionnaireSections } from '~/app/_lib/questionnaire';
+import { type Field, type Section } from '~/app/_lib/questionnaire';
 
 type Lead = InferSelectModel<typeof leads>;
 
@@ -106,9 +108,10 @@ interface LeadEditSlideOverProps {
   lead: Lead;
   onSave: (updatedLead: Partial<Lead>) => Promise<void>;
   onAction?: (action: string, leadId: number) => void;
+  showNotification?: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
-export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAction }: LeadEditSlideOverProps) {
+export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAction, showNotification = (message: string) => console.log(message) }: LeadEditSlideOverProps) {
   const [selectedAction, setSelectedAction] = useState<string>('save');
   const router = useRouter();
   const [followUpDate, setFollowUpDate] = useState<string>('');
@@ -123,20 +126,16 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   const [initialValues, setInitialValues] = useState<FormValues>(lead);
   const [currentStep, setCurrentStep] = useState(0);
   const [showTimeInput, setShowTimeInput] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string>('');
 
   // console.log("LeadEditSlideOver", lead);
   
   // Reset form and initial values when lead changes
   useEffect(() => {
-    const newValues = {
+    const newValues: FormValues = {
       ...lead,
       follow_up_time: '',
-      created_at: lead.created_at ? new Date(lead.created_at).toLocaleDateString('en-SG', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        timeZone: 'Asia/Singapore'
-      }) : ''
+      created_at: lead.created_at ? new Date(lead.created_at) : undefined
     };
     setFormValues(newValues);
     setInitialValues(newValues);
@@ -228,21 +227,25 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
 
   // Handle action button click
   const handleActionClick = (action: string) => {
-    if (action === 'status_reason_modal') {
-      // Call the parent's action handler for status reason modal
-      // We need to add this to the props
-      if (onAction) {
-        onAction(action, lead.id);
-      }
-      return;
-    }
-    
     setSelectedAction(action);
     if (action === 'follow_up') {
       setFollowUpDate(getDefaultFollowUpDate());
     }
     setShowConfirmationModal(true);
   };
+
+  const REASON_OPTIONS = [
+    { value: 'blacklisted_do_not_call', label: 'Blacklisted - Do Not Call', finalStatus: 'blacklisted' },
+    { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted' },
+    { value: 'blacklisted_drs_bankrupt', label: 'Blacklist - DRS / Bankrupt', finalStatus: 'blacklisted' },
+    { value: 'give_up_trouble_maker', label: 'Give Up - Trouble Maker', finalStatus: 'give_up' },
+    { value: 'give_up_already_got_loan', label: 'Give Up - Already Got Loan', finalStatus: 'give_up' },
+    { value: 'give_up_income_too_low', label: 'Give Up - Income Too Low', finalStatus: 'give_up' },
+    { value: 'give_up_underage', label: 'Give Up - Underage', finalStatus: 'give_up' },
+    { value: 'give_up_not_interested', label: 'Give Up - Not Interested', finalStatus: 'give_up' },
+    { value: 'give_up_no_income_proof', label: 'Give Up - No Income Proof', finalStatus: 'give_up' },
+    { value: 'give_up_unemployed', label: 'Give Up - Unemployed', finalStatus: 'give_up' },
+  ];
 
   // Handle confirmed action
   const handleConfirmedAction = async () => {
@@ -274,6 +277,31 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
       setFormValues(updatedValues);
       
       // Save the lead with updated status and follow-up date
+      await onSave(updatedValues);
+      onClose();
+      return;
+    }
+    
+    if (selectedAction === 'status_reason_modal') {
+      if (!selectedReason) {
+        showNotification('Please select a reason', 'error');
+        return;
+      }
+
+      const reasonOption = REASON_OPTIONS.find(option => option.value === selectedReason);
+      if (!reasonOption) {
+        showNotification('Invalid reason selected', 'error');
+        return;
+      }
+
+      // Save any pending changes first
+      const updatedValues = {
+        ...formValues,
+        status: reasonOption.finalStatus,
+        eligibility_notes: `${reasonOption.finalStatus.toUpperCase()} - ${reasonOption.label}`,
+        follow_up_date: null // Clear follow-up date when changing to final status
+      };
+      
       await onSave(updatedValues);
       onClose();
       return;
@@ -1033,162 +1061,182 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
 
       {/* Confirmation Modal */}
       <Transition.Root show={showConfirmationModal} as={Fragment}>
-        <Dialog as="div" className="relative z-[60]" onClose={setShowConfirmationModal}>
+        <Dialog as="div" className="relative z-[60]" onClose={() => setShowConfirmationModal(false)}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+          </Transition.Child>
+
           <div className="fixed inset-0 z-10 overflow-y-auto">
             <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
               <Transition.Child
                 as={Fragment}
                 enter="ease-out duration-300"
-                enterFrom="opacity-70 translate-y-4 sm:translate-y-0 sm:scale-95"
+                enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
                 enterTo="opacity-100 translate-y-0 sm:scale-100"
                 leave="ease-in duration-200"
                 leaveFrom="opacity-100 translate-y-0 sm:scale-100"
-                leaveTo="opacity-70 translate-y-4 sm:translate-y-0 sm:scale-95"
+                leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
               >
                 <Dialog.Panel className="relative transform overflow-hidden rounded-2xl bg-white px-6 pb-6 pt-6 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-200">
-                  <div className="sm:flex sm:items-start">
-                    <div className="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-yellow-100 sm:mx-0 sm:h-10 sm:w-10">
-                      <ExclamationTriangleIcon className="h-6 w-6 text-yellow-600" aria-hidden="true" />
-                    </div>
-                    <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-                      <Dialog.Title as="h3" className="text-lg font-semibold leading-6 text-gray-900">
-                        Confirm Action
-                      </Dialog.Title>
-                      <div className="mt-2">
-                        <p className="text-sm text-gray-600">
-                          {getConfirmationMessage(selectedAction)}
-                        </p>
-                        {selectedAction === 'follow_up' && (
-                          <div className="mt-4 space-y-3">
-                            {/* Date and Time in a better layout */}
-                            <div className="space-y-4">
-                              {/* Date Selection */}
-                              <div>
-                                <label htmlFor="follow-up-date" className="justify-between items-center block text-sm font-medium text-gray-700 mb-2">
-                                  Select Date
-                                </label>
-                                <input
-                                  type="date"
-                                  id="follow-up-date"
-                                  name="follow-up-date"
-                                  value={followUpDate}
-                                  onChange={(e) => setFollowUpDate(e.target.value)}
-                                  min={getDefaultFollowUpDate()}
-                                  max={getMaxFollowUpDate()}
-                                  onClick={(e) => {
-                                    // Auto-open calendar when clicking
-                                    if (e.currentTarget.showPicker) {
-                                      e.currentTarget.showPicker();
-                                    }
-                                  }}
-                                  className="w-full rounded-lg border-2 border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3 cursor-pointer font-medium"
-                                  required
-                                />
-                              </div>
+                  <div>
+                    <Dialog.Title as="h3" className="text-lg font-semibold leading-6 text-gray-900 mb-4">
+                      Confirm Action
+                    </Dialog.Title>
+                    <div className="mt-2">
+                      <p className="text-sm text-gray-600">
+                        {getConfirmationMessage(selectedAction)}
+                      </p>
+                      {selectedAction === 'follow_up' && (
+                        <div className="mt-4 space-y-3">
+                          {/* Date and Time in a better layout */}
+                          <div className="space-y-4">
+                            {/* Date Selection */}
+                            <div>
+                              <label htmlFor="follow-up-date" className="justify-between items-center block text-sm font-medium text-gray-700 mb-2">
+                                Select Date
+                              </label>
+                              <input
+                                type="date"
+                                id="follow-up-date"
+                                name="follow-up-date"
+                                value={followUpDate}
+                                onChange={(e) => setFollowUpDate(e.target.value)}
+                                min={getDefaultFollowUpDate()}
+                                max={getMaxFollowUpDate()}
+                                onClick={(e) => {
+                                  // Auto-open calendar when clicking
+                                  if (e.currentTarget.showPicker) {
+                                    e.currentTarget.showPicker();
+                                  }
+                                }}
+                                className="w-full rounded-lg border-2 border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3 cursor-pointer font-medium"
+                                required
+                              />
+                            </div>
 
-                              {/* Time Selection */}
-                              <div>
-                                {!showTimeInput ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowTimeInput(true)}
-                                    className="w-full rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400 px-4 py-3 text-sm text-gray-600 hover:text-blue-600 transition-all duration-200"
-                                  >
-                                  Add specific time (optional)
-                                  </button>
-                                ) : (
-                                  <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                      <label htmlFor="follow-up-time" className="text-sm font-medium text-gray-700">
-                                        Specific Time
-                                      </label>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setFollowUpTime('');
-                                          setShowTimeInput(false);
-                                        }}
-                                        className="text-xs text-gray-500 hover:text-red-600 font-medium px-2 py-1 rounded"
-                                      >
-                                        Remove time
-                                      </button>
-                                    </div>
-                                    <input
-                                      type="time"
-                                      id="follow-up-time"
-                                      name="follow-up-time"
-                                      value={followUpTime}
-                                      onChange={(e) => setFollowUpTime(e.target.value)}
-                                      className="w-full rounded-lg border-2 border-blue-300 bg-blue-50 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3 font-medium"
-                                      placeholder="Select time..."
-                                    />
+                            {/* Time Selection */}
+                            <div>
+                              {!showTimeInput ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowTimeInput(true)}
+                                  className="w-full rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400 px-4 py-3 text-sm text-gray-600 hover:text-blue-600 transition-all duration-200"
+                                >
+                                Add specific time (optional)
+                                </button>
+                              ) : (
+                                <div>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <label htmlFor="follow-up-time" className="text-sm font-medium text-gray-700">
+                                      Specific Time
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFollowUpTime('');
+                                        setShowTimeInput(false);
+                                      }}
+                                      className="text-xs text-gray-500 hover:text-red-600 font-medium px-2 py-1 rounded"
+                                    >
+                                      Remove time
+                                    </button>
                                   </div>
-                                )}
-                              </div>
-                            </div>
-                            
-                            {/* Preview and helpful info */}
-                            <div className="bg-blue-50 rounded-lg p-3">
-                              <div className="flex items-start space-x-2">
-                                <div className="text-sm">
-                                  <p className="text-blue-700 font-medium">
-                                    {followUpDate ? (
-                                      <>
-                                        {new Date(followUpDate).toLocaleDateString('en-SG', {
-                                          weekday: 'long',
-                                          day: 'numeric',
-                                          month: 'long',
-                                          year: 'numeric',
-                                          timeZone: 'Asia/Singapore'
-                                        })}
-                                        {followUpTime && followUpTime !== '' ? (
-                                          <span className="block text-blue-700 mt-1">
-                                            at {followUpTime} (Singapore time)
-                                          </span>
-                                        ) : (
-                                          <span className="block text-blue-700 text-sm mt-1">
-                                            No specific time set
-                                          </span>
-                                        )}
-                                      </>
-                                    ) : (
-                                      'Please select a date above'
-                                    )}
-                                  </p>
+                                  <input
+                                    type="time"
+                                    id="follow-up-time"
+                                    name="follow-up-time"
+                                    value={followUpTime}
+                                    onChange={(e) => setFollowUpTime(e.target.value)}
+                                    className="w-full rounded-lg border-2 border-blue-300 bg-blue-50 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3 font-medium"
+                                    placeholder="Select time..."
+                                  />
                                 </div>
-                              </div>
-                            </div>
-                            
-                            {/* Helper text */}
-                            <div className="text-center">
-                              <p className="text-xs text-gray-500">
-                                Click the date field to open calendar. All times in Singapore timezone (GMT+8)
-                              </p>
+                              )}
                             </div>
                           </div>
-                        )}
-                        {selectedAction === 'blacklist' && (
-                          <p className="mt-2 text-sm text-red-600">
-                            Blacklisted leads will be permanently removed from active leads and cannot be contacted again.
-                          </p>
-                        )}
-                        {selectedAction === 'no_answer' && (
-                          <p className="mt-2 text-sm text-blue-600">
-                            The lead will automatically return to give up status after 14 days.
-                          </p>
-                        )}
-                      </div>
+                          
+                          {/* Preview and helpful info */}
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <div className="flex items-start space-x-2">
+                              <div className="text-sm">
+                                <p className="text-blue-700 font-medium">
+                                  {followUpDate ? (
+                                    <>
+                                      {new Date(followUpDate).toLocaleDateString('en-SG', {
+                                        weekday: 'long',
+                                        day: 'numeric',
+                                        month: 'long',
+                                        year: 'numeric',
+                                        timeZone: 'Asia/Singapore'
+                                      })}
+                                      {followUpTime && followUpTime !== '' ? (
+                                        <span className="block text-blue-700 mt-1">
+                                          at {followUpTime} (Singapore time)
+                                        </span>
+                                      ) : (
+                                        <span className="block text-blue-700 text-sm mt-1">
+                                          No specific time set
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    'Please select a date above'
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Helper text */}
+                          <div className="text-center">
+                            <p className="text-xs text-gray-500">
+                              Click the date field to open calendar. All times in Singapore timezone (GMT+8)
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {selectedAction === 'status_reason_modal' && (
+                        <div className="mt-4">
+                          <label htmlFor="reason-select" className="block text-sm font-medium text-gray-700 mb-2">
+                            Select Reason
+                          </label>
+                          <select
+                            id="reason-select"
+                            value={selectedReason}
+                            onChange={(e) => setSelectedReason(e.target.value)}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="">Select a reason...</option>
+                            {REASON_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                     <button
                       type="button"
                       className={`inline-flex w-full justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm sm:ml-3 sm:w-auto transition-all duration-200 ${
-                        selectedAction === 'blacklist' 
+                        selectedAction === 'status_reason_modal' 
                           ? 'bg-red-600 hover:bg-red-500 focus:ring-red-500'
                           : 'bg-yellow-600 hover:bg-yellow-500 focus:ring-yellow-500'
-                      } focus:ring-4 focus:ring-offset-2`}
+                      } focus:ring-4 focus:ring-offset-2 ${
+                        selectedAction === 'status_reason_modal' && !selectedReason ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
                       onClick={handleConfirmedAction}
+                      disabled={selectedAction === 'status_reason_modal' && !selectedReason}
                     >
                       Confirm
                     </button>

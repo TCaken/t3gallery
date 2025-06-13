@@ -632,21 +632,20 @@ export default function LeadsPage() {
         return;
       }
 
-      // // Check if agent can set this status
-      // if (userRole === 'agent' && !agentAllowedStatuses.includes(finalStatus)) {
-      //   showNotification('Agents cannot set this status: ' + finalStatus, 'error');
-      //   return;
-      // }
+      // Update the lead status and eligibility notes
+      const updatedLead: Partial<Lead> = {
+        id: lead.id,
+        status: finalStatus,
+        eligibility_notes: `${finalStatus.toUpperCase()} - ${reason}`,
+        updated_at: new Date(),
+        updated_by: userId ?? 'system'
+      };
 
-      // Update the lead status
-      const statusResult = await updateLeadStatus(statusReasonLeadData.leadId, finalStatus);
-      if (!statusResult.success) {
-        throw new Error('Failed to update status');
-      }
+      await handleSaveLead(updatedLead);
 
       // Update the lead in allLoadedLeads
       setAllLoadedLeads(prevLeads => 
-        prevLeads.map(l => l.id === statusReasonLeadData.leadId ? { ...l, status: finalStatus } : l)
+        prevLeads.map(l => l.id === lead.id ? { ...l, ...updatedLead } : l)
       );
 
       // Move lead to new status column
@@ -654,25 +653,23 @@ export default function LeadsPage() {
         const newLeads = { ...prevLeads };
         const oldStatus = lead.status as LeadStatus;
         // Remove from old status
-        newLeads[oldStatus] = newLeads[oldStatus]?.filter(l => l.id !== statusReasonLeadData.leadId) ?? [];
+        newLeads[oldStatus] = newLeads[oldStatus]?.filter(l => l.id !== lead.id) ?? [];
         // Add to new status
-        newLeads[finalStatus] = [...(newLeads[finalStatus] ?? []), { ...lead, status: finalStatus }];
+        newLeads[finalStatus] = [...(newLeads[finalStatus] ?? []), { ...lead, ...updatedLead }];
         return newLeads;
       });
 
-      showNotification(`Lead moved to ${finalStatus} with reason: ${reason}`, 'success');
-      
-      // Close modal and reset data
+      // Close the status reason modal
       setIsStatusReasonModalOpen(false);
       setStatusReasonLeadData(null);
 
-      // Refresh data
-      setAllLoadedLeads([]);
-      setPage(1);
-      await fetchLeadsWithFilters(1);
+      // Show success notification
+      showNotification(`Lead status updated to ${finalStatus}`, 'success');
 
+      // Refresh the data
+      await refreshDataWithFilters();
     } catch (error) {
-      console.error('Error updating lead status with reason:', error);
+      console.error('Error updating lead status:', error);
       showNotification('Failed to update lead status', 'error');
     }
   };
@@ -1115,35 +1112,6 @@ export default function LeadsPage() {
         case 'move_to_miss/RS':
         case 'move_to_booked':
         case 'move_to_unqualified':
-        case 'status_reason_modal':
-          // Open the status reason modal for give_up and blacklisted actions
-          setStatusReasonLeadData({
-            leadId: lead.id,
-            leadName: lead.full_name ?? `Lead ${lead.id}`
-          });
-          setIsStatusReasonModalOpen(true);
-          // Close the edit modal if it's open
-          setIsEditOpen(false);
-          break;
-
-        // case 'reschedule_appointment':
-        //   // Open appointment page for reschedule
-        //   window.open(`leads/${lead.id}/appointment?action=reschedule`, '_blank');
-        //   break;
-
-        // case 'cancel_appointment':
-        //   // Open appointment page for cancel
-        //   window.open(`leads/${lead.id}/appointment?action=cancel`, '_blank');
-        //   break;
-
-        case 'move_to_new':
-        case 'move_to_assigned':
-        case 'move_to_no_answer':
-        case 'move_to_follow_up':
-        case 'move_to_done':
-        case 'move_to_miss/RS':
-        case 'move_to_booked':
-        case 'move_to_unqualified':
           const newStatus = action.replace('move_to_', '') as LeadStatus;
           
           if (userRole === 'agent' && !agentAllowedStatuses.includes(newStatus)) {
@@ -1174,6 +1142,17 @@ export default function LeadsPage() {
           
           showNotification('Status updated successfully', 'success');
           needsRefresh = true;
+          break;
+
+        case 'status_reason_modal':
+          // Show the status reason modal
+          setStatusReasonLeadData({
+            leadId: lead.id,
+            leadName: lead.full_name ?? `Lead ${lead.id}`
+          });
+          setIsStatusReasonModalOpen(true);
+          // Close the edit modal if it's open
+          setIsEditOpen(false);
           break;
 
         case 'whatsapp':
@@ -1232,6 +1211,8 @@ export default function LeadsPage() {
   const handleSaveLead = async (updatedLead: Partial<Lead>) => {
     try {
       if (!selectedLead?.id) return;
+
+      console.log('updatedLead', updatedLead);
       
       const result = await updateLead(selectedLead.id, updatedLead);
       if (result.success) {
