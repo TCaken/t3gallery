@@ -305,7 +305,7 @@ export default function LeadActionButtons({
                   </button>
 
                   {/* Pin/Unpin Lead */}
-                    <button
+                    {/* <button
                     onClick={() => {
                       handleAction(isPinned ? 'unpin' : 'pin');
                       setIsMenuOpen(false);
@@ -314,7 +314,7 @@ export default function LeadActionButtons({
                     >
                     <BookmarkSolidIcon className="h-4 w-4" />
                     <span className="ml-2">{isPinned ? 'Unpin Lead' : 'Pin Lead'}</span>
-                    </button>
+                    </button> */}
                 </div>
               </div>
             </Portal>
