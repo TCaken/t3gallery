@@ -354,8 +354,12 @@ export async function POST(request: NextRequest) {
 
         // Update appointment status based on code
         const code = row.col_Code?.trim().toUpperCase();
-        let newStatus = 'upcoming';
+        let newAppointmentStatus = 'upcoming';
         let newLeadStatus = lead.status;
+        let newLeadLoanStatus = lead.loan_status;
+        let newLeadLoanNotes = lead.loan_notes;
+        let newAppointmentLoanStatus = appointment.loan_status;
+        let newAppointmentLoanNotes = appointment.loan_notes;
         let updateReason = '';
 
         // Format eligibility notes based on code
@@ -366,7 +370,7 @@ export async function POST(request: NextRequest) {
         } else if (code === 'R') {
           eligibilityNotes = 'R - Rejected';
         } else if (code === 'PRS') {
-          eligibilityNotes = 'PRS - Present but Rescheduled';
+          eligibilityNotes = 'PRS - Customer Rejected';
         } else if (code === 'P') {
           eligibilityNotes = 'P - Done';
         }
@@ -390,19 +394,36 @@ export async function POST(request: NextRequest) {
 
         switch (code) {
           case 'P':
-            newStatus = 'done';
+            newAppointmentStatus = 'done';
             newLeadStatus = 'done';
-            updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
+            newLeadLoanStatus = 'P';
+            newLeadLoanNotes = 'P - Done';
+            newAppointmentLoanStatus = 'P';
+            newAppointmentLoanNotes = 'P - Done';
+            break;
+          case 'PRS':
+            newAppointmentStatus = 'done';
+            newLeadStatus = 'done';
+            newLeadLoanStatus = 'PRS';
+            newLeadLoanNotes = 'PRS - Customer Rejected';
+            newAppointmentLoanStatus = 'PRS';
+            newAppointmentLoanNotes = 'PRS - Customer Rejected';
             break;
           case 'RS':
-            newStatus = 'done';
+            newAppointmentStatus = 'done';
             newLeadStatus = 'missed/RS';
-            updateReason = `Excel Code: ${code} → Appointment Done, Lead missed/RS`;
+            newLeadLoanStatus = 'RS';
+            newLeadLoanNotes = 'RS - Rejected';
+            newAppointmentLoanStatus = 'RS';
+            newAppointmentLoanNotes = 'RS - Rejected';
             break;
           case 'R':
-            newStatus = 'done';
+            newAppointmentStatus = 'done';
             newLeadStatus = 'done';
-            updateReason = `Excel Code: ${code} → Appointment Done, Lead done`;
+            newLeadLoanStatus = 'R';
+            newLeadLoanNotes = 'R - Rejected';
+            newAppointmentLoanStatus = 'R';
+            newAppointmentLoanNotes = 'R - Rejected';
             
             // Call rejection webhook for R codes
             try {
@@ -458,24 +479,28 @@ export async function POST(request: NextRequest) {
         await db
           .update(appointments)
           .set({ 
-            status: newStatus,
+            status: newAppointmentStatus,
+            loan_status: newAppointmentLoanStatus,
+            loan_notes: newAppointmentLoanNotes,
             updated_at: new Date(),
             updated_by: fallbackUserId
           })
           .where(eq(appointments.id, appointment.id));
-        console.log(`✅ Updated appointment ${appointment.id} to ${newStatus}`);
+        console.log(`✅ Updated appointment ${appointment.id} to ${newAppointmentStatus}`);
 
         // Update lead status if it changed
         console.log(`🔍 Updating lead ${lead.id} to ${newLeadStatus}`);
         await updateLead(lead.id, { 
           status: newLeadStatus,
+          loan_status: newLeadLoanStatus,
+          loan_notes: newLeadLoanNotes,
           updated_at: new Date(),
           updated_by: fallbackUserId
         });
         console.log(`✅ Updated lead ${lead.id} to ${newLeadStatus}`);
 
         updatedCount++;
-        console.log(`✅ Updated appointment ${appointment.id} to ${newStatus} (Code: ${code}) - ${updateReason}`);
+        console.log(`✅ Updated appointment ${appointment.id} to ${newAppointmentStatus} (Code: ${code}) - ${updateReason}`);
       }
     }
 

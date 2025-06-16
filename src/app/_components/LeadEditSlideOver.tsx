@@ -127,6 +127,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   const [currentStep, setCurrentStep] = useState(0);
   const [showTimeInput, setShowTimeInput] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string>('');
+  const [customReasonText, setCustomReasonText] = useState('');
 
   // console.log("LeadEditSlideOver", lead);
   
@@ -236,8 +237,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
 
   const REASON_OPTIONS = [
     { value: 'blacklisted_do_not_call', label: 'Blacklisted - Do Not Call', finalStatus: 'blacklisted' },
-    { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted' },
     { value: 'blacklisted_drs_bankrupt', label: 'Blacklist - DRS / Bankrupt', finalStatus: 'blacklisted' },
+    { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted', customReason: true },
     { value: 'give_up_trouble_maker', label: 'Give Up - Trouble Maker', finalStatus: 'give_up' },
     { value: 'give_up_already_got_loan', label: 'Give Up - Already Got Loan', finalStatus: 'give_up' },
     { value: 'give_up_income_too_low', label: 'Give Up - Income Too Low', finalStatus: 'give_up' },
@@ -245,6 +246,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     { value: 'give_up_not_interested', label: 'Give Up - Not Interested', finalStatus: 'give_up' },
     { value: 'give_up_no_income_proof', label: 'Give Up - No Income Proof', finalStatus: 'give_up' },
     { value: 'give_up_unemployed', label: 'Give Up - Unemployed', finalStatus: 'give_up' },
+    { value: 'give_up_others', label: 'Give Up - Others', finalStatus: 'give_up', customReason: true },
   ];
 
   // Handle confirmed action
@@ -294,11 +296,19 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         return;
       }
 
+      // If custom reason is required, ensure it is filled
+      if (reasonOption.customReason && !customReasonText.trim()) {
+        showNotification('Please provide a reason for this status', 'error');
+        return;
+      }
+
       // Save any pending changes first
       const updatedValues = {
         ...formValues,
         status: reasonOption.finalStatus,
-        eligibility_notes: `${reasonOption.finalStatus.toUpperCase()} - ${reasonOption.label}`,
+        eligibility_notes: reasonOption.customReason
+          ? `${reasonOption.label.toUpperCase()} (${customReasonText.trim()})`
+          : `${reasonOption.label.toUpperCase()}`,
         follow_up_date: null // Clear follow-up date when changing to final status
       };
       
@@ -1204,14 +1214,14 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                         </div>
                       )}
                       {selectedAction === 'status_reason_modal' && (
-                        <div className="mt-4">
+                        <div className="mt-4 space-y-3">
                           <label htmlFor="reason-select" className="block text-sm font-medium text-gray-700 mb-2">
                             Select Reason
                           </label>
                           <select
                             id="reason-select"
                             value={selectedReason}
-                            onChange={(e) => setSelectedReason(e.target.value)}
+                            onChange={(e) => { setSelectedReason(e.target.value); setCustomReasonText(''); }}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
                           >
                             <option value="">Select a reason...</option>
@@ -1221,6 +1231,22 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                               </option>
                             ))}
                           </select>
+                          {/* Show custom reason input if needed */}
+                          {REASON_OPTIONS.find(opt => opt.value === selectedReason)?.customReason && (
+                            <div className="mt-3">
+                              <label htmlFor="custom-reason" className="block text-sm font-medium text-gray-700 mb-1">
+                                Please specify the reason
+                              </label>
+                              <input
+                                id="custom-reason"
+                                type="text"
+                                value={customReasonText}
+                                onChange={e => setCustomReasonText(e.target.value)}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                                placeholder="Enter the reason here..."
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
