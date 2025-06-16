@@ -44,14 +44,16 @@ interface CSVRow {
   priority: string;
 }
 
-const TARGET_USER_ID = "user_2yIJmg1zvydv8acYdXPY6r6Ue1l";
-// const TARGET_USER_ID = "user_2y2V1dGLmNQZ6JqpNqLz8YKQN2k";
+const TARGET_USER_ID = process.env.AGENT_USER_ID ?? 'user_2yIJmg1zvydv8acYdXPY6r6Ue1l';
+
 
 // Lead source mapping based on notes patterns
 const LEAD_SOURCE_MAPPING: Record<string, string> = {
   '1%': '1%',
   'MR': 'MoneyRight',
-  'LA': 'Lendela',
+  'LA': 'Loanable',
+  'LEND': 'Lendable',
+  'LENDELA': 'Lendela',
   'SEO': 'SEO',
   'OMY': 'OMY.sg', // Found this new source code in CSV
   'MONEYRIGHT': 'MoneyRight',
@@ -69,14 +71,14 @@ function extractLeadSource(notes: string): string {
   
   // Look for source patterns at the very beginning of notes (first line)
   // Examples: "1% 240525", "MR 310525", "LA 290525", "SEO 310525", "OMY 050625"
-  const firstLine = notes.split('\n')[0]?.trim() || '';
-  const sourceMatch = firstLine.match(/^([A-Z0-9%]+)\s+\d{6}/i);
+  const firstLine = notes.split('\n')[0]?.trim() ?? '';
+  const sourceMatch = /^([A-Z0-9%]+)\s+\d{6}/i.exec(firstLine);
   
   if (sourceMatch?.[1]) {
     const sourceCode = sourceMatch[1].toUpperCase();
     const mappedSource = LEAD_SOURCE_MAPPING[sourceCode];
-    console.log(`📊 Found source code: ${sourceCode} → ${mappedSource || 'SEO (unmapped)'}`);
-    return mappedSource || 'SEO';
+    console.log(`📊 Found source code: ${sourceCode} → ${mappedSource ?? 'SEO (unmapped)'}`);
+    return mappedSource ?? 'SEO';
   }
   
   // If no pattern found, default to SEO
@@ -94,8 +96,8 @@ function determineLoanAmount(notes: string): string {
   ];
   
   for (const pattern of amountPatterns) {
-    const match = notes.match(pattern);
-    if (match && match[1]) {
+    const match = pattern.exec(notes);
+    if (match?.[1]) {
       return match[1].trim();
     }
   }
@@ -110,7 +112,7 @@ function parseFollowUpDateTime(startDate: string, priority: string): Date | null
     console.log('🗓️ Parsing follow-up date:', startDate, 'time:', priority);
     
     // Parse date from MM/DD/YYYY format
-    const dateMatch = startDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const dateMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(startDate);
     if (!dateMatch) {
       console.log('❌ Invalid date format:', startDate);
       return null;
@@ -124,7 +126,7 @@ function parseFollowUpDateTime(startDate: string, priority: string): Date | null
     }
     
     // Parse time from HH:MM am/pm format
-    const timeMatch = priority.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
+    const timeMatch = /^(\d{1,2}):(\d{2})\s*(am|pm)$/i.exec(priority);
     if (!timeMatch) {
       console.log('❌ Invalid time format:', priority);
       return null;
@@ -363,7 +365,7 @@ function validateAndFormatPhone(phone: string): string | null {
   return null;
 }
 
-export async function importCSVLeads(csvContent: string): Promise<ImportResult> {
+export async function importCSVLeads(csvContent: string, customStatus: string = 'follow_up'): Promise<ImportResult> {
   const errors: string[] = [];
   const successfulLeads: Array<{name: string; phone: string; source: string; status: string}> = [];
   const skippedLeads: Array<{name: string; phone: string; reason: string}> = [];
@@ -492,8 +494,11 @@ export async function importCSVLeads(csvContent: string): Promise<ImportResult> 
         // Perform eligibility check using existing function
         const eligibility = await checkLeadEligibility(formattedPhone);
         
-        // Determine final status based on eligibility
-        const finalStatus = eligibility.isEligible ? 'follow_up' : 'unqualified';
+        // Add priority to eligibility notes
+        const updatedEligibilityNotes = row.priority ?? 'Not specified';
+        
+        // Use custom status if provided, otherwise use eligibility-based status
+        const finalStatus = customStatus || (eligibility.isEligible ? 'follow_up' : 'unqualified');
 
         // Create lead
         const [newLead] = await db
@@ -509,8 +514,8 @@ export async function importCSVLeads(csvContent: string): Promise<ImportResult> 
             follow_up_date: followUpDateTime,
             eligibility_checked: true,
             eligibility_status: eligibility.status,
-            eligibility_notes: eligibility.notes,
-            lead_score: 50, // Default score, as the existing function doesn't provide scoring
+            eligibility_notes: updatedEligibilityNotes,
+            lead_score: 50, // Default score
             is_contactable: eligibility.isEligible,
             created_at: new Date(),
             updated_at: new Date(),
@@ -573,7 +578,8 @@ export async function importCSVLeads(csvContent: string): Promise<ImportResult> 
           successful,
           skipped,
           failed,
-          errorCount: errors.length
+          errorCount: errors.length,
+          status: customStatus
         }),
         timestamp: new Date(),
       });
@@ -583,7 +589,7 @@ export async function importCSVLeads(csvContent: string): Promise<ImportResult> 
 
     const isSuccess = successful > 0 && failed === 0;
     const message = isSuccess 
-      ? `Successfully imported ${successful} leads with follow-up status`
+      ? `Successfully imported ${successful} leads with status: ${customStatus}`
       : `Import completed with issues: ${successful} successful, ${failed} failed, ${skipped} skipped`;
 
     console.log(`📊 Import summary: ${successful} successful, ${failed} failed, ${skipped} skipped`);

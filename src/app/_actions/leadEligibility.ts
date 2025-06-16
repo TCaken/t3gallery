@@ -1,6 +1,6 @@
 import { db } from "~/server/db";
 import { leads } from "~/server/db/schema";
-import { eq, and, not } from "drizzle-orm";
+import { eq, and, not, or } from "drizzle-orm";
 
 interface EligibilityResponse {
   isEligible: boolean;
@@ -63,7 +63,7 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
     console.log('phoneNumber', phoneNumber);
     const existingLead = await db.query.leads.findFirst({
       where: and(
-        eq(leads.phone_number, phoneNumber),
+        or(eq(leads.phone_number, phoneNumber), eq(leads.phone_number_2, phoneNumber), eq(leads.phone_number_3, phoneNumber)),
         not(eq(leads.status, 'unqualified'))
       )
     });

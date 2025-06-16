@@ -177,8 +177,6 @@ export default function LeadActionButtons({
       title: 'Make Call',
       onClick: () => setIsCallModalOpen(true),
     },
-    // Hidden buttons - keeping them in code but not rendering
-    /*
     {
       id: 'assign',
       icon: UserPlusIcon,
@@ -191,135 +189,48 @@ export default function LeadActionButtons({
       icon: ChatBubbleLeftIcon,
       solidIcon: ChatBubbleLeftSolidIcon,
       title: 'Send WhatsApp',
-      onClick: () => setIsWhatsAppModalOpen(true),
+      onClick: () => handleAction('whatsapp'),
     },
     {
       id: 'calendar',
       icon: CalendarDaysIcon,
       solidIcon: CalendarDaysSolidIcon,
       title: 'Schedule Appointment',
-      onClick: () => window.open(`/dashboard/leads/${leadId}/appointment`, '_blank'),
+      onClick: () => router.push(`/dashboard/leads/${leadId}/appointment`),
       disabled: false,
     },
-    {
-      id: 'pin',
-      icon: BookmarkIcon,
-      solidIcon: BookmarkSolidIcon,
-      title: isPinned ? 'Unpin Lead' : 'Pin Lead',
-      onClick: () => handleAction(isPinned ? 'unpin' : 'pin'),
-      active: isPinned,
-    },
-    */
+    // {
+    //   id: 'pin',
+    //   icon: BookmarkIcon,
+    //   solidIcon: BookmarkSolidIcon,
+    //   title: isPinned ? 'Unpin Lead' : 'Pin Lead',
+    //   onClick: () => handleAction(isPinned ? 'unpin' : 'pin'),
+    //   active: isPinned,
+    // },
   ];
 
   return (
     <>
       <div className="flex items-center space-x-1">
-        {/* Only show Edit and Call buttons directly */}
-        <button
-          onClick={() => handleAction('edit')}
-          disabled={isLoading}
-          title="Edit Lead"
-          className="p-2 rounded-full transition-all duration-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-        >
-          <PencilSquareSolidIcon className="h-4 w-4" />
-        </button>
-
+        {buttons.map((button) => (
           <button
-          onClick={() => setIsCallModalOpen(true)}
-          disabled={isLoading}
-          title="Make Call"
-          className="p-2 rounded-full transition-all duration-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-          >
-          <PhoneSolidIcon className="h-4 w-4" />
-          </button>
-        
-        <div className="relative">
-          <button
-            ref={menuButtonRef}
-            onClick={() => {
-              if (!isMenuOpen && menuButtonRef.current) {
-                const rect = menuButtonRef.current.getBoundingClientRect();
-                setMenuPosition({
-                  top: rect.bottom + window.scrollY,
-                  left: rect.right + window.scrollX - 192, // 192px = w-48 width
-                });
-              }
-              setIsMenuOpen(!isMenuOpen);
-            }}
+            key={button.id}
+            onClick={button.onClick}
+            disabled={isLoading || button.disabled}
+            title={button.title}
             className={`p-2 rounded-full transition-all duration-200 ${
-              isMenuOpen
+              button.active
                 ? 'text-blue-600 bg-blue-50'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
             }`}
-            title="More Actions"
           >
-            <EllipsisHorizontalIcon className="h-4 w-4" />
+            {button.active ? (
+              <button.solidIcon className="h-4 w-4" />
+            ) : (
+              <button.icon className="h-4 w-4" />
+            )}
           </button>
-
-          {isMenuOpen && (
-            <Portal>
-              <div 
-                ref={menuRef}
-                className="fixed w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-50"
-                style={{
-                  top: `${menuPosition.top}px`,
-                  left: `${menuPosition.left}px`,
-                }}
-              >
-                <div className="py-1">
-                  {/* Assign to Agent */}
-                  <button
-                    onClick={() => {
-                      handleAction('assign');
-                      setIsMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                  >
-                    <UserPlusSolidIcon className="h-4 w-4" />
-                    <span className="ml-2">Assign to Agent</span>
-                  </button>
-
-                  {/* Send WhatsApp */}
-                  <button
-                    onClick={() => {
-                      handleAction('whatsapp');
-                      setIsMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                  >
-                    <ChatBubbleLeftSolidIcon className="h-4 w-4" />
-                    <span className="ml-2">Send WhatsApp</span>
-                  </button>
-
-                  {/* Schedule Appointment */}
-                  <button
-                    onClick={() => {
-                      router.push(`/dashboard/leads/${leadId}/appointment`);
-                      setIsMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                  >
-                    <CalendarDaysSolidIcon className="h-4 w-4" />
-                    <span className="ml-2">Schedule Appointment</span>
-                  </button>
-
-                  {/* Pin/Unpin Lead */}
-                    {/* <button
-                    onClick={() => {
-                      handleAction(isPinned ? 'unpin' : 'pin');
-                      setIsMenuOpen(false);
-                    }}
-                      className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                    >
-                    <BookmarkSolidIcon className="h-4 w-4" />
-                    <span className="ml-2">{isPinned ? 'Unpin Lead' : 'Pin Lead'}</span>
-                    </button> */}
-                </div>
-              </div>
-            </Portal>
-          )}
-        </div>
+        ))}
       </div>
 
       <CallModal

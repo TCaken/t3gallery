@@ -110,7 +110,17 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
         { name: "phone_number", label: "Primary Phone", type: "tel", placeholder: "+65 XXXX XXXX" } as TextField,
         { name: "phone_number_2", label: "Secondary Phone", type: "tel", placeholder: "+65 XXXX XXXX (optional)" } as TextField,
         { name: "phone_number_3", label: "Additional Phone", type: "tel", placeholder: "+65 XXXX XXXX (optional)" } as TextField,
-        { name: "source", label: "Lead Source", type: "text", disabled: true } as TextField,
+        { name: "source", label: "Lead Source", type: "select", options: [
+          "1% Loan",
+          "Lendela",
+          "LendingPot",
+          "Loanable",
+          "MoneyIQ",
+          "MoneyRight",
+          "OMY.sg",
+          "SEO",
+          "Other"
+        ] } as SelectField,
         { name: "lead_type", label: "Lead Type", type: "select", options: ["new", "reloan"] } as SelectField,
       ]
     },
@@ -273,12 +283,12 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
     },
   ];
 
-  // Add status section for admin users
+  // Add admin section if user has admin role
   if (hasRole('admin')) {
     formSections.push({
-      title: "Lead Management",
+      title: "Admin Information",
       icon: ExclamationTriangleIcon,
-      description: "Status and assignment information (Admin only)",
+      description: "Lead status and management notes (Admin only)",
       fields: [
         { 
           name: "status", 
@@ -287,29 +297,18 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
           options: ["new", "assigned", "no_answer", "follow_up", "booked", "done", "missed/RS", "unqualified", "give_up", "blacklisted"]
         } as SelectField,
         { 
-          name: "assigned_to", 
-          label: "Assigned To", 
-          type: "text",
-          placeholder: "Agent ID or name"
-        } as TextField,
-        { 
-          name: "lead_score", 
-          label: "Lead Score", 
-          type: "text",
-          placeholder: "0-100"
-        } as TextField,
-        { 
-          name: "eligibility_status", 
-          label: "Eligibility Status", 
+          name: "loan_status", 
+          label: "Loan Status", 
           type: "select",
-          options: ["eligible", "ineligible", "pending", "duplicate", "error"]
+          options: ["P", "R", "RS", "PRS"]
         } as SelectField,
         { 
-          name: "eligibility_notes", 
-          label: "Eligibility Notes", 
+          name: "loan_notes", 
+          label: "Admin Notes", 
           type: "text",
-          placeholder: "Additional notes about eligibility"
-        } as TextField,
+          note: "Add any internal notes or comments about this lead",
+          placeholder: "Enter admin notes here..."
+        } as TextField
       ]
     });
   }

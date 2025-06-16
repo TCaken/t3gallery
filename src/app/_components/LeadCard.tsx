@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // Modified LeadCard.tsx without drag functionality
 "use client";
 
@@ -22,7 +24,6 @@ import LazyComment from './LazyComment';
 import LeadEditSlideOver from './LeadEditSlideOver';
 import { type Lead } from '~/app/types';
 import { formatDistanceToNow } from 'date-fns';
-import { Span } from 'next/dist/trace';
 import { Portal } from '@headlessui/react';
 
 // Infer lead type from Drizzle schema
@@ -167,7 +168,9 @@ export default function LeadCard({
     try {
       const result = await fetchLeadNotes(lead.id);
       if (result.success) {
-        setNotes(result.notes.map(note => note.content));
+        // Only take the latest 2 notes
+        const latestNotes = result.notes.slice(-2).map(note => note.content);
+        setNotes(latestNotes);
         setNoteCount(result.notes.length);
       }
     } catch (error) {
@@ -177,23 +180,25 @@ export default function LeadCard({
     }
   };
 
-  // Load note count on initial render
-  useEffect(() => {
-    if (lead.id) {
-      const fetchNoteCount = async () => {
-        try {
-          const result = await fetchLeadNotes(lead.id);
-          if (result.success) {
-            setNoteCount(result.notes.length);
-          }
-        } catch (error) {
-          console.error("Error fetching note count:", error);
-        }
-      };
-      
-      void fetchNoteCount();
+  // Helper function to format appointment status
+  const formatAppointmentStatus = (status: string) => {
+    switch (status) {
+      case 'P':
+        return 'Pending';
+      case 'R':
+        return 'Rescheduled';
+      case 'S':
+        return 'Scheduled';
+      case 'PR':
+        return 'Pending Reschedule';
+      case 'RS':
+        return 'Rescheduled & Scheduled';
+      case 'PRS':
+        return 'Pending Reschedule & Scheduled';
+      default:
+        return status;
     }
-  }, [lead.id]);
+  };
 
   return (
     <div
@@ -208,8 +213,7 @@ export default function LeadCard({
         <div className="flex-1 min-w-0 mr-3">
           <h3 className="text-lg font-medium text-gray-900 truncate group">
             <a 
-              href={`leads/${lead.id}`} 
-              target="_blank" 
+              href={`/dashboard/leads/${lead.id}`} 
               className="hover:underline"
               title={lead.full_name ?? 'No Name'}
               data-no-card-click="true"
@@ -247,9 +251,17 @@ export default function LeadCard({
         
         {/* Status and Tags */}
         <div className="flex flex-col items-end space-y-1 flex-shrink-0">
-          {/* <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${statusInfo.color}`}>
-            {statusInfo.name}
-          </span> */}
+          {lead.loan_status && (
+            <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${
+              lead.loan_status === 'P' ? 'bg-blue-100 text-blue-800' :
+              lead.loan_status === 'R' ? 'bg-red-100 text-red-800' :
+              lead.loan_status === 'PRS' ? 'bg-purple-100 text-purple-800' :
+              lead.loan_status === 'RS' ? 'bg-orange-100 text-orange-800' :
+              'bg-gray-100 text-gray-800'
+            }`}>
+              {lead.loan_status}
+            </span>
+          )}
           {lead.contact_preference !== "No Preferences" && 
             <span className="px-2.5 py-0.5 rounded-full text-xs font-medium text-yellow-800 bg-yellow-100 whitespace-nowrap">
               {lead.contact_preference}
@@ -271,17 +283,17 @@ export default function LeadCard({
             {formatDistanceToNow(new Date(lead.updated_at ?? ''), { addSuffix: true })} 
           </span>
         </div>
-        <div className="flex items-center space-x-1">
+        {/* <div className="flex items-center space-x-1">
           <ClockIcon className="h-3 w-3 flex-shrink-0" />
           <span className="truncate" title={`Created: ${formatDistanceToNow(new Date(lead.created_at ?? ''), { addSuffix: true })}`}>
             {formatDistanceToNow(new Date(lead.created_at ?? ''), { addSuffix: true })}
           </span>
-        </div>
+        </div> */}
         {lead.source && (
           <div className="flex items-center space-x-1 col-span-2">
             <DocumentTextIcon className="h-3 w-3 flex-shrink-0 text-gray-400" />
             <span className="text-gray-600 truncate" title={`Source: ${lead.source}`}>
-              Source: {lead.source}
+              {lead.source}
             </span>
           </div>
         )}
@@ -289,7 +301,7 @@ export default function LeadCard({
           <div className="flex items-center space-x-1 col-span-2">
             <UserCircleIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
             <span className="text-blue-600 truncate" title={`Agent: ${lead.assigned_to}`}>
-              Agent: {lead.assigned_to}
+            {lead.assigned_to}
             </span>
           </div>
         )}
@@ -316,7 +328,51 @@ export default function LeadCard({
         />
       </div>
 
-      {/* Notes Section - Compact with icon */}
+      {/* Latest Appointment Section */}
+      {lead.latest_appointment && (
+        <div className="mb-3 p-2 bg-gray-50 rounded-md">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <div className="flex items-center space-x-2">
+              <CalendarIcon className="h-4 w-4 text-gray-500" />
+              <span className="text-gray-600">
+                {new Date(lead.latest_appointment.start_datetime).toLocaleDateString()}
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                lead.latest_appointment.status === 'upcoming' ? 'bg-yellow-100 text-yellow-800' :
+                lead.latest_appointment.status === 'done' ? 'bg-green-100 text-green-800' :
+                lead.latest_appointment.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                lead.latest_appointment.status === 'missed' ? 'bg-gray-100 text-gray-800' :
+                'bg-gray-100 text-gray-800'
+              }`}>
+                {formatAppointmentStatus(lead.latest_appointment.status)}
+              </span>
+            </div>
+          </div>
+          
+          {/* Loan Notes Section */}
+          {lead.latest_appointment?.loan_notes && (
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              <div className="mt-1">
+                <span className="text-xs font-medium text-gray-500 block mb-1">Loan Notes:</span>
+                <div 
+                  className="relative group cursor-pointer"
+                >
+                  <p className="text-sm text-gray-600 line-clamp-2">
+                    {lead.latest_appointment?.loan_notes}
+                  </p>
+                  {lead.latest_appointment?.loan_notes.split('\n').length > 2 && (
+                    <span className="text-xs text-gray-500">...</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Notes Section */}
       <div 
         ref={notesRef}
         className="relative"
@@ -325,7 +381,7 @@ export default function LeadCard({
             const rect = notesRef.current.getBoundingClientRect();
             setTooltipPosition({
               top: rect.bottom + window.scrollY,
-              left: rect.right + window.scrollX - 288, // 288px = w-72 width
+              left: rect.right + window.scrollX - 288,
             });
           }
           setShowNotesTooltip(true);
@@ -336,9 +392,28 @@ export default function LeadCard({
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-1 text-xs text-blue-600 hover:text-blue-800 cursor-pointer">
             <DocumentTextIcon className="h-3 w-3" />
-            <span>Notes ({noteCount})</span>
+            <span>Notes</span>
           </div>
         </div>
+        
+        {/* Notes Preview */}
+        {lead.eligibility_notes && (
+          <div className="mt-1">
+            <p className="text-sm text-gray-600 line-clamp-2">
+              {lead.eligibility_notes}
+            </p>
+          </div>
+        )}
+        {lead.note?.desc && (
+          <div className="mt-1">
+            <p className="text-sm text-gray-600 line-clamp-2">
+              {lead.note.desc}
+            </p>
+            {lead.note.desc.split('\n').length > 2 && (
+              <span className="text-xs text-gray-500">...</span>
+            )}
+          </div>
+        )}
         
         {/* Notes Tooltip */}
         {showNotesTooltip && (
@@ -351,7 +426,7 @@ export default function LeadCard({
               }}
             >
               <div className="p-4">
-                <h4 className="font-medium text-gray-900 mb-3">Lead Notes</h4>
+                <h4 className="font-medium text-gray-900 mb-3">Latest Notes</h4>
                 {loadingNotes ? (
                   <div className="text-center py-3">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900 mx-auto"></div>
