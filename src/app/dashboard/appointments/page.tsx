@@ -35,7 +35,8 @@ const APPOINTMENT_STATUSES = {
 // Generate timeslots for display (10 AM to 8 PM)
 const generateTimeSlots = () => {
   const slots = [];
-  for (let hour = 10; hour <= 20; hour++) {
+  slots.push({ time: '10:30', displayTime: '10:30 AM', hour: 10 });
+  for (let hour = 11; hour <= 19; hour++) {
     const time = `${hour.toString().padStart(2, '0')}:00`;
     const displayTime = hour === 12 ? '12:00 PM' : hour > 12 ? `${hour - 12}:00 PM` : `${hour}:00 AM`;
     slots.push({ time, displayTime, hour });
@@ -66,7 +67,7 @@ export default function AppointmentsPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'day' | 'week'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['upcoming', 'done']);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['upcoming', 'done', 'missed']);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Quick create modal state
@@ -250,6 +251,10 @@ export default function AppointmentsPage() {
       const timeslots = await fetchAvailableTimeslots(quickCreateData.date);
       const targetSlot = timeslots.find((slot: Timeslot) => slot.start_time === `${quickCreateData.timeSlot}:00`);
       
+      console.log('Timeslots:', timeslots);
+      console.log('Target slot:', targetSlot);
+      console.log('Quick create data:', quickCreateData.timeSlot);
+
       if (!targetSlot) {
         throw new Error('Selected timeslot not found');
       }
@@ -300,15 +305,30 @@ export default function AppointmentsPage() {
     const parts = baseTimeSlot.split(':');
     const hourStr = parts[0];
     if (!hourStr) return [];
+    console.log(hourStr, 'hourStr');
     
     const hour = parseInt(hourStr);
-    const firstHalf = `${hour.toString().padStart(2, '0')}:00`;
-    const secondHalf = `${hour.toString().padStart(2, '0')}:30`;
+    if(hour === 10) {
+      return [
+        { value: '10:30', label: format(parseISO(`2000-01-01T10:30:00`), 'h:mm a') }
+      ];
+    }
+    else if(hour === 19) {
+      console.log(hour, '19:00');
+      return [
+        { value: '19:00', label: format(parseISO(`2000-01-01T19:00:00`), 'h:mm a') }
+      ];
+    }
+    else {
+      const firstHalf = `${hour.toString().padStart(2, '0')}:00`;
+      const secondHalf = `${hour.toString().padStart(2, '0')}:30`;
+      console.log(hour, firstHalf, secondHalf);
     
-    return [
-      { value: firstHalf, label: format(parseISO(`2000-01-01T${firstHalf}:00`), 'h:mm a') },
-      { value: secondHalf, label: format(parseISO(`2000-01-01T${secondHalf}:00`), 'h:mm a') }
-    ];
+      return [
+        { value: firstHalf, label: format(parseISO(`2000-01-01T${firstHalf}:00`), 'h:mm a') },
+        { value: secondHalf, label: format(parseISO(`2000-01-01T${secondHalf}:00`), 'h:mm a') }
+      ];
+    }
   };
 
   const navigateDate = (direction: 'prev' | 'next') => {
@@ -375,8 +395,7 @@ export default function AppointmentsPage() {
     const endTime = format(new Date(appointment.end_datetime), 'h:mm a');
 
     const handleAppointmentClick = (e: React.MouseEvent) => {
-      const url = `/dashboard/leads/${appointment.lead?.id}/appointment`;
-      window.open(url, '_blank');
+      router.push(`/dashboard/leads/${appointment.lead?.id}/appointment`);
     };
 
     return (
@@ -386,7 +405,7 @@ export default function AppointmentsPage() {
         onAuxClick={(e) => {
           if (e.button === 1) { // Middle mouse button
             e.preventDefault();
-            window.open(`/dashboard/appointments/${appointment.id}`, '_blank');
+            router.push(`/dashboard/appointments/${appointment.id}`);
           }
         }}
         className={`
@@ -757,7 +776,10 @@ export default function AppointmentsPage() {
                 </label>
                 <select
                   value={quickCreateData.timeSlot}
-                  onChange={(e) => setQuickCreateData(prev => ({ ...prev, timeSlot: e.target.value }))}
+                  onChange={(e) => {
+                    console.log("quickCreateData", quickCreateData);
+                    setQuickCreateData(prev => ({ ...prev, timeSlot: e.target.value }));
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 >
@@ -779,7 +801,10 @@ export default function AppointmentsPage() {
                   type="text"
                   required
                   value={quickCreateData.leadName}
-                  onChange={(e) => setQuickCreateData(prev => ({ ...prev, leadName: e.target.value }))}
+                  onChange={(e) => {
+                    console.log("quickCreateData", quickCreateData);
+                    setQuickCreateData(prev => ({ ...prev, leadName: e.target.value }));
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter lead name"
                 />
@@ -794,7 +819,10 @@ export default function AppointmentsPage() {
                   type="tel"
                   required
                   value={quickCreateData.phoneNumber}
-                  onChange={(e) => setQuickCreateData(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                  onChange={(e) => {
+                    console.log("quickCreateData", quickCreateData);
+                    setQuickCreateData(prev => ({ ...prev, phoneNumber: e.target.value }));
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter phone number"
                 />

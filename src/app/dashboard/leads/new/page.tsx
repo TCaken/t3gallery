@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createLead } from '~/app/_actions/leadActions';
+import { createLead, addLeadNote } from '~/app/_actions/leadActions';
 import { useUserRole } from '../useUserRole';
 import { 
   UserIcon, 
@@ -12,7 +12,9 @@ import {
   ChatBubbleLeftRightIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  DocumentTextIcon,
+  BanknotesIcon
 } from '@heroicons/react/24/outline';
 
 // Define field types
@@ -27,7 +29,7 @@ interface BaseField {
 }
 
 interface TextField extends BaseField {
-  type: 'text' | 'tel' | 'email';
+  type: 'text' | 'tel' | 'email' | 'textarea';
 }
 
 interface SelectField extends BaseField {
@@ -58,12 +60,58 @@ interface Section {
   icon?: React.ComponentType<{ className?: string }>;
 }
 
+interface FormData {
+  [key: string]: string | boolean;  // Add index signature
+  source: string;
+  full_name: string;
+  email: string;
+  phone_number: string;
+  phone_number_2: string;
+  phone_number_3: string;
+  residential_status: string;
+  has_work_pass_expiry: string;
+  proof_of_residence_type: string;
+  has_letter_of_consent: boolean;
+  employment_status: string;
+  employment_salary: string;
+  employment_length: string;
+  has_payslip_3months: boolean;
+  amount: string;
+  loan_purpose: string;
+  existing_loans: string;
+  outstanding_loan_amount: string;
+  contact_preference: string;
+  communication_language: string;
+  loan_status: string;
+  loan_notes: string;
+  notes: string;
+}
+
 // Type guard functions
 const isSelectField = (field: Field): field is SelectField => field.type === 'select';
 const isCheckboxField = (field: Field): field is CheckboxField => field.type === 'checkbox';
-const isTextField = (field: Field): field is TextField => field.type === 'text' || field.type === 'tel' || field.type === 'email';
+const isTextField = (field: Field): field is TextField => 
+  field.type === 'text' || field.type === 'tel' || field.type === 'email' || field.type === 'textarea';
 const isRadioField = (field: Field): field is RadioField => field.type === 'radio';
 const isCheckboxGroupField = (field: Field): field is CheckboxGroupField => field.type === 'checkbox-group';
+
+type FormField = {
+  id: string;
+  type: 'text' | 'tel' | 'email' | 'select' | 'radio' | 'checkbox-group' | 'checkbox' | 'textarea';
+  label: string;
+  placeholder?: string;
+  required?: boolean;
+  notes?: string;
+  options?: { value: string; label: string }[];
+  showIf?: (data: FormData) => boolean;
+  rows?: number;
+} & (
+  | { type: 'select'; options: { value: string; label: string }[] }
+  | { type: 'radio'; options: { value: string; label: string }[] }
+  | { type: 'checkbox-group'; options: { value: string; label: string }[] }
+  | { type: 'textarea'; rows?: number }
+  | { type: 'text' | 'tel' | 'email' | 'checkbox' }
+);
 
 export default function NewLeadPage() {
   const router = useRouter();
@@ -71,8 +119,9 @@ export default function NewLeadPage() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const [formData, setFormData] = useState<Record<string, any>>({
+  const [formData, setFormData] = useState<FormData>({
     source: 'SEO',
     full_name: '',
     email: '',
@@ -92,7 +141,10 @@ export default function NewLeadPage() {
     existing_loans: '',
     outstanding_loan_amount: '',
     contact_preference: 'No Preferences',
-    communication_language: 'No Preferences'
+    communication_language: 'No Preferences',
+    loan_status: '',
+    loan_notes: '',
+    notes: '',
   });
 
   // Form sections based on LeadEditSlideOver structure
@@ -127,8 +179,8 @@ export default function NewLeadPage() {
       ]
     },
     {
-      title: "Residential Information",
-      description: "Residency status and documentation",
+      title: "Residential & Employment",
+      description: "Residency status and work details",
       icon: HomeIcon,
       fields: [
         { 
@@ -142,7 +194,7 @@ export default function NewLeadPage() {
           name: "has_work_pass_expiry", 
           label: "When does your work pass expire?", 
           type: "text",
-          showIf: (values) => values.residential_status === "Foreigner",
+          showIf: (values: FormData) => values.residential_status === "Foreigner",
           note: "⚠️ Must have at least 6 months validity from today"
         } as TextField,
         { 
@@ -150,23 +202,16 @@ export default function NewLeadPage() {
           label: "Proof of Residence Documents", 
           type: "checkbox-group",
           options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
-          showIf: (values) => values.residential_status === "Foreigner",
+          showIf: (values: FormData) => values.residential_status === "Foreigner",
           note: "📄 Select all documents you can provide:\n\n⚠️ Important: Must provide either current month or last month statement"
         } as CheckboxGroupField,
         { 
           name: "has_letter_of_consent", 
           label: "Has Letter of Consent", 
           type: "checkbox",
-          showIf: (values) => values.residential_status === "Foreigner",
+          showIf: (values: FormData) => values.residential_status === "Foreigner",
           note: "📝 Required for LTVP and LTVP+ pass holders only"
-        } as CheckboxField
-      ]
-    },
-    {
-      title: "Employment Information",
-      description: "Work status and income details",
-      icon: BriefcaseIcon,
-      fields: [
+        } as CheckboxField,
         { 
           name: "employment_status", 
           label: "Employment Status", 
@@ -182,13 +227,13 @@ export default function NewLeadPage() {
           name: "employment_length", 
           label: "Length of Employment", 
           type: "text",
-          showIf: (values) => values.employment_status !== "Unemployed"
+          showIf: (values: FormData) => values.employment_status !== "Unemployed"
         } as TextField,
         {
           name: "has_payslip_3months",
           label: "Has Latest 3 Months Payslips",
           type: "checkbox",
-          showIf: (values) => {
+          showIf: (values: FormData) => {
             const salary = parseFloat(values.employment_salary?.toString() ?? '0');
             return (
               values.residential_status === "Foreigner" ||
@@ -199,7 +244,7 @@ export default function NewLeadPage() {
               ))
             );
           },
-          note: (values) => {
+          note: (values: FormData) => {
             const salary = parseFloat(values.employment_salary?.toString() ?? '0');
             const isHighIncome = values.employment_status === "Full-Time" && salary >= 7400;
             const isSelfEmployed = values.employment_status === "Self-Employed" || values.employment_status === "Self-Employed (Platform Worker)";
@@ -220,8 +265,8 @@ export default function NewLeadPage() {
       ]
     },
     {
-      title: "Loan Information",
-      description: "Loan requirements and existing obligations",
+      title: "Loan & Communication",
+      description: "Loan requirements and contact preferences",
       icon: CurrencyDollarIcon,
       fields: [
         { 
@@ -244,15 +289,8 @@ export default function NewLeadPage() {
           name: "outstanding_loan_amount", 
           label: "Outstanding Loan Amount", 
           type: "text",
-          showIf: (values) => values.existing_loans === "Yes"
-        } as TextField
-      ]
-    },
-    {
-      title: "Communication Preferences",
-      description: "How you prefer to be contacted",
-      icon: ChatBubbleLeftRightIcon,
-      fields: [
+          showIf: (values: FormData) => values.existing_loans === "Yes"
+        } as TextField,
         { 
           name: "contact_preference", 
           label: "Preferred Contact Method", 
@@ -266,8 +304,51 @@ export default function NewLeadPage() {
           options: ["No Preferences", "English", "Mandarin", "Malay", "Tamil", "Others"]
         } as SelectField
       ]
-    }
+    },
+    {
+      title: 'Lead Notes',
+      description: 'Add any additional notes or comments about the lead',
+      icon: DocumentTextIcon,
+      fields: [
+        {
+          type: 'text',
+          name: 'notes',
+          label: 'Lead Notes',
+          placeholder: 'Enter any additional notes or comments about the lead...',
+          required: false,
+          notes: 'These notes will be visible to all users and can be updated later.',
+        } as TextField,
+      ],
+    },
   ];
+
+  // Add admin section if user has admin role
+  if (hasRole('admin')) {
+    formSections.push({
+      title: "Admin Information",
+      description: "Lead status and management notes (Admin only)",
+      icon: ExclamationTriangleIcon,
+      fields: [
+        { 
+          name: "status", 
+          label: "Lead Status", 
+          type: "select",
+          options: ["new", "assigned", "no_answer", "follow_up", "booked", "done", "missed/RS", "unqualified", "give_up", "blacklisted"]
+        } as SelectField,
+        {
+          name:"loan_status",
+          label: "Loan Status",
+          type: "select",
+          options: ["P", "R", "RS", "PRS"]
+        } as SelectField,
+        { 
+          name: "loan_notes", 
+          label: "Admin Notes", 
+          type: "text",
+        } as TextField
+      ]
+    });
+  }
 
   // Validation functions
   const validateSGPhoneNumber = (phone: string) => {
@@ -323,7 +404,7 @@ export default function NewLeadPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleFieldChange = (name: string, value: any) => {
+  const handleFieldChange = (name: string, value: string | boolean) => {
     setFormData(prev => ({
       ...prev,
       [name]: value
@@ -340,17 +421,11 @@ export default function NewLeadPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      setNotification({ message: 'Please fix the errors below', type: 'error' });
-      return;
-    }
-
-    setLoading(true);
-    setNotification(null);
+    setIsSubmitting(true);
+    setErrors({});
 
     try {
-      // Format phone numbers
+      // Create the lead first
       const formattedData = {
         ...formData,
         phone_number: formatSGPhoneNumber(formData.phone_number),
@@ -361,19 +436,26 @@ export default function NewLeadPage() {
 
       const result = await createLead(formattedData, true);
       
-      if (result.success) {
+      if (result.success && result.lead) {
+        // If there are notes, create them
+        if (formData.notes) {
+          await addLeadNote(result.lead.id, formData.notes);
+        }
+        
+        // Show success message
         setNotification({ message: 'Lead created successfully!', type: 'success' });
-        setTimeout(() => {
-          router.push('/dashboard/leads');
-        }, 1500);
+        
+        // Redirect to the new lead's page
+        router.push(`/dashboard/leads/${result.lead.id}`);
       } else {
-        setNotification({ message: `Failed to create lead: ${result.error}`, type: 'error' });
+        setErrors({});
+        setNotification({ message: result.error ?? 'Failed to create lead', type: 'error' });
       }
-    } catch (error) {
-      console.error('Error creating lead:', error);
-      setNotification({ message: 'An error occurred while creating the lead', type: 'error' });
+    } catch (err) {
+      setErrors({});
+      setNotification({ message: err instanceof Error ? err.message : 'An error occurred', type: 'error' });
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -428,7 +510,7 @@ export default function NewLeadPage() {
     }
 
     if (isCheckboxGroupField(field)) {
-      const currentValues: string[] = fieldValue ? fieldValue.split(',').map((v: string) => v.trim()).filter(Boolean) : [];
+      const currentValues: string[] = typeof fieldValue === 'string' ? fieldValue.split(',').map(v => v.trim()).filter(Boolean) : [];
 
       return (
         <div className="space-y-2">
@@ -611,25 +693,62 @@ export default function NewLeadPage() {
 
           {/* Submit Section */}
           <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <div className="flex justify-end space-x-3">
+            <div className="flex items-center space-x-4">
               <button
                 type="button"
-                onClick={() => router.back()}
-                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200"
-                disabled={loading}
+                onClick={() => router.push('/dashboard/leads')}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={loading}
-                className="px-6 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                form="leadForm"
+                disabled={isSubmitting}
+                onClick={handleSubmit}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading && (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                )}
-                <span>{loading ? 'Creating Lead...' : 'Create Lead'}</span>
+                {isSubmitting ? 'Creating...' : 'Create Lead'}
               </button>
+              {!isSubmitting && (
+                <>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      try {
+                        const formattedData = {
+                          ...formData,
+                          phone_number: formatSGPhoneNumber(formData.phone_number),
+                          phone_number_2: formData.phone_number_2 ? formatSGPhoneNumber(formData.phone_number_2) : '',
+                          phone_number_3: formData.phone_number_3 ? formatSGPhoneNumber(formData.phone_number_3) : '',
+                          bypassEligibility: true,
+                        };
+
+                        const result = await createLead(formattedData, true);
+                        if (result.success && result.lead) {
+                          if (formData.notes) {
+                            await addLeadNote(result.lead.id, formData.notes);
+                          }
+                          setNotification({ message: 'Lead created successfully!', type: 'success' });
+                          router.push(`/dashboard/leads/${result.lead.id}/appointment`);
+                        } else {
+                          setErrors({});
+                          setNotification({ message: result.error ?? 'Failed to create lead', type: 'error' });
+                        }
+                      } catch (err) {
+                        setErrors({});
+                        setNotification({ message: err instanceof Error ? err.message : 'An error occurred', type: 'error' });
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md shadow-sm hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                  >
+                    Create & Schedule Appointment
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </form>

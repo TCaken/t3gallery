@@ -48,7 +48,9 @@ interface PageProps {
 }
 
 // Status color configurations
-const getStatusColor = (status: string) => {
+const getStatusColor = (status: string | null) => {
+  if (!status) return "bg-gray-100 text-gray-800 border-gray-200";
+  
   const statusMap: Record<string, string> = {
     new: "bg-blue-100 text-blue-800 border-blue-200",
     assigned: "bg-cyan-100 text-cyan-800 border-cyan-200",
@@ -60,6 +62,12 @@ const getStatusColor = (status: string) => {
     unqualified: "bg-orange-100 text-orange-800 border-orange-200",
     give_up: "bg-red-100 text-red-800 border-red-200",
     blacklisted: "bg-black text-white border-black",
+    // Loan status colors
+    pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    approved: "bg-green-100 text-green-800 border-green-200",
+    rejected: "bg-red-100 text-red-800 border-red-200",
+    cancelled: "bg-gray-100 text-gray-800 border-gray-200",
+    completed: "bg-emerald-100 text-emerald-800 border-emerald-200"
   };
   return statusMap[status] ?? "bg-gray-100 text-gray-800 border-gray-200";
 };
@@ -248,49 +256,38 @@ export default function LeadDetailPage({ params }: PageProps) {
                 className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
               >
                 <ArrowLeftIcon className="h-5 w-5 mr-2" />
-                Back to Leads
+                <span>Back to Leads</span>
               </button>
-              <div className="h-6 border-l border-gray-300"></div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">{lead.full_name || 'Unnamed Lead'}</h1>
-                <div className="flex items-center mt-1">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(lead.status)}`}>
-                    {lead.status?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                  </span>
-                </div>
+                <h1 className="text-2xl font-semibold text-gray-900">{lead.full_name}</h1>
+                <p className="text-sm text-gray-500">Lead ID: {lead.id}</p>
               </div>
             </div>
 
-            {/* Right side - Action buttons */}
-            <div className="flex items-center space-x-3">
+            {/* Right side - Actions */}
+            <div className="flex items-center space-x-4">
               <button
-                onClick={() => router.push(`/dashboard/leads/${leadId}/edit`)}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onClick={() => router.push(`/dashboard/leads/${lead.id}/edit`)}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 <PencilIcon className="h-4 w-4 mr-2" />
-                Edit
+                Edit Lead
               </button>
-
-              {/* Admin-only actions */}
               {hasRole('admin') && (
                 <div className="relative">
                   <button
                     onClick={() => setShowActionsDropdown(!showActionsDropdown)}
-                    className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                   >
                     <EllipsisVerticalIcon className="h-4 w-4" />
                   </button>
-
                   {showActionsDropdown && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-10">
+                    <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
                       <div className="py-1">
                         <button
-                          onClick={() => {
-                            setShowActionsDropdown(false);
-                            handleDeleteLead();
-                          }}
+                          onClick={handleDeleteLead}
                           disabled={deleting}
-                          className="flex items-center px-4 py-2 text-sm text-red-700 hover:bg-red-50 w-full text-left disabled:opacity-50"
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center"
                         >
                           <TrashIcon className="h-4 w-4 mr-2" />
                           {deleting ? 'Deleting...' : 'Delete Lead'}
@@ -305,11 +302,40 @@ export default function LeadDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Main content */}
+      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left column - Lead information */}
+          {/* Left Column - Lead Details */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Status Section */}
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-medium text-gray-900">Lead Status</h2>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500">Lead Status</h3>
+                    <div className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(lead.status)}`}>
+                      {lead.status}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500">Loan Status</h3>
+                    <div className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(lead.loan_status)}`}>
+                      {lead.loan_status || 'Not set'}
+                    </div>
+                  </div>
+                  {lead.loan_notes && (
+                    <div className="md:col-span-2">
+                      <h3 className="text-sm font-medium text-gray-500">Admin Notes</h3>
+                      <p className="mt-1 text-sm text-gray-900">{lead.loan_notes}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Personal Information Card */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
               <div className="px-6 py-4 border-b border-gray-200">
@@ -525,52 +551,50 @@ export default function LeadDetailPage({ params }: PageProps) {
             </div>
 
             {/* Lead Management Card (Admin only) */}
-            {hasRole('admin') && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-medium text-gray-900 flex items-center">
-                    <ExclamationCircleIcon className="h-5 w-5 mr-2 text-gray-400" />
-                    Lead Management
-                  </h2>
-                </div>
-                <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-500 mb-1">Lead Status</label>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(lead.status)}`}>
-                        {lead.status?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      </span>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-medium text-gray-900 flex items-center">
+                  <ExclamationCircleIcon className="h-5 w-5 mr-2 text-gray-400" />
+                  Lead Management
+                </h2>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">Lead Status</label>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(lead.status)}`}>
+                      {lead.status?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">Assigned To</label>
+                    <p className="text-gray-900">{formatDisplayValue(lead.assigned_to)}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">Lead Score</label>
+                    <p className="text-gray-900">{formatDisplayValue(lead.lead_score, '0')}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">Eligibility Status</label>
+                    <p className="text-gray-900 capitalize">{formatDisplayValue(lead.eligibility_status)}</p>
+                  </div>
+                  {lead.eligibility_notes && (
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-500 mb-1">Eligibility Notes</label>
+                      <p className="text-gray-900">{lead.eligibility_notes}</p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-500 mb-1">Assigned To</label>
-                      <p className="text-gray-900">{formatDisplayValue(lead.assigned_to)}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-500 mb-1">Lead Score</label>
-                      <p className="text-gray-900">{formatDisplayValue(lead.lead_score, '0')}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-500 mb-1">Eligibility Status</label>
-                      <p className="text-gray-900 capitalize">{formatDisplayValue(lead.eligibility_status)}</p>
-                    </div>
-                    {lead.eligibility_notes && (
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-500 mb-1">Eligibility Notes</label>
-                        <p className="text-gray-900">{lead.eligibility_notes}</p>
-                      </div>
-                    )}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-500 mb-1">Created</label>
-                      <p className="text-gray-900">{lead.created_at ? format(new Date(lead.created_at), 'MMM dd, yyyy • h:mm a') : 'Unknown'}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-500 mb-1">Last Updated</label>
-                      <p className="text-gray-900">{lead.updated_at ? format(new Date(lead.updated_at), 'MMM dd, yyyy • h:mm a') : 'Never'}</p>
-                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">Created</label>
+                    <p className="text-gray-900">{lead.created_at ? format(new Date(lead.created_at), 'MMM dd, yyyy • h:mm a') : 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">Last Updated</label>
+                    <p className="text-gray-900">{lead.updated_at ? format(new Date(lead.updated_at), 'MMM dd, yyyy • h:mm a') : 'Never'}</p>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* Appointments Card */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">

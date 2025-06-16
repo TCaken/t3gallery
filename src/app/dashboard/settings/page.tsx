@@ -67,6 +67,9 @@ export default function SettingsPage() {
   const [webhookResult, setWebhookResult] = useState<WebhookResult | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState('follow_up');
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const handleTriggerWebhooks = async () => {
     setIsLoading(true);
@@ -91,21 +94,31 @@ export default function SettingsPage() {
     }
   };
 
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  };
+
   const handleCSVImport = async () => {
+    if (!selectedFile) {
+      setNotification({ message: 'Please select a CSV file first', type: 'error' });
+      return;
+    }
+
     setIsImporting(true);
     setImportResult(null);
 
     try {
-      // Read the CSV file from public/templates
-      const response = await fetch('/templates/FOLLOW UP MIGRATION AIRCONNECT - FOLLOW UP MIGRATION.csv');
-      if (!response.ok) {
-        throw new Error('Failed to load CSV file');
-      }
-      
-      const csvContent = await response.text();
-      const result = await importCSVLeads(csvContent);
-      
+      const fileContent = await selectedFile.text();
+      const result = await importCSVLeads(fileContent, selectedStatus);
       setImportResult(result);
+      if (result.success) {
+        setNotification({ message: result.message, type: 'success' });
+      } else {
+        setNotification({ message: result.message, type: 'error' });
+      }
     } catch (error) {
       console.error('❌ Error importing CSV:', error);
       setImportResult({
@@ -113,6 +126,10 @@ export default function SettingsPage() {
         message: error instanceof Error ? error.message : 'An unexpected error occurred',
         summary: { total: 0, successful: 0, skipped: 0, failed: 0 },
         errors: [error instanceof Error ? error.message : 'Unknown error']
+      });
+      setNotification({ 
+        message: error instanceof Error ? error.message : 'An unexpected error occurred', 
+        type: 'error' 
       });
     } finally {
       setIsImporting(false);
@@ -167,7 +184,7 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-xl font-semibold text-gray-900">CSV Lead Import</h2>
             <p className="text-gray-600 text-sm mt-1">
-              Import leads from the follow-up migration CSV file with notes and assignments
+              Import leads from CSV file with notes, assignments, and follow-up times
             </p>
           </div>
         </div>
@@ -178,42 +195,84 @@ export default function SettingsPage() {
             <div className="text-sm">
               <p className="text-green-800 font-medium mb-1">What this imports:</p>
               <ul className="text-green-700 space-y-1 ml-2">
-                <li>• Reads: /templates/FOLLOW UP MIGRATION AIRCONNECT - FOLLOW UP MIGRATION.csv</li>
+                <li>• Required columns: Name, Mobile Number, Notes, Start Date, Priority</li>
                 <li>• Assigns all leads to: user_2y2V1dGLmNQZ6JqpNqLz8YKQN2k</li>
-                <li>• Sets status to: follow_up for immediate attention</li>
-                <li>• Includes individual notes for each lead</li>
+                <li>• Sets status to your selected value</li>
+                <li>• Includes notes with priority and follow-up time</li>
                 <li>• Validates Singapore phone numbers and skips duplicates</li>
               </ul>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="space-y-4">
+          {/* Status Selection */}
           <div>
-            <h3 className="font-medium text-gray-900">Import Follow-Up Migration Data</h3>
-            <p className="text-sm text-gray-600">Process CSV file and create leads with notes</p>
+            <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+              Lead Status
+            </label>
+            <select
+              id="status"
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+            >
+              <option value="new">New</option>
+              <option value="assigned">Assigned</option>
+              <option value="follow_up">Follow Up</option>
+              <option value="unqualified">Unqualified</option>
+              <option value="give_up">Give Up</option>
+              <option value="blacklisted">Blacklisted</option>
+            </select>
           </div>
-          <button
-            onClick={handleCSVImport}
-            disabled={isImporting}
-            className={`flex items-center px-6 py-3 rounded-lg font-medium transition-colors ${
-              isImporting
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800'
-            }`}
-          >
-            {isImporting ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                Importing...
-              </>
-            ) : (
-              <>
-                <DocumentArrowUpIcon className="h-5 w-5 mr-2" />
-                Import CSV Data
-              </>
-            )}
-          </button>
+
+          {/* File Selection */}
+          <div>
+            <label htmlFor="csvFile" className="block text-sm font-medium text-gray-700 mb-1">
+              Select CSV File
+            </label>
+            <input
+              type="file"
+              id="csvFile"
+              accept=".csv"
+              onChange={handleFileChange}
+              className="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-md file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100"
+            />
+          </div>
+
+          {/* Import Button */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-medium text-gray-900">Import Leads</h3>
+              <p className="text-sm text-gray-600">Process CSV file and create leads with notes</p>
+            </div>
+            <button
+              onClick={handleCSVImport}
+              disabled={isImporting || !selectedFile}
+              className={`flex items-center px-6 py-3 rounded-lg font-medium transition-colors ${
+                isImporting || !selectedFile
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800'
+              }`}
+            >
+              {isImporting ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Importing...
+                </>
+              ) : (
+                <>
+                  <DocumentArrowUpIcon className="h-5 w-5 mr-2" />
+                  Import CSV Data
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

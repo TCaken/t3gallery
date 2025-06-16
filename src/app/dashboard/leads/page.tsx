@@ -38,7 +38,6 @@ import LeadEditSlideOver from '~/app/_components/LeadEditSlideOver';
 import CustomWhatsAppModal from '~/app/_components/CustomWhatsAppModal';
 import LeadStatusReasonModal from '~/app/_components/LeadStatusReasonModal';
 
-
 // Infer Lead type from the schema
 type Lead = InferSelectModel<typeof leads> & {
   // Ensure phone_number is treated as a string
@@ -437,7 +436,11 @@ export default function LeadsPage() {
       return;
     }
 
-    console.log(`🔍 Starting search for: "${searchQuery}"`);
+    console.log(`🔍 [Search Load] Starting search for: "${searchQuery}"`, {
+      isSearchAutoLoading,
+      searchAutoLoadingAttempts,
+      currentPage: page
+    });
     setIsSearchAutoLoading(true);
     setSearchAutoLoadingAttempts(1);
     
@@ -455,10 +458,20 @@ export default function LeadsPage() {
   // Function to handle search-based auto-loading (for pagination)
   const handleSearchAutoLoad = async () => {
     if (!filters.search?.trim() || isSearchAutoLoading || !hasMore || searchAutoLoadingAttempts >= 5) {
+      console.log(`🔍 [Search Auto Load] Skipping - Conditions not met:`, {
+        hasSearchQuery: Boolean(filters.search?.trim()),
+        isSearchAutoLoading,
+        hasMore,
+        attempts: searchAutoLoadingAttempts
+      });
       return;
     }
 
-    console.log(`🔍 Search auto-loading attempt ${searchAutoLoadingAttempts + 1} for: "${filters.search}"`);
+    console.log(`🔍 [Search Auto Load] Attempt ${searchAutoLoadingAttempts + 1} for: "${filters.search}"`, {
+      currentPage: page,
+      hasMore,
+      isSearchAutoLoading
+    });
     setIsSearchAutoLoading(true);
     setSearchAutoLoadingAttempts(prev => prev + 1);
     
@@ -474,6 +487,15 @@ export default function LeadsPage() {
 
   // Enhanced fetchLeadsWithFilters with controlled auto-loading
   const fetchLeadsWithFilters = async (pageNum = 1, isSearch = false) => {
+    console.log(`📥 [Fetch Leads] Starting fetch:`, {
+      pageNum,
+      isSearch,
+      isLoadingMore,
+      isSearchAutoLoading,
+      hasMore,
+      searchQuery: filters.search
+    });
+
     try {
       setIsLoadingMore(true);
       
@@ -486,11 +508,18 @@ export default function LeadsPage() {
         isSearchMode: isSearch // Enable search mode
       });
       
+      console.log(`📥 [Fetch Leads] Result:`, {
+        success: result.success,
+        leadCount: result.leads?.length,
+        hasMore: result.hasMore,
+        page: pageNum
+      });
       
       if (result.success && result.leads) {
         const newLeads = [...(pageNum === 1 ? [] : allLoadedLeads), ...result.leads] as Lead[];
         setAllLoadedLeads(newLeads);
         setHasMore(result.hasMore ?? false);
+        // console.log("result.leads", result.leads);
         
         // Reset auto-loading state when starting fresh  
         if (pageNum === 1) {
@@ -504,38 +533,38 @@ export default function LeadsPage() {
         updateFilterOptions(newLeads);
         
         // 🎯 Smart Auto-loading for Agents: CONTROLLED VERSION (but not during search)
-        if (userRole === 'agent' && result.hasMore && pageNum < 5 && !isAutoLoading && autoLoadingAttempts < 3 && !isSearch && !isSearchAutoLoading) {
-          // Note: The backend transforms assigned_to to user's full name, but sorts by userId
-          // So we need to get the current user's name to filter properly
-          // For now, let's use a different approach - count all leads and check if agent gets any
-          const agentLeads = newLeads; // Use all leads since backend handles sorting
+        // if (userRole === 'agent' && result.hasMore && pageNum < 5 && !isAutoLoading && autoLoadingAttempts < 3 && !isSearch && !isSearchAutoLoading) {
+        //   // Note: The backend transforms assigned_to to user's full name, but sorts by userId
+        //   // So we need to get the current user's name to filter properly
+        //   // For now, let's use a different approach - count all leads and check if agent gets any
+        //   const agentLeads = newLeads; // Use all leads since backend handles sorting
           
-          // Group leads by status to check each column
-          const leadsByStatus = agentLeads.reduce((acc, lead) => {
-            acc[lead.status] = (acc[lead.status] ?? 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
+        //   // Group leads by status to check each column
+        //   const leadsByStatus = agentLeads.reduce((acc, lead) => {
+        //     acc[lead.status] = (acc[lead.status] ?? 0) + 1;
+        //     return acc;
+        //   }, {} as Record<string, number>);
           
-          // Check if any important statuses have zero leads
-          const importantStatuses = ['assigned', 'no_answer', 'follow_up'];
-          const emptyStatuses = importantStatuses.filter(status => (leadsByStatus[status] ?? 0) === 0);
+        //   // Check if any important statuses have zero leads
+        //   const importantStatuses = ['assigned', 'no_answer', 'follow_up'];
+        //   const emptyStatuses = importantStatuses.filter(status => (leadsByStatus[status] ?? 0) === 0);
           
-          // More restrictive conditions: only auto-load if ALL important statuses are empty
-          if (emptyStatuses.length === importantStatuses.length && newLeads.length < 100) {
-            console.log(`🔄 Auto-loading attempt ${autoLoadingAttempts + 1}: All important statuses empty, loading page ${pageNum + 1}...`);
-            setIsAutoLoading(true);
-            setAutoLoadingAttempts(prev => prev + 1);
+        //   // More restrictive conditions: only auto-load if ALL important statuses are empty
+        //   if (emptyStatuses.length === importantStatuses.length && newLeads.length < 100) {
+        //     console.log(`🔄 Auto-loading attempt ${autoLoadingAttempts + 1}: All important statuses empty, loading page ${pageNum + 1}...`);
+        //     setIsAutoLoading(true);
+        //     setAutoLoadingAttempts(prev => prev + 1);
             
-            setTimeout(() => {
-              void fetchLeadsWithFilters(pageNum + 1).finally(() => {
-                setIsAutoLoading(false);
-              });
-            }, 1000); // Increased to 1 second delay
-          } else {
-            console.log(`✅ Auto-loading stopped: Found leads in statuses or reached limits. Empty: [${emptyStatuses.join(', ')}]`);
-            setAutoLoadingAttempts(0); // Reset counter when stopping
-          }
-        }
+        //     setTimeout(() => {
+        //       void fetchLeadsWithFilters(pageNum + 1).finally(() => {
+        //         setIsAutoLoading(false);
+        //       });
+        //     }, 1000); // Increased to 1 second delay
+        //   } else {
+        //     console.log(`✅ Auto-loading stopped: Found leads in statuses or reached limits. Empty: [${emptyStatuses.join(', ')}]`);
+        //     setAutoLoadingAttempts(0); // Reset counter when stopping
+        //   }
+        // }
       } else {
         throw new Error(result.error ?? 'Failed to fetch leads');
       }
@@ -921,9 +950,20 @@ export default function LeadsPage() {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
       const isNearBottom = scrollHeight - scrollTop <= clientHeight * 1.2;
       
+      console.log(`📜 [Column Scroll] Status: ${statusId}`, {
+        scrollTop,
+        scrollHeight,
+        clientHeight,
+        isNearBottom,
+        hasMore,
+        isLoadingMore,
+        isSearchAutoLoading,
+        currentPage: page
+      });
+      
       // Prevent auto-scroll during search loading or if already loading
       if (isNearBottom && hasMore && !isLoadingMore && !isSearchAutoLoading) {
-        console.log(`📜 Column "${statusId}" scroll detected - loading more data...`);
+        console.log(`📜 [Column Scroll] Loading more data for column "${statusId}"...`);
         
         if (filters.search && filters.search.trim() !== '') {
           // In search mode, continue searching

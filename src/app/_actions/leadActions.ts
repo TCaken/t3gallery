@@ -1,10 +1,10 @@
 'use server';
 
 import { db } from "~/server/db";
-import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs } from "~/server/db/schema";
+import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs, appointments } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import type { InferSelectModel } from "drizzle-orm";
-import { eq, desc, like, or, and, SQL, asc, sql } from "drizzle-orm";
+import { eq, desc, like, or, and, SQL, asc, sql, ilike } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import { checkLeadEligibility } from "./leadEligibility";
 import { getUserRoles } from "~/server/rbac/queries";
@@ -61,6 +61,7 @@ interface CreateLeadInput {
   phone_number_3?: string;
   full_name?: string;
   email?: string;
+  status?: string;
   source?: string;
   residential_status?: string;
   has_work_pass_expiry?: string;
@@ -79,6 +80,8 @@ interface CreateLeadInput {
   created_by?: string;
   received_time?: Date;
   bypassEligibility?: boolean;
+  loan_status?: string;
+  loan_notes?: string;
 }
 
 
@@ -92,7 +95,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
     // Determine eligibility based on bypass parameter
     let eligibilityStatus = 'eligible';
     let eligibilityNotes = 'Manually created lead - bypassed eligibility check';
-    let finalStatus = 'new';
+    let finalStatus = input.status ?? 'new';
     
     if (!input.bypassEligibility) {
       // Run eligibility check
@@ -127,6 +130,8 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       communication_language: input.communication_language ?? 'No Preferences',
       lead_type: 'new',
       status: finalStatus,
+      loan_status: input.loan_status ?? '',
+      loan_notes: input.loan_notes ?? '',
       eligibility_checked: true,
       eligibility_status: eligibilityStatus,
       eligibility_notes: eligibilityNotes,
@@ -709,8 +714,10 @@ export async function fetchFilteredLeads({
     // In search mode: don't apply status filter or agent filter to search across all statuses and all leads
     if (search) {
       const searchConditions = [
-        like(leads.full_name, `%${search}%`),
+        ilike(leads.full_name, `%${search}%`),
         like(leads.phone_number, `%${search}%`),
+        like(leads.phone_number_2, `%${search}%`),
+        like(leads.phone_number_3, `%${search}%`),
         like(sql`${leads.id}::text`, `%${search}%`) // Allow searching by ID
       ].filter(Boolean);
       
@@ -756,6 +763,8 @@ export async function fetchFilteredLeads({
       lead_score: leads.lead_score,
       is_contactable: leads.is_contactable,
       is_deleted: leads.is_deleted,
+      loan_status: leads.loan_status,
+      loan_notes: leads.loan_notes,
       assigned_user: {
         id: users.id,
         first_name: users.first_name,
@@ -763,9 +772,24 @@ export async function fetchFilteredLeads({
         email: users.email
       },
       follow_up_date: leads.follow_up_date,
+      // Latest appointment details
+      latest_appointment: {
+        id: appointments.id,
+        start_datetime: appointments.start_datetime,
+        status: appointments.status,
+        loan_status: appointments.loan_status,
+        loan_notes: appointments.loan_notes,
+        notes: appointments.notes
+      },
+      note : {
+        desc : lead_notes.content
+      }
     })
     .from(leads)
-    .leftJoin(users, eq(leads.assigned_to, users.id));
+    .leftJoin(users, eq(leads.assigned_to, users.id))
+    .leftJoin(appointments, eq(leads.id, appointments.lead_id))
+    .leftJoin(lead_notes, eq(leads.id, lead_notes.lead_id))
+    .orderBy(desc(appointments.start_datetime), desc(lead_notes.created_at));
     
     // Build final query with conditions, sorting, and pagination
     let finalQuery;
