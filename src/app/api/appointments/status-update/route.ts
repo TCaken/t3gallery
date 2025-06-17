@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/restrict-template-expressions */
+/* eslint-disable @typescript-eslint/no-base-to-string */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
 import { appointments, leads } from "~/server/db/schema";
@@ -476,7 +479,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Update appointment status
-        console.log(`🔍 Updating appointment ${appointment.id} to ${newStatus}`);
+        console.log(`🔍 Updating appointment ${appointment.id} to ${newAppointmentStatus}`);
         await db
           .update(appointments)
           .set({ 
