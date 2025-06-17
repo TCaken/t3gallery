@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 'use server';
 
 import { db } from "~/server/db";
@@ -706,12 +708,19 @@ export async function fetchFilteredLeads({
         conditions.push(eq(leads.status, status));
       }
       
-      // For agents in normal mode: only show leads assigned to them
+      // For agents in normal mode: special logic for give_up vs other statuses
       if (isAgent) {
-        conditions.push(eq(leads.assigned_to, userId));
+        // Agent can see:
+        // 1. All give_up leads (from any agent)
+        // 2. Only their own assigned leads for other statuses
+        const agentCondition = or(
+          eq(leads.status, 'give_up'), // Show all give_up leads
+          eq(leads.assigned_to, userId) // Show only assigned leads for other statuses
+        );
+        conditions.push(agentCondition);
       }
     }
-    // In search mode: don't apply status filter or agent filter to search across all statuses and all leads
+    
     if (search) {
       const searchConditions = [
         ilike(leads.full_name, `%${search}%`),
@@ -722,12 +731,15 @@ export async function fetchFilteredLeads({
       ].filter(Boolean);
       
       if (searchConditions.length > 0) {
-        conditions.push(or(...searchConditions)!);
+        const searchOr = or(...searchConditions);
+        if (searchOr) {
+          conditions.push(searchOr);
+        }
       }
     }
 
-    // Build the query with proper joins and selection
-    const baseQuery = db.select({
+    // Build the base query with proper joins and selection
+    let baseQuery = db.select({
       id: leads.id,
       phone_number: leads.phone_number,
       phone_number_2: leads.phone_number_2,
@@ -788,93 +800,64 @@ export async function fetchFilteredLeads({
     .from(leads)
     .leftJoin(users, eq(leads.assigned_to, users.id))
     .leftJoin(appointments, eq(leads.id, appointments.lead_id))
-    .leftJoin(lead_notes, eq(leads.id, lead_notes.lead_id))
-    .orderBy(desc(appointments.start_datetime), desc(lead_notes.created_at));
+    .leftJoin(lead_notes, eq(leads.id, lead_notes.lead_id));
     
-    // Build final query with conditions, sorting, and pagination
+    // Apply conditions if any
+    if (conditions.length > 0) {
+      baseQuery = baseQuery.where(and(...conditions));
+    }
+
+    // Apply ordering and pagination based on user role
     let finalQuery;
     
     if (isSearchMode) {
       // Search mode: Simple sorting by relevance and updated_at, no role restrictions
-      if (conditions.length > 0) {
-        finalQuery = baseQuery
-          .where(and(...conditions))
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date)
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      } else {
-        finalQuery = baseQuery
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date)
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      }
+      finalQuery = baseQuery
+        .orderBy(
+          desc(appointments.start_datetime),
+          desc(lead_notes.created_at),
+          desc(leads.updated_at),
+          asc(leads.follow_up_date)
+        )
+        .limit(limit + 1)
+        .offset(offset);
     } else if (isAgent) {
-      // For agents: Layer 1 (status priority: assigned, follow_up, missed/RS, done) + Layer 2 (updated_at) + Layer 3 (follow_up_date)
-      if (conditions.length > 0) {
-        finalQuery = baseQuery
-          .where(and(...conditions))
-          .orderBy(
-            sql`CASE 
-              WHEN ${leads.status} = 'assigned' THEN 1
-              WHEN ${leads.status} = 'follow_up' THEN 2
-              WHEN ${leads.status} = 'missed/RS' THEN 3
-              WHEN ${leads.status} = 'done' THEN 4
-              ELSE 5
-            END`,
-            desc(leads.updated_at),
-            asc(leads.follow_up_date)
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      } else {
-        finalQuery = baseQuery
-          .orderBy(
-            sql`CASE 
-              WHEN ${leads.status} = 'assigned' THEN 1
-              WHEN ${leads.status} = 'follow_up' THEN 2
-              WHEN ${leads.status} = 'missed/RS' THEN 3
-              WHEN ${leads.status} = 'done' THEN 4
-              ELSE 5
-            END`,
-            desc(leads.updated_at),
-            asc(leads.follow_up_date)
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      }
+      // For agents: Priority ordering with give_up before done
+      finalQuery = baseQuery
+        .orderBy(
+          desc(appointments.start_datetime),
+          desc(lead_notes.created_at),
+          sql`CASE 
+            WHEN ${leads.status} = 'assigned' THEN 1
+            WHEN ${leads.status} = 'follow_up' THEN 2
+            WHEN ${leads.status} = 'missed/RS' THEN 3
+            WHEN ${leads.status} = 'give_up' THEN 4
+            WHEN ${leads.status} = 'done' THEN 5
+            ELSE 6
+          END`,
+          desc(leads.updated_at),
+          asc(leads.follow_up_date)
+        )
+        .limit(limit + 1)
+        .offset(offset);
     } else {
-      // For admins: Layer 2 (updated_at) + Layer 3 (follow_up_date)
-      if (conditions.length > 0) {
-        finalQuery = baseQuery
-          .where(and(...conditions))
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date)
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      } else {
-        finalQuery = baseQuery
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date)
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      }
+      // For admins: Standard ordering
+      finalQuery = baseQuery
+        .orderBy(
+          desc(appointments.start_datetime),
+          desc(lead_notes.created_at),
+          desc(leads.updated_at),
+          asc(leads.follow_up_date)
+        )
+        .limit(limit + 1)
+        .offset(offset);
     }
 
     // Execute query
     const results = await finalQuery;
     
     // Transform the results to match the Lead type
-    const transformedLeads = results.map(result => ({
+    const transformedLeads = results.map((result: any) => ({
       ...result,
       assigned_to: result.assigned_user ? `${result.assigned_user.first_name} ${result.assigned_user.last_name}` : null
     }));

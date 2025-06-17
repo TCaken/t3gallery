@@ -106,8 +106,8 @@ export async function POST(request: Request) {
           updated_by: systemUserId,
           updated_at: new Date(),
           eligibility_notes: isAssignedLeadOnReferenceDate 
-            ? 'Auto-updated to No Answer - Lead updated within 25 hours'
-            : 'Auto-updated to Give Up - No activity'
+            ? 'NO ANSWER - NO ACTIVITY (AUTO-UPDATE)'
+            : 'GIVE UP - NO ACTIVITY (AUTO-UPDATE)'
         });
 
         if (result.success) {

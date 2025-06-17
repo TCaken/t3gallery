@@ -642,6 +642,31 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
       )
       .limit(300);
 
+      // const leadsQuery = db
+      // .select({
+      //   id: leads.id,
+      //   phone_number: leads.phone_number,
+      //   full_name: leads.full_name,
+      //   source: leads.source,
+      // })
+      // .from(leads)
+      // .where(
+      //   and(
+      //     eq(leads.assigned_to, playbook.agent_id),
+      //     or(
+      //       eq(leads.status, 'assigned'), 
+      //       eq(leads.status, 'no_answer'),
+      //       eq(leads.status, 'follow_up'),
+      //     ),
+      //     or(
+      //       isNull(leads.follow_up_date),
+      //       sql`extract(hour from ${leads.follow_up_date}) = 16`,
+      //     ),
+      //     eq(leads.is_deleted, false),
+      //   )
+      // )
+      // .limit(300)
+
     const followUpLeads = await leadsQuery;
 
     console.log(`Found ${followUpLeads.length} new follow-up leads for agent ${playbook.agent_id}`);
