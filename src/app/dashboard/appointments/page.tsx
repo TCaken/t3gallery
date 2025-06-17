@@ -61,6 +61,24 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
+interface StatusUpdateResult {
+  success: boolean;
+  message: string;
+  processed?: number;
+  updated?: number;
+  todaySingapore?: string;  
+  thresholdHours?: number;
+  results?: Array<{
+    leadName: string;
+    oldAppointmentStatus: string;
+    newAppointmentStatus: string;
+    oldLeadStatus: string;
+    newLeadStatus: string;
+    reason: string;
+  }>;
+  error?: string;
+}
+
 export default function AppointmentsPage() {
   const router = useRouter();
   const [allAppointments, setAllAppointments] = useState<AppointmentWithLead[]>([]);
@@ -82,7 +100,7 @@ export default function AppointmentsPage() {
 
   // Status update state
   const [statusUpdateLoading, setStatusUpdateLoading] = useState(false);
-  const [statusUpdateResults, setStatusUpdateResults] = useState<any>(null);
+  const [statusUpdateResults, setStatusUpdateResults] = useState<StatusUpdateResult | null>(null);
 
   // TODO: Get this from user context/auth - for now assuming retail user
   const isRetailUser = true; // This should come from your auth/user context
@@ -349,14 +367,21 @@ export default function AppointmentsPage() {
       if (!isSameDay(aptStartDate, date)) return false;
       
       const slotStart = new Date(`${format(date, 'yyyy-MM-dd')}T${timeSlot}:00`);
-      const slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000); // Add 1 hour
-
-      // console.log(JSON.stringify(apt), aptStartDate, aptEndDate, slotStart, slotEnd);
       
-      // Check if appointment overlaps with this time slot
-      // An appointment overlaps if it starts before the slot ends AND ends after the slot starts
+      // Determine slot duration based on the time
+      let slotEnd: Date;
+      if (timeSlot === '10:30') {
+        // 10:30 AM slot is 30 minutes (10:30 - 11:00)
+        slotEnd = new Date(`${format(date, 'yyyy-MM-dd')}T11:00:00`);
+      } else {
+        // All other slots are 1 hour
+        slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
+      }
+
+      // Check if appointment starts within this specific time slot
+      // An appointment belongs to a slot if it starts within the slot's time range
       return (
-        slotStart <= aptStartDate && aptEndDate <= slotEnd
+        aptStartDate >= slotStart && aptStartDate < slotEnd
       );
     });
   };
@@ -577,7 +602,7 @@ export default function AppointmentsPage() {
                 <div className="mt-3">
                   <h4 className="font-medium mb-2">Updated Appointments:</h4>
                   <div className="space-y-1">
-                    {statusUpdateResults.results.map((result: any, index: number) => (
+                    {statusUpdateResults.results.map((result, index: number) => (
                       <div key={index} className="text-sm bg-white p-2 rounded border">
                         <span className="font-medium">{result.leadName}</span> - 
                         Appointment: {result.oldAppointmentStatus} → {result.newAppointmentStatus} | 
