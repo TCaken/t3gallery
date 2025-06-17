@@ -799,8 +799,22 @@ export async function fetchFilteredLeads({
     })
     .from(leads)
     .leftJoin(users, eq(leads.assigned_to, users.id))
-    .leftJoin(appointments, eq(leads.id, appointments.lead_id))
-    .leftJoin(lead_notes, eq(leads.id, lead_notes.lead_id));
+    .leftJoin(appointments, and(
+      eq(leads.id, appointments.lead_id),
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${appointments} a2 
+        WHERE a2.lead_id = ${appointments.lead_id} 
+        AND a2.start_datetime > ${appointments.start_datetime}
+      )`
+    ))
+    .leftJoin(lead_notes, and(
+      eq(leads.id, lead_notes.lead_id),
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${lead_notes} ln2 
+        WHERE ln2.lead_id = ${lead_notes.lead_id} 
+        AND ln2.created_at > ${lead_notes.created_at}
+      )`
+    ));
     
     // Apply conditions if any
     if (conditions.length > 0) {
