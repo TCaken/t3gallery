@@ -96,7 +96,6 @@ export async function sendAppointmentToWebhook(leadId: number, appointmentData?:
         "SEO": "SEO",
         "SEM": "SEM", 
         "1% Loan": "1%",
-        "1% Carousell": "1% Carousell",
         "Cashlender": "Cashlender", 
         "EZcredit": "EZcredit",
         "Lendela": "Lendela",

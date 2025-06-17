@@ -3,7 +3,7 @@
 import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { fetchLeadById, addLeadNote, fetchLeadNotes, updateLeadStatus, updateLeadDetails, deleteLead } from "~/app/_actions/leadActions";
-import { getAppointmentsForLead } from "~/app/_actions/appointmentAction";
+import { getAppointmentsForLead, type EnhancedAppointment } from "~/app/_actions/appointmentAction";
 import { type InferSelectModel } from "drizzle-orm";
 import { leads, lead_notes, appointments } from "~/server/db/schema";
 import { 
@@ -33,7 +33,7 @@ import { format } from "date-fns";
 
 type Lead = InferSelectModel<typeof leads>;
 type LeadNote = InferSelectModel<typeof lead_notes>;
-type Appointment = InferSelectModel<typeof appointments>;
+type Appointment = EnhancedAppointment;
 
 interface LeadResponse {
   success: boolean;
@@ -121,6 +121,7 @@ export default function LeadDetailPage({ params }: PageProps) {
 
         // Load lead data
         const leadResponse = await fetchLeadById(leadId);
+        console.log('leadResponse', leadResponse);
         if (!leadResponse.success || !leadResponse.lead) {
           throw new Error(leadResponse.message ?? 'Failed to load lead');
         }
@@ -323,7 +324,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                   <div>
                     <h3 className="text-sm font-medium text-gray-500">Loan Status</h3>
                     <div className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(lead.loan_status)}`}>
-                      {lead.loan_status || 'Not set'}
+                      {lead.loan_status ?? 'Not set'}
                     </div>
                   </div>
                   {lead.loan_notes && (
@@ -568,7 +569,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-500 mb-1">Assigned To</label>
-                    <p className="text-gray-900">{formatDisplayValue(lead.assigned_to)}</p>
+                    <p className="text-gray-900">{appointments.length > 0 && appointments[0]?.assigned_user_name ? appointments[0].assigned_user_name : formatDisplayValue(lead.assigned_to)}</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-500 mb-1">Lead Score</label>
@@ -626,27 +627,69 @@ export default function LeadDetailPage({ params }: PageProps) {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {appointments.slice(0, 3).map((appointment) => {
+                    {appointments.map((appointment) => {
                       const statusConfig = getAppointmentStatusColor(appointment.status);
                       const StatusIcon = statusConfig.icon;
                       
+                      // Convert UTC times to Singapore timezone for display
+                      const startTimeSGT = new Date(appointment.start_datetime);
+                      const endTimeSGT = new Date(appointment.end_datetime);
+                      // Add 8 hours for Singapore timezone (UTC+8)
+                      startTimeSGT.setHours(startTimeSGT.getHours() + 8);
+                      endTimeSGT.setHours(endTimeSGT.getHours() + 8);
+                      
                       return (
                         <div key={appointment.id} className={`border rounded-lg p-4 ${statusConfig.colors}`}>
-                          <div className="flex items-start justify-between">
+                          <div className="flex items-start justify-between mb-3">
                             <div className="flex items-center">
                               <StatusIcon className="h-5 w-5 mr-3" />
                               <div>
-                                <p className="font-medium">
-                                  {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)} Appointment
-                                </p>
-                                {appointment.start_datetime && (
-                                  <p className="text-sm mt-1">
-                                    <ClockIcon className="h-4 w-4 inline mr-1" />
-                                    {format(new Date(appointment.start_datetime), 'MMM dd, yyyy • h:mm a')}
-                                  </p>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs text-gray-500">#{appointment.id}</span>
+                                </div>
+                                <div className="flex items-center text-sm text-gray-600 mb-1">
+                                  <CalendarIcon className="h-4 w-4 mr-1" />
+                                  <span>{format(startTimeSGT, 'MMM dd, yyyy')}</span>
+                                  <ClockIcon className="h-4 w-4 ml-3 mr-1" />
+                                  <span>
+                                    {format(startTimeSGT, 'h:mm a')} - {format(endTimeSGT, 'h:mm a')} (SGT)
+                                  </span>
+                                </div>
+                                
+                                {/* Creator and Agent Info */}
+                                <div className="text-xs text-gray-500 mb-2">
+                                  <div>Created by: <span className="font-medium">{appointment.agent_name}</span></div>
+                                  <div>Assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div>
+                                </div>
+
+                                {/* Appointment Status */}
+                                <div className="mb-2">
+                                  <span className="font-semibold text-gray-500 mr-2">Status:</span>
+                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
+                                    {appointment.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                  </span>
+                                </div>
+                                
+                                {/* Loan Status if available */}
+                                {appointment.loan_status && (
+                                  <div className="mb-2">
+                                    <span className="font-semibold text-gray-500 mr-2">Loan Status:</span>
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.loan_status)}`}>
+                                      {appointment.loan_status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                    </span>
+                                  </div>
                                 )}
+                                
+                                {/* Notes */}
                                 {appointment.notes && (
-                                  <p className="text-sm mt-2 italic">{appointment.notes}</p>
+                                  <p className="text-sm mt-2 italic bg-white/50 p-2 rounded">{appointment.notes}</p>
+                                )}
+                                
+                                {/* Loan Notes */}
+                                {appointment.loan_notes && (
+                                  <p className="text-sm mt-2 italic bg-yellow-50 p-2 rounded border border-yellow-200">
+                                    <span className="font-medium">Loan Notes:</span> {appointment.loan_notes}
+                                  </p>
                                 )}
                               </div>
                             </div>
@@ -654,14 +697,6 @@ export default function LeadDetailPage({ params }: PageProps) {
                         </div>
                       );
                     })}
-                    {appointments.length > 3 && (
-                      <button
-                        onClick={() => router.push(`/dashboard/leads/${leadId}/appointment`)}
-                        className="w-full text-center py-2 text-blue-600 hover:text-blue-700 font-medium"
-                      >
-                        View {appointments.length - 3} more appointments
-                      </button>
-                    )}
                   </div>
                 )}
               </div>

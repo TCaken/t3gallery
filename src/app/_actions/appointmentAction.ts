@@ -7,7 +7,8 @@ import {
   leads, 
   appointment_timeslots, 
   calendar_settings, 
-  calendar_exceptions 
+  calendar_exceptions,
+  users
 } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import { 
@@ -41,6 +42,32 @@ export type Timeslot = typeof timeslots.$inferSelect;
 export type CalendarSetting = typeof calendar_settings.$inferSelect;
 export type AppointmentWithLead = typeof appointments.$inferSelect & {
   lead: typeof leads.$inferSelect;
+};
+
+// Enhanced appointment type with creator and agent information
+export type EnhancedAppointment = {
+  id: number;
+  lead_id: number;
+  agent_id: string;
+  status: string;
+  loan_status: string | null;
+  loan_notes: string | null;
+  notes: string | null;
+  start_datetime: Date;
+  end_datetime: Date;
+  created_at: Date;
+  updated_at: Date | null;
+  created_by: string | null;
+  updated_by: string | null;
+  creator_name: string;
+  creator_email: string | null;
+  agent_name: string;
+  agent_email: string | null;
+  lead_name: string | null;
+  lead_status: string | null;
+  lead_loan_status: string | null;
+  assigned_user_name: string;
+  assigned_user_email: string | null;
 };
 
 /**
@@ -698,14 +725,92 @@ export async function getAppointmentsForLead(leadId: number) {
   
   try {
     const results = await db
-      .select()
+      .select({
+        // Appointment fields - only what we need
+        id: appointments.id,
+        lead_id: appointments.lead_id,
+        agent_id: appointments.agent_id,
+        status: appointments.status,
+        loan_status: appointments.loan_status,
+        loan_notes: appointments.loan_notes,
+        notes: appointments.notes,
+        start_datetime: appointments.start_datetime,
+        end_datetime: appointments.end_datetime,
+        created_at: appointments.created_at,
+        updated_at: appointments.updated_at,
+        created_by: appointments.created_by,
+        updated_by: appointments.updated_by,
+        
+        // Agent information (assigned user) 
+        agent_first_name: sql<string | null>`agent_user.first_name`,
+        agent_last_name: sql<string | null>`agent_user.last_name`,
+        agent_email: sql<string | null>`agent_user.email`,
+        
+        // Creator information
+        creator_first_name: sql<string | null>`creator_user.first_name`,
+        creator_last_name: sql<string | null>`creator_user.last_name`, 
+        creator_email: sql<string | null>`creator_user.email`,
+        
+        // Lead basic info (for context)
+        lead_name: leads.full_name,
+        lead_status: leads.status,
+        lead_loan_status: leads.loan_status,
+        
+        // Lead assigned user info
+        assigned_user_first_name: sql<string | null>`assigned_user.first_name`,
+        assigned_user_last_name: sql<string | null>`assigned_user.last_name`,
+        assigned_user_email: sql<string | null>`assigned_user.email`
+      })
       .from(appointments)
+      .innerJoin(leads, eq(appointments.lead_id, leads.id))
+      .leftJoin(sql`${users} as agent_user`, sql`${appointments.agent_id} = agent_user.id`)
+      .leftJoin(sql`${users} as creator_user`, sql`${appointments.created_by} = creator_user.id`)
+      .leftJoin(sql`${users} as assigned_user`, sql`${leads.assigned_to} = assigned_user.id`)
       .where(eq(appointments.lead_id, leadId))
-      .orderBy(desc(appointments.created_at));
+      .orderBy(desc(appointments.start_datetime));
+    
+    console.log('Appointments query results:', results);
     
     return { 
       success: true, 
-      appointments: results
+      appointments: results.map(row => ({
+        id: row.id,
+        lead_id: row.lead_id,
+        agent_id: row.agent_id,
+        status: row.status,
+        loan_status: row.loan_status,
+        loan_notes: row.loan_notes,
+        notes: row.notes,
+        start_datetime: row.start_datetime,
+        end_datetime: row.end_datetime,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        created_by: row.created_by,
+        updated_by: row.updated_by,
+        
+        // Computed agent info (who created the appointment)
+        agent_name: row.agent_first_name && row.agent_last_name 
+          ? `${row.agent_first_name} ${row.agent_last_name}` 
+          : (row.agent_first_name ?? row.agent_last_name) ?? 'Unknown',
+        agent_email: row.agent_email,
+        
+        // Computed creator info (who created the appointment)
+        creator_name: row.creator_first_name && row.creator_last_name 
+          ? `${row.creator_first_name} ${row.creator_last_name}` 
+          : (row.creator_first_name ?? row.creator_last_name) ?? 'Unknown',
+        creator_email: row.creator_email,
+        
+        // Lead context
+        lead_name: row.lead_name,
+        lead_status: row.lead_status,
+        lead_loan_status: row.lead_loan_status,
+        
+        // Lead assigned user info (who the lead is assigned to)
+        assigned_user_name: row.assigned_user_first_name && row.assigned_user_last_name 
+          ? `${row.assigned_user_first_name} ${row.assigned_user_last_name}` 
+          : (row.assigned_user_first_name ?? row.assigned_user_last_name) ?? 'Unassigned',
+        assigned_user_email: row.assigned_user_email
+      }))
     };
   } catch (error) {
     console.error("Error fetching appointments for lead:", error);

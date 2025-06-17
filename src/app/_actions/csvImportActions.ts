@@ -49,7 +49,7 @@ const TARGET_USER_ID = process.env.AGENT_USER_ID ?? 'user_2yIJmg1zvydv8acYdXPY6r
 
 // Lead source mapping based on notes patterns
 const LEAD_SOURCE_MAPPING: Record<string, string> = {
-  '1%': '1%',
+  '1%': '1% Loan',
   'MR': 'MoneyRight',
   'LA': 'Loanable',
   'LEND': 'Lendable',
