@@ -366,7 +366,8 @@ export async function POST(request: NextRequest) {
         let eligibilityNotes = '';
         if (code === 'RS') {
           const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
-          eligibilityNotes = `RS - ${rsDetailed}`;
+          const rsReason = row.col_RS.trim() ?? '';
+          eligibilityNotes = `RS - ${rsReason} - ${rsDetailed}`;
         } else if (code === 'R') {
           eligibilityNotes = 'R - Rejected';
         } else if (code === 'PRS') {
