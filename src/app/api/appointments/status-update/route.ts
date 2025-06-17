@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/restrict-template-expressions */
+/* eslint-disable @typescript-eslint/no-base-to-string */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
 import { appointments, leads } from "~/server/db/schema";
@@ -273,7 +276,7 @@ export async function POST(request: NextRequest) {
         
         // Skip if not a new loan case
         if (row["col_New or Reloan? "]?.trim() !== "New Loan - 新贷款") {
-          console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
+          // console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
           continue;
         }
 
@@ -366,7 +369,8 @@ export async function POST(request: NextRequest) {
         let eligibilityNotes = '';
         if (code === 'RS') {
           const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
-          eligibilityNotes = `RS - ${rsDetailed}`;
+          const rsReason = row.col_RS.trim() ?? '';
+          eligibilityNotes = `RS - ${rsReason} - ${rsDetailed}`;
         } else if (code === 'R') {
           eligibilityNotes = 'R - Rejected';
         } else if (code === 'PRS') {
@@ -475,7 +479,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Update appointment status
-        console.log(`🔍 Updating appointment ${appointment.id} to ${newStatus}`);
+        console.log(`🔍 Updating appointment ${appointment.id} to ${newAppointmentStatus}`);
         await db
           .update(appointments)
           .set({ 

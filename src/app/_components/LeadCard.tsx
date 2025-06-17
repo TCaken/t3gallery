@@ -348,6 +348,17 @@ export default function LeadCard({
               }`}>
                 {formatAppointmentStatus(lead.latest_appointment.status)}
               </span>
+              {lead.latest_appointment.loan_status && (
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${
+                  lead.latest_appointment.loan_status === 'P' ? 'bg-blue-100 text-blue-800' :
+                  lead.latest_appointment.loan_status === 'R' ? 'bg-red-100 text-red-800' :
+                  lead.latest_appointment.loan_status === 'PRS' ? 'bg-purple-100 text-purple-800' :
+                  lead.latest_appointment.loan_status === 'RS' ? 'bg-orange-100 text-orange-800' :
+                  'bg-gray-100 text-gray-800'
+                }`}>
+                  {lead.latest_appointment.loan_status}
+                </span>
+              )}
             </div>
           </div>
           
