@@ -23,7 +23,8 @@ import {
   fetchAvailableTimeslots, 
   cancelAppointment,
   getAppointmentsForLead,
-  type Timeslot
+  type Timeslot,
+  type EnhancedAppointment
 } from '~/app/_actions/appointmentAction';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
 import { type InferSelectModel } from 'drizzle-orm';
@@ -31,7 +32,7 @@ import { leads, appointments } from "~/server/db/schema";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, addDays, isSameMonth, isSameDay, parseISO } from 'date-fns';
 
 type Lead = InferSelectModel<typeof leads>;
-type Appointment = InferSelectModel<typeof appointments>;
+type Appointment = EnhancedAppointment;
 
 // Timezone utility functions
 const getSystemTimezone = () => {
@@ -98,7 +99,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   
   const [lead, setLead] = useState<Lead | null>(null);
   const [loadingLead, setLoadingLead] = useState(true);
-  const [existingAppointment, setExistingAppointment] = useState<Appointment | null>(null);
+  const [existingAppointment, setExistingAppointment] = useState<any>(null);
   const [hasAppointment, setHasAppointment] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTimeslot, setSelectedTimeslot] = useState<number | null>(null);
@@ -719,6 +720,18 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
     return colors[status] ?? "bg-gray-50 text-gray-700 border-gray-200";
   };
 
+  const getLoanStatusColor = (status: string | null) => {
+    if (!status) return "";
+    const colors: Record<string, string> = {
+      pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
+      approved: "bg-green-100 text-green-800 border-green-200",
+      rejected: "bg-red-100 text-red-800 border-red-200",
+      cancelled: "bg-gray-100 text-gray-800 border-gray-200",
+      completed: "bg-emerald-100 text-emerald-800 border-emerald-200"
+    };
+    return colors[status] ?? "bg-gray-100 text-gray-800 border-gray-200";
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'upcoming': return <ClockIcon className="h-4 w-4" />;
@@ -731,41 +744,73 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
 
   return (
     <div className="space-y-3 max-h-64 overflow-y-auto">
-      {appointments.map((appointment) => (
-        <div 
-          key={appointment.id} 
-          className={`p-3 rounded-lg border ${getStatusColor(appointment.status)}`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-2">
-              {getStatusIcon(appointment.status)}
-              <span className="font-medium text-sm capitalize">{appointment.status}</span>
-            </div>
-            <span className="text-xs text-gray-500">
-              #{appointment.id}
-            </span>
-          </div>
-          
-          <div className="text-sm space-y-1">
-            <div className="flex items-center">
-              <CalendarIcon className="h-3 w-3 mr-1" />
-              <span>{format(new Date(appointment.start_datetime), 'MMM dd, yyyy')}</span>
-            </div>
-            <div className="flex items-center">
-              <ClockIcon className="h-3 w-3 mr-1" />
-              <span>
-                {format(new Date(appointment.start_datetime), 'h:mm a')} - 
-                {format(new Date(appointment.end_datetime), 'h:mm a')}
+      {appointments.map((appointment) => {
+        // Convert UTC to Singapore time for display
+        const startTimeSGT = new Date(appointment.start_datetime);
+        const endTimeSGT = new Date(appointment.end_datetime);
+        startTimeSGT.setHours(startTimeSGT.getHours() + 8);
+        endTimeSGT.setHours(endTimeSGT.getHours() + 8);
+        
+        return (
+          <div 
+            key={appointment.id} 
+            className={`p-3 rounded-lg border ${getStatusColor(appointment.status)}`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                {getStatusIcon(appointment.status)}
+                <span className="font-medium text-sm capitalize">{appointment.status}</span>
+              </div>
+              <span className="text-xs text-gray-500">
+                #{appointment.id}
               </span>
             </div>
-            {appointment.notes && (
-              <div className="text-xs italic text-gray-600 mt-2 p-2 bg-white/50 rounded">
-                {appointment.notes}
+            
+            <div className="text-sm space-y-1">
+              <div className="flex items-center">
+                <CalendarIcon className="h-3 w-3 mr-1" />
+                <span>{format(startTimeSGT, 'MMM dd, yyyy')}</span>
               </div>
-            )}
+              <div className="flex items-center">
+                <ClockIcon className="h-3 w-3 mr-1" />
+                <span>
+                  {format(startTimeSGT, 'h:mm a')} - {format(endTimeSGT, 'h:mm a')} (SGT)
+                </span>
+              </div>
+              
+              {/* Creator and Agent Info */}
+              <div className="text-xs text-gray-500 mt-1">
+                <div>Created by: <span className="font-medium">{appointment.creator_name}</span></div>
+                <div>Assigned to: <span className="font-medium">{appointment.agent_name}</span></div>
+                <div>Lead assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div>
+              </div>
+              
+              {/* Loan Status */}
+              {appointment.loan_status && (
+                <div className="mt-2">
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getLoanStatusColor(appointment.loan_status)}`}>
+                    Loan: {appointment.loan_status}
+                  </span>
+                </div>
+              )}
+              
+              {/* Notes */}
+              {appointment.notes && (
+                <div className="text-xs italic text-gray-600 mt-2 p-2 bg-white/50 rounded">
+                  <span className="font-medium">Notes:</span> {appointment.notes}
+                </div>
+              )}
+              
+              {/* Loan Notes */}
+              {appointment.loan_notes && (
+                <div className="text-xs italic text-gray-600 mt-2 p-2 bg-yellow-50 rounded border border-yellow-200">
+                  <span className="font-medium">Loan Notes:</span> {appointment.loan_notes}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

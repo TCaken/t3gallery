@@ -44,7 +44,17 @@ export async function fetchLeadById(leadId: number) {
   if (!userId) throw new Error("Not authenticated");
   
   try {
-    const result = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+    const result = await db.select({
+      id: leads.id,
+      full_name: leads.full_name,
+      phone_number: leads.phone_number,
+      status: leads.status,
+      loan_status: leads.loan_status,
+      loan_notes: leads.loan_notes,
+      created_at: leads.created_at,
+      assigned_user: sql<string>`${users.first_name} ${users.last_name}`,
+    }
+    ).from(leads).where(eq(leads.id, leadId)).limit(1).leftJoin(users, eq(leads.assigned_to, users.id));
     
     if (result.length === 0) {
       return { success: false, message: "Lead not found" };
