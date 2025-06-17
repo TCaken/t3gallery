@@ -58,10 +58,10 @@ const LEAD_STATUSES = [
   'no_answer',
   'follow_up',
   'booked',
+  'give_up',
   'done',
   'missed/RS',
   'unqualified',
-  'give_up',
   'blacklisted'
 ] as const;
 
@@ -75,9 +75,9 @@ const allStatuses = [
   { id: 'follow_up', name: 'Follow Up', color: 'bg-indigo-100 text-indigo-800' },
   { id: 'missed/RS', name: 'Missed/RS', color: 'bg-red-100 text-red-800' },
   { id: 'booked', name: 'Booked', color: 'bg-green-100 text-green-800' },
+  { id: 'give_up', name: 'Give Up', color: 'bg-red-100 text-red-800' },
   { id: 'done', name: 'Done', color: 'bg-green-100 text-green-800' },
   { id: 'unqualified', name: 'Duplicate/Reloan', color: 'bg-orange-100 text-orange-800' },
-  { id: 'give_up', name: 'Give Up', color: 'bg-red-100 text-red-800' },
   { id: 'blacklisted', name: 'Blacklisted', color: 'bg-black text-white' },
 ] as const;
 
@@ -198,6 +198,7 @@ export default function LeadsPage() {
     'assigned',
     'follow_up',
     'missed/RS',
+    'give_up',
     'done'
   ];
 
