@@ -276,7 +276,7 @@ export async function POST(request: NextRequest) {
         
         // Skip if not a new loan case
         if (row["col_New or Reloan? "]?.trim() !== "New Loan - 新贷款") {
-          console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
+          // console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
           continue;
         }
 
