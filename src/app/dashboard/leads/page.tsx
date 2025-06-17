@@ -1880,7 +1880,7 @@ export default function LeadsPage() {
               )}
 
               {/* Assigned User Filter */}
-              {filterOptions.assignedUsers.length > 0 && userRole === 'admin' && (
+              {filterOptions.assignedUsers.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Assigned To</label>
                   <select
