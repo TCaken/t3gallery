@@ -2027,7 +2027,7 @@ export default function LeadsPage() {
                       }`}
                       title={isFiltered ? `Showing ${statusLeads.length} of ${totalLeads} total leads (filtered)` : `${totalLeads} total leads`}
                     >
-                      {isFiltered ? `${statusLeads.length}/${totalLeads}` : statusLeads.length}
+                      {isFiltered ? `${totalLeads}` : statusLeads.length}
                     </span>
                   </div>
                   <div 
