@@ -330,15 +330,34 @@ export default function LeadCard({
 
       {/* Latest Appointment Section */}
       {lead.latest_appointment && (
-        <div className="mb-3 p-2 bg-gray-50 rounded-md">
-          <div className="flex items-center justify-between text-sm mb-2">
+        <div className="mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-lg">
+          {/* Appointment Date & Time */}
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center space-x-2">
-              <CalendarIcon className="h-4 w-4 text-gray-500" />
-              <span className="text-gray-600">
-                {new Date(lead.latest_appointment.start_datetime).toLocaleDateString()}
-              </span>
+              <CalendarIcon className="h-4 w-4 text-blue-500" />
+              <div className="flex flex-col">
+                <span className="text-sm font-medium text-gray-800">
+                  {new Date(lead.latest_appointment.start_datetime).toLocaleDateString('en-SG', {
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    timeZone: 'Asia/Singapore'
+                  })}
+                </span>
+                <span className="text-lg font-bold text-blue-600">
+                  {new Date(lead.latest_appointment.start_datetime).toLocaleTimeString('en-SG', { 
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    hour12: true,
+                    timeZone: 'Asia/Singapore'
+                  })}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
+            
+            {/* Status Badges */}
+            <div className="flex flex-col items-end space-y-1">
               <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                 lead.latest_appointment.status === 'upcoming' ? 'bg-yellow-100 text-yellow-800' :
                 lead.latest_appointment.status === 'done' ? 'bg-green-100 text-green-800' :
