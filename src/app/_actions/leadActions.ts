@@ -44,17 +44,57 @@ export async function fetchLeadById(leadId: number) {
   if (!userId) throw new Error("Not authenticated");
   
   try {
-    const result = await db.select({
-      id: leads.id,
-      full_name: leads.full_name,
-      phone_number: leads.phone_number,
-      status: leads.status,
-      loan_status: leads.loan_status,
-      loan_notes: leads.loan_notes,
-      created_at: leads.created_at,
-      assigned_user: sql<string>`${users.first_name} ${users.last_name}`,
-    }
-    ).from(leads).where(eq(leads.id, leadId)).limit(1).leftJoin(users, eq(leads.assigned_to, users.id));
+    const result = await db
+      .select({
+        // Select all lead fields
+        id: leads.id,
+        lead_type: leads.lead_type,
+        created_at: leads.created_at,
+        updated_at: leads.updated_at,
+        phone_number: leads.phone_number,
+        phone_number_2: leads.phone_number_2,
+        phone_number_3: leads.phone_number_3,
+        full_name: leads.full_name,
+        email: leads.email,
+        residential_status: leads.residential_status,
+        has_work_pass_expiry: leads.has_work_pass_expiry,
+        proof_of_residence_type: leads.proof_of_residence_type,
+        has_proof_of_residence: leads.has_proof_of_residence,
+        has_letter_of_consent: leads.has_letter_of_consent,
+        employment_status: leads.employment_status,
+        employment_salary: leads.employment_salary,
+        employment_length: leads.employment_length,
+        has_payslip_3months: leads.has_payslip_3months,
+        amount: leads.amount,
+        loan_purpose: leads.loan_purpose,
+        existing_loans: leads.existing_loans,
+        outstanding_loan_amount: leads.outstanding_loan_amount,
+        contact_preference: leads.contact_preference,
+        communication_language: leads.communication_language,
+        is_contactable: leads.is_contactable,
+        status: leads.status,
+        assigned_to: leads.assigned_to,
+        lead_score: leads.lead_score,
+        eligibility_checked: leads.eligibility_checked,
+        eligibility_status: leads.eligibility_status,
+        eligibility_notes: leads.eligibility_notes,
+        loan_status: leads.loan_status,
+        loan_notes: leads.loan_notes,
+        source: leads.source,
+        created_by: leads.created_by,
+        updated_by: leads.updated_by,
+        follow_up_date: leads.follow_up_date,
+        has_exported: leads.has_exported,
+        exported_at: leads.exported_at,
+        is_deleted: leads.is_deleted,
+        
+        // Add assigned user name
+        assigned_user_name: sql<string | null>`COALESCE(${users.first_name} || ' ' || ${users.last_name}, null)`,
+      })
+      .from(leads)
+      .leftJoin(users, eq(leads.assigned_to, users.id))
+      .where(eq(leads.id, leadId))
+      .limit(1);
     
     if (result.length === 0) {
       return { success: false, message: "Lead not found" };
