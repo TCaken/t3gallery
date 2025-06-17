@@ -681,6 +681,7 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
           const sortedAppointments = response.appointments.sort((a: Appointment, b: Appointment) => 
             new Date(b.start_datetime).getTime() - new Date(a.start_datetime).getTime()
           );
+          console.log("Previous Appointments: " + JSON.stringify(sortedAppointments));
           setAppointments(sortedAppointments);
         }
       } catch (error) {
