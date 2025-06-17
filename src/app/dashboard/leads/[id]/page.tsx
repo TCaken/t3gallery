@@ -125,7 +125,7 @@ export default function LeadDetailPage({ params }: PageProps) {
         if (!leadResponse.success || !leadResponse.lead) {
           throw new Error(leadResponse.message ?? 'Failed to load lead');
         }
-        setLead(leadResponse.lead);
+        setLead(leadResponse.lead as any); // Temporarily use any to handle the extended type
 
         // Load notes
         const notesResponse = await fetchLeadNotes(leadId);
@@ -569,7 +569,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-500 mb-1">Assigned To</label>
-                    <p className="text-gray-900">{appointments.length > 0 && appointments[0]?.assigned_user_name ? appointments[0].assigned_user_name : formatDisplayValue(lead.assigned_to)}</p>
+                    <p className="text-gray-900">{(lead as any).assigned_user_name ?? formatDisplayValue(lead.assigned_to)}</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-500 mb-1">Lead Score</label>
