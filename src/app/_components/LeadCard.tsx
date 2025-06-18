@@ -26,9 +26,6 @@ import { type Lead } from '~/app/types';
 import { formatDistanceToNow } from 'date-fns';
 import { Portal } from '@headlessui/react';
 
-// Infer lead type from Drizzle schema
-type LeadType = InferSelectModel<typeof leads>;
-
 // Simple type for status colors
 type StatusInfo = {
   id: string;

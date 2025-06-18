@@ -37,12 +37,7 @@ import { makeCall } from '~/app/_actions/callActions';
 import LeadEditSlideOver from '~/app/_components/LeadEditSlideOver';
 import CustomWhatsAppModal from '~/app/_components/CustomWhatsAppModal';
 import LeadStatusReasonModal from '~/app/_components/LeadStatusReasonModal';
-
-// Infer Lead type from the schema
-type Lead = InferSelectModel<typeof leads> & {
-  // Ensure phone_number is treated as a string
-  phone_number: string;
-};
+import { type Lead } from '~/app/types';
 
 // Update the StatusInfo type to use the schema's lead status enum
 type StatusInfo = {
@@ -1119,7 +1114,7 @@ export default function LeadsPage() {
       }
 
       let needsRefresh = false;
-      console.log('lead', JSON.stringify(lead), action);
+      // console.log('lead', JSON.stringify(lead), action);
 
       switch (action) {
         case 'edit':

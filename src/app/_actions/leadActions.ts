@@ -604,10 +604,17 @@ export async function updateLead(
     console.log('updateData', updateData);
 
     // Update the lead
+    console.log('💾 Updating lead with data:', updateData);
     const [updated] = await db.update(leads)
       .set(updateData)
       .where(eq(leads.id, leadId))
       .returning();
+
+    console.log('✅ Lead updated successfully:', {
+      id: updated?.id,
+      updated_at: updated?.updated_at?.toISOString(),
+      status: updated?.status
+    });
 
     // Add log entry for lead update
     const changedFields = Object.keys(leadData).filter(key => 
@@ -740,10 +747,23 @@ export async function fetchFilteredLeads({
       return { success: false, error: 'Not authenticated' };
     }
 
+    console.log('🔍 fetchFilteredLeads called with:', { 
+      userId, 
+      status, 
+      search, 
+      sortBy, 
+      sortOrder, 
+      page, 
+      limit, 
+      isSearchMode 
+    });
+
     // Get user's roles
     const userRolesResult = await getUserRoles();
     const isAdmin = userRolesResult.some(r => r.roleName.toLowerCase() === 'admin');
     const isAgent = userRolesResult.some(r => r.roleName.toLowerCase() === 'agent');
+
+    console.log('👤 User roles:', { isAdmin, isAgent, userRoles: userRolesResult.map(r => r.roleName) });
 
     const offset = (page - 1) * limit;
 
@@ -753,13 +773,16 @@ export async function fetchFilteredLeads({
     // In search mode, ignore role restrictions and status filters
     // Otherwise maintain existing logic
     if (!isSearchMode) {
+      console.log('📋 NORMAL MODE - applying status and role filters');
       // Normal mode: apply status filter if provided
       if (status) {
+        console.log('🎯 STATUS FILTER applied:', status);
         conditions.push(eq(leads.status, status));
       }
       
       // For agents in normal mode: special logic for give_up vs other statuses
       if (isAgent) {
+        console.log('👨‍💼 AGENT MODE - applying agent-specific conditions');
         // Agent can see:
         // 1. All give_up leads (from any agent)
         // 2. Only their own assigned leads for other statuses
@@ -767,11 +790,18 @@ export async function fetchFilteredLeads({
           eq(leads.status, 'give_up'), // Show all give_up leads
           eq(leads.assigned_to, userId) // Show only assigned leads for other statuses
         );
-        conditions.push(agentCondition);
+        if (agentCondition) {
+          conditions.push(agentCondition);
+        }
+      } else {
+        console.log('👑 ADMIN MODE - no additional role restrictions');
       }
+    } else {
+      console.log('🔍 SEARCH MODE - ignoring role restrictions and status filters');
     }
     
     if (search) {
+      console.log('🔎 SEARCH FILTER applied:', search);
       const searchConditions = [
         ilike(leads.full_name, `%${search}%`),
         like(leads.phone_number, `%${search}%`),
@@ -788,8 +818,10 @@ export async function fetchFilteredLeads({
       }
     }
 
+    console.log('🔗 Total conditions applied:', conditions.length);
+
     // Build the base query with proper joins and selection
-    let baseQuery = db.select({
+    const baseQuery = db.select({
       id: leads.id,
       phone_number: leads.phone_number,
       phone_number_2: leads.phone_number_2,
@@ -854,7 +886,7 @@ export async function fetchFilteredLeads({
       sql`NOT EXISTS (
         SELECT 1 FROM ${appointments} a2 
         WHERE a2.lead_id = ${appointments.lead_id} 
-        AND a2.start_datetime > ${appointments.start_datetime}
+        AND a2.created_at > ${appointments.created_at}
       )`
     ))
     .leftJoin(lead_notes, and(
@@ -866,62 +898,133 @@ export async function fetchFilteredLeads({
       )`
     ));
     
-    // Apply conditions if any
-    if (conditions.length > 0) {
-      baseQuery = baseQuery.where(and(...conditions));
-    }
-
     // Apply ordering and pagination based on user role
     let finalQuery;
     
     if (isSearchMode) {
+      console.log('🔍 SEARCH MODE QUERY PATH');
       // Search mode: Simple sorting by relevance and updated_at, no role restrictions
-      finalQuery = baseQuery
-        .orderBy(
-          desc(appointments.start_datetime),
-          desc(lead_notes.created_at),
-          desc(leads.updated_at),
-          asc(leads.follow_up_date)
-        )
-        .limit(limit + 1)
-        .offset(offset);
+      if (conditions.length > 0) {
+        console.log('🔍 Search mode WITH conditions');
+        finalQuery = baseQuery
+          .where(and(...conditions))
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date),
+            sql`${appointments.created_at} DESC NULLS LAST`,
+            sql`${lead_notes.created_at} DESC NULLS LAST`
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      } else {
+        console.log('🔍 Search mode WITHOUT conditions');
+        finalQuery = baseQuery
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date),
+            sql`${appointments.created_at} DESC NULLS LAST`,
+            sql`${lead_notes.created_at} DESC NULLS LAST`
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      }
     } else if (isAgent) {
+      console.log('👨‍💼 AGENT MODE QUERY PATH');
       // For agents: Priority ordering with give_up before done
-      finalQuery = baseQuery
-        .orderBy(
-          desc(appointments.start_datetime),
-          desc(lead_notes.created_at),
-          sql`CASE 
-            WHEN ${leads.status} = 'assigned' THEN 1
-            WHEN ${leads.status} = 'follow_up' THEN 2
-            WHEN ${leads.status} = 'missed/RS' THEN 3
-            WHEN ${leads.status} = 'give_up' THEN 4
-            WHEN ${leads.status} = 'done' THEN 5
-            ELSE 6
-          END`,
-          desc(leads.updated_at),
-          asc(leads.follow_up_date)
-        )
-        .limit(limit + 1)
-        .offset(offset);
+      if (conditions.length > 0) {
+        console.log('👨‍💼 Agent mode WITH conditions');
+        finalQuery = baseQuery
+          .where(and(...conditions))
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date),
+            sql`${appointments.created_at} DESC NULLS LAST`,
+            sql`${lead_notes.created_at} DESC NULLS LAST`,
+            sql`CASE 
+              WHEN ${leads.status} = 'assigned' THEN 1
+              WHEN ${leads.status} = 'follow_up' THEN 2
+              WHEN ${leads.status} = 'missed/RS' THEN 3
+              WHEN ${leads.status} = 'give_up' THEN 4
+              WHEN ${leads.status} = 'done' THEN 5
+              ELSE 6
+            END`
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      } else {
+        console.log('👨‍💼 Agent mode WITHOUT conditions');
+        finalQuery = baseQuery
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date),
+            sql`${appointments.created_at} DESC NULLS LAST`,
+            sql`${lead_notes.created_at} DESC NULLS LAST`,
+            sql`CASE 
+              WHEN ${leads.status} = 'assigned' THEN 1
+              WHEN ${leads.status} = 'follow_up' THEN 2
+              WHEN ${leads.status} = 'missed/RS' THEN 3
+              WHEN ${leads.status} = 'give_up' THEN 4
+              WHEN ${leads.status} = 'done' THEN 5
+              ELSE 6
+            END`
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      }
     } else {
+      console.log('👑 ADMIN MODE QUERY PATH');
       // For admins: Standard ordering
-      finalQuery = baseQuery
-        .orderBy(
-          desc(appointments.start_datetime),
-          desc(lead_notes.created_at),
-          desc(leads.updated_at),
-          asc(leads.follow_up_date)
-        )
-        .limit(limit + 1)
-        .offset(offset);
+      if (conditions.length > 0) {
+        console.log('👑 Admin mode WITH conditions');
+        finalQuery = baseQuery
+          .where(and(...conditions))
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date),
+            sql`${appointments.created_at} DESC NULLS LAST`,
+            sql`${lead_notes.created_at} DESC NULLS LAST`
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      } else {
+        console.log('👑 Admin mode WITHOUT conditions');
+        finalQuery = baseQuery
+          .orderBy(
+            desc(leads.updated_at),
+            asc(leads.follow_up_date),
+            sql`${appointments.created_at} DESC NULLS LAST`,
+            sql`${lead_notes.created_at} DESC NULLS LAST`
+          )
+          .limit(limit + 1)
+          .offset(offset);
+      }
     }
 
     // Execute query
+    console.log('🚀 Executing query...');
+    
+    // Log the SQL query for debugging
+    try {
+      const querySQL = finalQuery.toSQL();
+      console.log('📝 SQL Query:', querySQL.sql);
+      console.log('📝 SQL Params:', querySQL.params);
+    } catch (error) {
+      console.log('❌ Could not extract SQL query:', error);
+    }
+    
     const results = await finalQuery;
+    console.log(`📊 Query returned ${results.length} results`);
+    
+    // Log first few results for debugging
+    if (results.length > 0) {
+      console.log('🔍 First 3 results (id, updated_at, status):');
+      results.slice(0, 3).forEach((lead, index) => {
+        console.log(`  ${index + 1}. ID: ${lead.id}, Updated: ${lead.updated_at?.toISOString() ?? 'null'}, Status: ${lead.status}`);
+      });
+    }
     
     // Transform the results to match the Lead type
-    const transformedLeads = results.map((result: any) => ({
+    const transformedLeads = results.map((result) => ({
       ...result,
       assigned_to: result.assigned_user ? `${result.assigned_user.first_name} ${result.assigned_user.last_name}` : null
     }));
@@ -929,6 +1032,8 @@ export async function fetchFilteredLeads({
     // Check if there are more results
     const hasMore = results.length > limit;
     const leadsToReturn = hasMore ? transformedLeads.slice(0, limit) : transformedLeads;
+
+    console.log(`✅ Returning ${leadsToReturn.length} leads, hasMore: ${hasMore}`);
 
     return {
       success: true,
