@@ -781,9 +781,9 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
               
               {/* Creator and Agent Info */}
               <div className="text-xs text-gray-500 mt-1">
-                <div>Created by: <span className="font-medium">{appointment.creator_name}</span></div>
-                <div>Assigned to: <span className="font-medium">{appointment.agent_name}</span></div>
-                <div>Lead assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div>
+                {/* <div>Created by: <span className="font-medium">{appointment.creator_name}</span></div> */}
+                <div>Created by: <span className="font-medium">{appointment.agent_name}</span></div>
+                {/* <div>Lead assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div> */}
               </div>
               
               {/* Loan Status */}
