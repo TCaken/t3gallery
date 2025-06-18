@@ -42,6 +42,7 @@ export type Timeslot = typeof timeslots.$inferSelect;
 export type CalendarSetting = typeof calendar_settings.$inferSelect;
 export type AppointmentWithLead = typeof appointments.$inferSelect & {
   lead: typeof leads.$inferSelect;
+  agent: typeof users.$inferSelect;
 };
 
 // Enhanced appointment type with creator and agent information
@@ -456,54 +457,49 @@ export async function fetchAppointments(filters: {
   if (!userId) throw new Error("Not authenticated");
   
   try {
-    let query = db
-      .select({
-        appointment: appointments,
-        lead: leads
-      })
-      .from(appointments)
-      .leftJoin(leads, eq(appointments.lead_id, leads.id));
+    // Build all where conditions first
+    const conditions = [];
     
-    // Apply date range filter (new method)
+    console.log("Filters: " + JSON.stringify(filters));
+    
+    // Date range filter
     if (filters.startDate && filters.endDate) {
-      query = query.where(
+      console.log("Applying date range filter");
+      conditions.push(
         and(
           gte(appointments.start_datetime, filters.startDate),
           lte(appointments.start_datetime, filters.endDate)
         )
       );
     }
-    // Apply single date filter (old method for backward compatibility)
+    // Single date filter (backward compatibility)
     else if (filters.date && filters.view === 'day') {
       const dayStart = startOfDay(filters.date);
       const dayEnd = endOfDay(filters.date);
-      
-      query = query.where(
+      conditions.push(
         and(
           gte(appointments.start_datetime, dayStart),
           lte(appointments.start_datetime, dayEnd)
         )
       );
     } else if (filters.view === 'upcoming') {
-      // Only get appointments in the future
-      query = query.where(gte(appointments.start_datetime, new Date()));
+      conditions.push(gte(appointments.start_datetime, new Date()));
     } else if (filters.view === 'past') {
-      // Only get appointments in the past
-      query = query.where(lte(appointments.start_datetime, new Date()));
+      conditions.push(lte(appointments.start_datetime, new Date()));
     }
     
-    // Apply status filter
+    // Status filter
     if (filters.status && filters.status.length > 0) {
       const statusConditions = filters.status.map(status => 
         eq(appointments.status, status)
       );
-      query = query.where(or(...statusConditions));
+      conditions.push(or(...statusConditions));
     }
     
-    // Apply search filter
+    // Search filter
     if (filters.searchQuery) {
       const searchTerm = `%${filters.searchQuery}%`;
-      query = query.where(
+      conditions.push(
         or(
           like(leads.full_name, searchTerm),
           like(leads.phone_number, searchTerm),
@@ -512,20 +508,37 @@ export async function fetchAppointments(filters: {
         )
       );
     }
-    
+
+    // Build complete query in one chain
+    let finalQuery = db
+      .select({
+        appointment: appointments,
+        lead: leads,
+        agent: users
+      })
+      .from(appointments)
+      .leftJoin(leads, eq(appointments.lead_id, leads.id))
+      .leftJoin(users, eq(appointments.agent_id, users.id));
+
+    // Apply all conditions
+    if (conditions.length > 0) {
+      finalQuery = finalQuery.where(and(...conditions));
+    }
+
     // Apply sorting
     if (filters.sortBy === 'start_datetime') {
-      query = query.orderBy(appointments.start_datetime);
+      finalQuery = finalQuery.orderBy(appointments.start_datetime);
     } else {
-      query = query.orderBy(desc(appointments.start_datetime));
+      finalQuery = finalQuery.orderBy(desc(appointments.start_datetime));
     }
     
-    const results = await query;
+    const results = await finalQuery;
     
     // Transform results into the expected format
     return results.map(item => ({
       ...item.appointment,
-      lead: item.lead
+      lead: item.lead,
+      agent: item.agent
     })) as AppointmentWithLead[];
   } catch (error) {
     console.error("Error fetching appointments:", error);

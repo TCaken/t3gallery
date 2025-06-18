@@ -6,68 +6,28 @@ import { type leads } from "~/server/db/schema";
 import { useRouter } from 'next/navigation';
 import { createQuestionnaireSections } from '~/app/_lib/questionnaire';
 import { type Field, type Section } from '~/app/_lib/questionnaire';
+import { addLeadNote } from '~/app/_actions/leadActions';
 
 type Lead = InferSelectModel<typeof leads>;
 
-// Define field types with proper typing
-interface BaseField {
-  name: keyof Lead;
-  label: string;
-  type: string;
-  disabled?: boolean;
-  showIf?: (values: Partial<Lead>) => boolean;
-  note?: string | ((values: Partial<Lead>) => string);
-}
-
-interface TextField extends BaseField {
-  type: 'text' | 'tel';
-}
-
-interface SelectField extends BaseField {
-  type: 'select';
-  options: string[];
-}
-
-interface CheckboxField extends BaseField {
-  type: 'checkbox';
-}
-
-interface RadioField extends BaseField {
-  type: 'radio';
-  options: string[];
-}
-
-interface CheckboxGroupField extends BaseField {
-  type: 'checkbox-group';
-  options: string[];
-}
-
-type Field = TextField | SelectField | CheckboxField | RadioField | CheckboxGroupField;
-
-interface Section {
-  title: string;
-  fields: Field[];
-  icon?: React.ComponentType<{ className?: string }>;
-}
-
-// Type guard functions
-const isSelectField = (field: Field): field is SelectField => {
+// Type guard functions using more flexible approach
+const isSelectField = (field: Field): field is Field & { type: 'select'; options: string[] } => {
   return field.type === 'select';
 };
 
-const isCheckboxField = (field: Field): field is CheckboxField => {
+const isCheckboxField = (field: Field): field is Field & { type: 'checkbox' } => {
   return field.type === 'checkbox';
 };
 
-const isTextField = (field: Field): field is TextField => {
-  return field.type === 'text' || field.type === 'tel';
+const isTextField = (field: Field): field is Field & { type: 'text' | 'tel' | 'textarea' } => {
+  return field.type === 'text' || field.type === 'tel' || field.type === 'textarea';
 };
 
-const isRadioField = (field: Field): field is RadioField => {
+const isRadioField = (field: Field): field is Field & { type: 'radio'; options: string[] } => {
   return field.type === 'radio';
 };
 
-const isCheckboxGroupField = (field: Field): field is CheckboxGroupField => {
+const isCheckboxGroupField = (field: Field): field is Field & { type: 'checkbox-group'; options: string[] } => {
   return field.type === 'checkbox-group';
 };
 
@@ -99,6 +59,7 @@ interface FormValues extends Partial<Lead> {
   follow_up_date?: Date | null;
   follow_up_time?: string;
   proof_of_residence_documents?: string[];
+  lead_notes?: string;
   [key: string]: string | boolean | Date | number | null | undefined | string[];
 }
 
@@ -306,7 +267,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
       const updatedValues = {
         ...formValues,
         status: reasonOption.finalStatus,
-        eligibility_notes: reasonOption.customReason
+        notes: reasonOption.customReason
           ? `${reasonOption.label.toUpperCase()} (${customReasonText.trim()})`
           : `${reasonOption.label.toUpperCase()}`,
         follow_up_date: null // Clear follow-up date when changing to final status
@@ -330,22 +291,35 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
 
     const formData = new FormData(formElement);
     const updatedLead: FormValues = {};
+    let leadNotesContent = '';
 
     // Add all form fields to updatedLead
-    questionnaireSections.forEach((section: Section) => {
-      section.fields.forEach((field: Field) => {
-        const value = formData.get(field.name.toString());
-        
-        // Skip if value is null or empty string for optional fields
-        if (value === null || value === '') return;
+    const sections = Array.isArray(questionnaireSections) ? questionnaireSections : [];
+    sections.forEach((section) => {
+      if (section?.fields && Array.isArray(section.fields)) {
+        section.fields.forEach((field) => {
+          if (!field?.name) return;
+          
+          const value = formData.get(field.name.toString());
+          
+          // Skip if value is null or empty string for optional fields
+          if (value === null || value === '') return;
 
-        const fieldName = field.name.toString();
-        if (isCheckboxField(field)) {
-          updatedLead[fieldName] = value === 'on';
-        } else if (typeof value === 'string') {
-          updatedLead[fieldName] = value;
-        }
-      });
+          const fieldName = field.name.toString();
+          
+          // Special handling for lead_notes - extract for lead notes
+          if (fieldName === 'lead_notes') {
+            leadNotesContent = value.toString();
+            return; // Don't add to updatedLead
+          }
+          
+          if (isCheckboxField(field)) {
+            updatedLead[fieldName] = value === 'on';
+          } else if (typeof value === 'string') {
+            updatedLead[fieldName] = value;
+          }
+        });
+      }
     });
 
     // Merge with existing form values to keep any fields not in the form
@@ -373,7 +347,21 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         break;
     }
 
+    if (leadNotesContent.trim() && lead.id) {
+      try {
+        await addLeadNote(lead.id, leadNotesContent.trim());
+        showNotification?.('Lead notes saved successfully', 'success');
+      } catch (error) {
+        console.error('Error saving lead notes:', error);
+        showNotification?.('Failed to save lead notes', 'error');
+      }
+    }
+
+    // Save the lead first
     await onSave(finalValues);
+    
+    // If there are lead notes, create them separately
+    
     onClose();
   };
 
@@ -400,10 +388,10 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     setShowUnsavedChangesModal(false);
   };
 
-  // Handle form field changes
-  const handleFieldChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  // Handle form field changes for both input and textarea
+  const handleFieldChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
-    const newValue = type === 'checkbox' ? (e.target as HTMLInputElement).checked : value;
+    const newValue = type === 'checkbox' && 'checked' in e.target ? e.target.checked : value;
     setFormValues(prev => ({
       ...prev,
       [name]: newValue
@@ -420,6 +408,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   const updatedDate = lead.updated_at ? new Date(lead.updated_at) : new Date(lead.created_at);
   
   const isQuestionnaireMode = formatToMinute(createdDate) === formatToMinute(updatedDate);
+  // console.log("isQuestionnaireMode", isQuestionnaireMode, createdDate, updatedDate);
   const questionnaireSections = useMemo(() => createQuestionnaireSections(isQuestionnaireMode), [isQuestionnaireMode]);
 
   // Handle booking action
@@ -512,7 +501,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
             className="w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base shadow-sm transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 focus:outline-none hover:border-gray-300"
           >
             <option value="">Select an option...</option>
-            {field.options.map((option: string) => (
+            {'options' in field && field.options.map((option: string) => (
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
@@ -523,7 +512,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     if (isRadioField(field)) {
       return (
         <div className="space-y-3">
-          {field.options.map((option: string) => (
+          {'options' in field && field.options.map((option: string) => (
             <label key={option} className="flex items-center space-x-3 cursor-pointer group">
               <div className="relative flex items-center justify-center">
                 <input
@@ -556,7 +545,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
 
       return (
         <div className="space-y-3">
-          {field.options.map((option: string) => (
+          {'options' in field && field.options.map((option: string) => (
             <label key={option} className="flex items-center space-x-3 cursor-pointer group">
               <div className="relative flex items-center justify-center">
                 <input
@@ -622,6 +611,28 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     }
 
     if (isTextField(field)) {
+      // Handle textarea type
+      if (field.name === 'lead_notes') {
+        return (
+          <div className="space-y-2">
+            <textarea
+              id={field.name.toString()}
+              name={field.name.toString()}
+              value={formValues[field.name]?.toString() ?? ''}
+              onChange={handleFieldChange}
+              disabled={field.disabled}
+              rows={4}
+              className={`w-full rounded-xl border-2 px-4 py-3 text-base shadow-sm transition-all duration-200 focus:outline-none resize-vertical ${
+                field.disabled 
+                  ? 'bg-gray-50 border-gray-200 text-gray-500 cursor-not-allowed'
+                  : 'bg-white border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 hover:border-gray-300'
+              }`}
+              placeholder="Enter your notes here..."
+            />
+          </div>
+        );
+      }
+      
       return (
         <div className="space-y-2">
           <input
@@ -647,159 +658,6 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
 
   const currentSection = questionnaireSections[currentStep];
   const progress = ((currentStep + 1) / questionnaireSections.length) * 100;
-
-  // Add this new function to create lead details sections
-  const createLeadDetailsSections = (): Section[] => [
-    {
-      title: "Lead Information",
-      icon: QuestionMarkCircleIcon,
-      fields: [
-        { name: "source", label: "Lead Source", type: "text", disabled: true } as TextField,
-        { name: "full_name", label: "Full Name", type: "text" } as TextField,
-        { name: "email", label: "Email", type: "text" } as TextField,
-        { name: "phone_number", label: "Primary Phone", type: "tel" } as TextField,
-        { name: "phone_number_2", label: "Secondary Phone", type: "tel" } as TextField,
-        { name: "phone_number_3", label: "Additional Phone", type: "tel" } as TextField,
-      ]
-    },
-    {
-      title: "Residential Information",
-      icon: QuestionMarkCircleIcon,
-      fields: [
-        { 
-          name: "residential_status", 
-          label: "Are you a local or foreigner?", 
-          type: "radio",
-          options: ["Local", "Foreigner"],
-          note: "Please select your residency status"
-        } as RadioField,
-        { 
-          name: "has_work_pass_expiry", 
-          label: "When does your work pass expire?", 
-          type: "text",
-          showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-          note: "⚠️ Must have at least 6 months validity from today"
-        } as TextField,
-        { 
-          name: "proof_of_residence_type", 
-          label: "Proof of Residence Documents", 
-          type: "checkbox-group",
-          options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
-          showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-          note: "📄 Select all documents you can provide:\n\n⚠️ Important: Must provide either current month or last month statement"
-        } as CheckboxGroupField,
-        { 
-          name: "has_letter_of_consent", 
-          label: "Has Letter of Consent", 
-          type: "checkbox",
-          showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-          note: "📝 Required for LTVP and LTVP+ pass holders only"
-        } as CheckboxField
-      ]
-    },
-    {
-      title: "Employment Information",
-      icon: QuestionMarkCircleIcon,
-      fields: [
-        { 
-          name: "employment_status", 
-          label: "Employment Status", 
-          type: "select",
-          options: ["Full-Time", "Part-Time", "Self-Employed", "Self-Employed (Platform Worker)", "Unemployed", "UNKNOWN"]
-        } as SelectField,
-        { 
-          name: "employment_salary", 
-          label: "Monthly Income", 
-          type: "text"
-        } as TextField,
-        { 
-          name: "employment_length", 
-          label: "Length of Employment", 
-          type: "text",
-          showIf: (values: Partial<Lead>) => values.employment_status !== "Unemployed"
-        } as TextField,
-        {
-          name: "has_payslip_3months",
-          label: "Has Latest 3 Months Payslips",
-          type: "checkbox",
-          showIf: (values: Partial<Lead>) => {
-            const salary = parseFloat(values.employment_salary?.toString() ?? '0');
-            return (
-              values.residential_status === "Foreigner" ||
-              (values.residential_status === "Local" && (
-                (values.employment_status === "Full-Time" && salary >= 7400) ||
-                values.employment_status === "Self-Employed" ||
-                values.employment_status === "Self-Employed (Platform Worker)"
-              ))
-            );
-          },
-          note: (values: Partial<Lead>) => {
-            const salary = parseFloat(values.employment_salary?.toString() ?? '0');
-            const isHighIncome = values.employment_status === "Full-Time" && salary >= 7400;
-            const isSelfEmployed = values.employment_status === "Self-Employed" || values.employment_status === "Self-Employed (Platform Worker)";
-            
-            let note = "📄 Requirements:\n• Must be latest 3 months\n• No payment vouchers\n• No handwritten payslips\n\n⚠️ From 6th of the month onwards, must include last month's payslip";
-            
-            if (values.residential_status === "Local") {
-              if (isHighIncome) {
-                note += "\n💡 Required for high-income verification (>= $7,400)";
-              } else if (isSelfEmployed) {
-                note += "\n💡 Required for Self-Employed and Platform Workers income verification";
-              }
-            }
-            
-            return note;
-          }
-        } as CheckboxField
-      ]
-    },
-    {
-      title: "Loan Information",
-      icon: QuestionMarkCircleIcon,
-      fields: [
-        { 
-          name: "amount", 
-          label: "Requested Loan Amount", 
-          type: "text" 
-        } as TextField,
-        { 
-          name: "loan_purpose", 
-          label: "Purpose of Loan", 
-          type: "text" 
-        } as TextField,
-        { 
-          name: "existing_loans", 
-          label: "Has Existing Loans", 
-          type: "select", 
-          options: ["Yes", "No", "UNKNOWN"] 
-        } as SelectField,
-        { 
-          name: "outstanding_loan_amount", 
-          label: "Outstanding Loan Amount", 
-          type: "text",
-          showIf: (values: Partial<Lead>) => values.existing_loans === "Yes"
-        } as TextField
-      ]
-    },
-    {
-      title: "Communication Preferences",
-      icon: QuestionMarkCircleIcon,
-      fields: [
-        { 
-          name: "contact_preference", 
-          label: "Preferred Contact Method", 
-          type: "select",
-          options: ["No Preferences", "WhatsApp", "Call", "SMS", "Email"]
-        } as SelectField,
-        { 
-          name: "communication_language", 
-          label: "Preferred Language", 
-          type: "select",
-          options: ["No Preferences", "English", "Mandarin", "Malay", "Tamil", "Others"]
-        } as SelectField
-      ]
-    }
-  ];
 
   return (
     <>
@@ -854,7 +712,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                           </button>
                       </div>
                       
-                      {/* Progress Bar - Only show in questionnaire mode */}
+                      {/* Progress Bar - only show in questionnaire mode */}
                       {isQuestionnaireMode && (
                         <div className="mt-4">
                           <div className="flex items-center justify-between text-sm text-blue-100 mb-2">
@@ -866,8 +724,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                               className="bg-white rounded-full h-2 transition-all duration-500 ease-out"
                               style={{ width: `${progress}%` }}
                             />
+                          </div>
                         </div>
-                      </div>
                       )}
                     </div>
 
@@ -876,7 +734,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                         <form onSubmit={handleSubmit} className="h-full flex flex-col">
                         <div className="flex-1 px-6 py-8">
                           {isQuestionnaireMode ? (
-                            // Questionnaire View
+                            /* Questionnaire mode: Multi-step view */
                             currentSection && (
                               <div className="space-y-8">
                                 <div className="text-center">
@@ -911,42 +769,37 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                               </div>
                             )
                           ) : (
-                            // Lead Details View
-                            <div className="max-w-4xl mx-auto">
-                              {createLeadDetailsSections().map((section, sectionIndex) => (
-                                <div key={section.title} className="mb-8 last:mb-0">
-                                  <div className="flex items-center space-x-3 mb-6">
-                                    {section.icon && (
-                                      <section.icon className="h-6 w-6 text-blue-600" />
-                                    )}
-                                    <h2 className="text-xl font-semibold text-gray-900">
-                              {section.title}
-                                    </h2>
+                            /* Edit mode: Single-page view with all sections */
+                            <div className="space-y-12">
+                              {questionnaireSections.map((section, sectionIndex) => (
+                                <div key={sectionIndex} className="space-y-6">
+                                  <div className="border-b border-gray-200 pb-3">
+                                    <h3 className="text-lg font-semibold text-gray-900">
+                                      {section.title}
+                                    </h3>
                                   </div>
                                   
-                                  <div className="bg-white rounded-xl border border-gray-200 p-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                      {section.fields.map((field) => {
-                                        const shouldShow = !field.showIf || field.showIf(formValues);
-                                        if (!shouldShow) return null;
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {section.fields.map((field) => {
+                                      const shouldShow = !field.showIf || field.showIf(formValues);
+                                      if (!shouldShow) return null;
 
-                                        return (
-                                          <div key={field.name} className="space-y-2">
-                                  <label htmlFor={field.name} className="block text-sm font-medium text-gray-700">
-                                    {field.label}
-                                  </label>
-                                            {field.note && (
-                                              <div className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded-r-lg mb-2">
-                                                <div className="text-xs text-blue-800 whitespace-pre-line leading-relaxed">
-                                                  {typeof field.note === 'function' ? field.note(formValues) : field.note}
-                                                </div>
+                                      return (
+                                        <div key={field.name} className="space-y-2">
+                                          <label htmlFor={field.name} className="block text-sm font-medium text-gray-700">
+                                            {field.label}
+                                          </label>
+                                          {field.note && (
+                                            <div className="bg-gray-50 border border-gray-200 p-3 rounded-lg">
+                                              <div className="text-xs text-gray-600 whitespace-pre-line">
+                                                {typeof field.note === 'function' ? field.note(formValues) : field.note}
                                               </div>
-                                            )}
-                                            {renderField(field)}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
+                                            </div>
+                                          )}
+                                          {renderField(field)}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               ))}
@@ -956,59 +809,23 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
 
                         {/* Navigation */}
                         <div className="border-t border-gray-200 bg-gray-50 px-6 py-4">
-                          <div className="flex items-center justify-between">
-                            {isQuestionnaireMode ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={prevStep}
-                                  disabled={currentStep === 0}
-                                  className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 ${
-                                    currentStep === 0
-                                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                      : 'bg-white border-2 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:ring-4 focus:ring-gray-100'
-                                  }`}
-                                >
-                                  Previous
-                                </button>
+                          {isQuestionnaireMode ? (
+                            /* Questionnaire mode: Step navigation */
+                            <div className="flex items-center justify-between">
+                              <button
+                                type="button"
+                                onClick={prevStep}
+                                disabled={currentStep === 0}
+                                className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 ${
+                                  currentStep === 0
+                                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                    : 'bg-white border-2 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:ring-4 focus:ring-gray-100'
+                                }`}
+                              >
+                                Previous
+                              </button>
 
-                                {currentStep === questionnaireSections.length - 1 ? (
-                                  <div className="flex space-x-3">
-                                    {actionButtons.slice(0, 2).map(button => (
-                                      <button
-                                        key={button.id}
-                                        type={button.id === 'save' ? 'submit' : 'button'}
-                                        onClick={() => {
-                                          if (button.onClick) {
-                                            void button.onClick();
-                                          } else if (button.id !== 'save') {
-                                            handleActionClick(button.id);
-                                          }
-                                        }}
-                                        disabled={!button.enabled}
-                                        className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-4 ${button.color} ${button.textColor}
-                                        ${!button.enabled ? 'opacity-50 cursor-not-allowed' : ''}
-                                          flex items-center space-x-2
-                                      `}
-                                      >
-                                        {button.icon && <button.icon className="h-5 w-5" />}
-                                        <span>{button.label}</span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={nextStep}
-                                    className="px-8 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 focus:ring-4 focus:ring-blue-100 transition-all duration-200 focus:outline-none"
-                                  >
-                                    Continue
-                                  </button>
-                                )}
-                              </>
-                            ) : (
-                              // Lead Details View Actions
-                              <div className="flex items-center justify-between w-full">
+                              {currentStep === questionnaireSections.length - 1 ? (
                                 <div className="flex space-x-3">
                                   {actionButtons.slice(0, 2).map(button => (
                                     <button
@@ -1024,21 +841,58 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                                       disabled={!button.enabled}
                                       className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-4 ${button.color} ${button.textColor}
                                       ${!button.enabled ? 'opacity-50 cursor-not-allowed' : ''}
-                                        flex items-center space-x-2
-                                    `}
-                                    >
-                                      {button.icon && <button.icon className="h-5 w-5" />}
-                                      <span>{button.label}</span>
-                                    </button>
-                                  ))}
-                                </div>
+                                      flex items-center space-x-2
+                                  `}
+                                  >
+                                    {button.icon && <button.icon className="h-5 w-5" />}
+                                    <span>{button.label}</span>
+                                  </button>
+                                ))}
                               </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={nextStep}
+                                className="px-8 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 focus:ring-4 focus:ring-blue-100 transition-all duration-200 focus:outline-none"
+                              >
+                                Continue
+                              </button>
                             )}
-                          </div>
+                            </div>
+                          ) : (
+                            /* Edit mode: Match the exact layout of questionnaire mode last page */
+                            <div className="flex items-center justify-between">
+                              <div></div> {/* Empty div to match the space where "Previous" button would be */}
+                              
+                              <div className="flex space-x-3">
+                                {actionButtons.slice(0, 2).map(button => (
+                                  <button
+                                    key={button.id}
+                                    type={button.id === 'save' ? 'submit' : 'button'}
+                                    onClick={() => {
+                                      if (button.onClick) {
+                                        void button.onClick();
+                                      } else if (button.id !== 'save') {
+                                        handleActionClick(button.id);
+                                      }
+                                    }}
+                                    disabled={!button.enabled}
+                                    className={`px-6 py-3 rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-4 ${button.color} ${button.textColor}
+                                      ${!button.enabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                      flex items-center space-x-2
+                                    `}
+                                  >
+                                    {button.icon && <button.icon className="h-5 w-5" />}
+                                    <span>{button.label}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
-                        {/* Additional Actions (only on last step for questionnaire or always for lead details) */}
-                        {(!isQuestionnaireMode || currentStep === questionnaireSections.length - 1) && (
+                        {/* Additional Actions */}
+                        {((isQuestionnaireMode && currentStep === questionnaireSections.length - 1) || !isQuestionnaireMode) && (
                           <div className="border-t border-gray-200 bg-white px-6 py-4">
                             <div className="text-sm text-gray-600 mb-3">Additional Actions:</div>
                             <div className="flex flex-wrap gap-2">
@@ -1337,159 +1191,4 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   );
 }
 
-// Define questionnaire sections with proper typing
-const createQuestionnaireSections = (isQuestionnaireMode: boolean): Section[] => [
-  {
-    title: isQuestionnaireMode ? "Let's start with some basic information" : "Personal Information",
-    fields: [
-      { name: "source", label: isQuestionnaireMode ? "How did you hear about us?" : "Lead Source", type: "text", disabled: true } as TextField,
-      { name: "created_at", label: isQuestionnaireMode ? "When did you first contact us?" : "Lead Date", type: "text", disabled: true } as TextField,
-      { name: "full_name", label: isQuestionnaireMode ? "What is your full name?" : "Full Name", type: "text" } as TextField,
-      { name: "email", label: isQuestionnaireMode ? "What is your email address?" : "Email", type: "text" } as TextField,
-      { name: "phone_number", label: isQuestionnaireMode ? "What is your primary contact number?" : "Primary Phone", type: "tel", disabled: true } as TextField,
-      { name: "phone_number_2", label: isQuestionnaireMode ? "Do you have an alternative contact number?" : "Secondary Phone", type: "tel" } as TextField,
-      { name: "phone_number_3", label: isQuestionnaireMode ? "Any other contact number we should know about?" : "Additional Phone", type: "tel" } as TextField,
-    ]
-  },
-  {
-    title: isQuestionnaireMode ? "Tell us about your residency status" : "Residential Status",
-    fields: [
-      { 
-        name: "residential_status", 
-        label: "Are you a local or foreigner?", 
-        type: "radio",
-        options: ["Local", "Foreigner"],
-        note: "Please select your residency status"
-      } as RadioField,
-      { 
-        name: "has_work_pass_expiry", 
-        label: isQuestionnaireMode 
-          ? "When does your work pass expire?" 
-          : "When does your work pass expire?", 
-        type: "text",
-        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-        note: "⚠️ Must have at least 6 months validity from today"
-      } as TextField,
-      { 
-        name: "proof_of_residence_type", 
-        label: isQuestionnaireMode 
-          ? "What proof of residence documents can you provide?" 
-          : "Proof of Residence Documents", 
-        type: "checkbox-group",
-        options: ["Bank Statement", "Utility Bill", "Handphone Bill"],
-        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-        note: "📄 Select all documents you can provide:\n\n⚠️ Important: Must provide either current month or last month statement"
-      } as CheckboxGroupField,
-      { 
-        name: "has_letter_of_consent", 
-        label: isQuestionnaireMode 
-          ? "Do you have a letter of consent from ICA?" 
-          : "Has Letter of Consent", 
-        type: "checkbox",
-        showIf: (values: Partial<Lead>) => values.residential_status === "Foreigner",
-        note: "📝 Required for LTVP and LTVP+ pass holders only"
-      } as CheckboxField
-    ]
-  },
-  {
-    title: isQuestionnaireMode ? "Let's discuss your employment" : "Employment Details",
-    fields: [
-      { 
-        name: "employment_status", 
-        label: isQuestionnaireMode ? "What is your current employment situation?" : "Employment Status", 
-        type: "select",
-        options: ["Full-Time", "Part-Time", "Self-Employed", "Self-Employed (Platform Worker)", "Unemployed", "UNKNOWN"]
-      },
-      { 
-        name: "employment_salary", 
-        label: isQuestionnaireMode ? "What is your monthly income?" : "Monthly Income", 
-        type: "text"
-      },
-      { 
-        name: "employment_length", 
-        label: isQuestionnaireMode ? "How long have you been employed?" : "Length of Employment", 
-        type: "text",
-        showIf: (values: Partial<Lead>) => values.employment_status !== "Unemployed"
-      },
-      {
-        name: "has_payslip_3months",
-        label: isQuestionnaireMode 
-          ? "Do you have the latest 3 months payslips from your employer?" 
-          : "Has Latest 3 Months Payslips",
-        type: "checkbox",
-        showIf: (values: Partial<Lead>) => {
-          const salary = parseFloat(values.employment_salary?.toString() ?? '0');
-          return (
-            values.residential_status === "Foreigner" ||
-            (values.residential_status === "Local" && (
-              (values.employment_status === "Full-Time" && salary >= 7400) ||
-              values.employment_status === "Self-Employed" ||
-              values.employment_status === "Self-Employed (Platform Worker)"
-            ))
-          );
-        },
-        note: (values: Partial<Lead>) => {
-          const salary = parseFloat(values.employment_salary?.toString() ?? '0');
-          const isHighIncome = values.employment_status === "Full-Time" && salary >= 7400;
-          const isSelfEmployed = values.employment_status === "Self-Employed" || values.employment_status === "Self-Employed (Platform Worker)";
-          
-          let note = "📄 Requirements:\n• Must be latest 3 months\n• No payment vouchers\n• No handwritten payslips\n\n⚠️ From 6th of the month onwards, must include last month's payslip";
-          
-          if (values.residential_status === "Local") {
-            if (isHighIncome) {
-              note += "\n💡 Required for high-income verification (>= $7,400)";
-            } else if (isSelfEmployed) {
-              note += "\n💡 Required for Self-Employed and Platform Workers income verification";
-            }
-          }
-          
-          return note;
-        }
-      } as CheckboxField
-    ] as Field[]
-  },
-  {
-    title: isQuestionnaireMode ? "Tell us about your loan requirements" : "Loan Information",
-    fields: [
-      { 
-        name: "amount", 
-        label: isQuestionnaireMode ? "How much would you like to borrow?" : "Requested Loan Amount", 
-        type: "text" 
-      },
-      { 
-        name: "loan_purpose", 
-        label: isQuestionnaireMode ? "What do you need the loan for?" : "Purpose of Loan", 
-        type: "text" 
-      },
-      { 
-        name: "existing_loans", 
-        label: isQuestionnaireMode ? "Do you have any existing loans?" : "Has Existing Loans", 
-        type: "select", 
-        options: ["Yes", "No", "UNKNOWN"] 
-      },
-      { 
-        name: "outstanding_loan_amount", 
-        label: isQuestionnaireMode ? "What is the total amount of your existing loans?" : "Outstanding Loan Amount", 
-        type: "text",
-        showIf: (values: Partial<Lead>) => values.existing_loans === "Yes"
-      }
-    ] as Field[]
-  },
-  {
-    title: isQuestionnaireMode ? "How would you like us to contact you?" : "Communication Preferences",
-    fields: [
-      { 
-        name: "contact_preference", 
-        label: isQuestionnaireMode ? "What's your preferred way of communication?" : "Preferred Contact Method", 
-        type: "select",
-        options: ["No Preferences", "WhatsApp", "Call", "SMS", "Email"]
-      },
-      { 
-        name: "communication_language", 
-        label: isQuestionnaireMode ? "Which language would you prefer?" : "Preferred Language", 
-        type: "select",
-        options: ["No Preferences", "English", "Mandarin", "Malay", "Tamil", "Others"]
-      }
-    ] as Field[]
-  }
-]; 
+ 
