@@ -749,8 +749,8 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
         // Convert UTC to Singapore time for display
         const startTimeSGT = new Date(appointment.start_datetime);
         const endTimeSGT = new Date(appointment.end_datetime);
-        startTimeSGT.setHours(startTimeSGT.getHours() + 8);
-        endTimeSGT.setHours(endTimeSGT.getHours() + 8);
+        // startTimeSGT.setHours(startTimeSGT.getHours() + 8);
+        // endTimeSGT.setHours(endTimeSGT.getHours() + 8);
         
         return (
           <div 
