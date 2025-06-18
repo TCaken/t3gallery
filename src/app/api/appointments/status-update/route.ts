@@ -370,7 +370,7 @@ export async function POST(request: NextRequest) {
         if (code === 'RS') {
           // const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
           // const rsReason = row.col_RS.trim() ?? '';
-          eligibilityNotes = `RS - Rejected`;
+          eligibilityNotes = `RS - Rejected With Special Reason`;
         } else if (code === 'R') {
           eligibilityNotes = 'R - Rejected';
         } else if (code === 'PRS') {

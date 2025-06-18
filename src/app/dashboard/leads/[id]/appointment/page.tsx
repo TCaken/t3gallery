@@ -84,11 +84,11 @@ const convertToUTC = (localDateTimeString: string) => {
   return utcTime;
 };
 
-const formatSingaporeTime = (utcDate: Date) => {
+const SingaporeTime = (utcDate: Date) => {
   const singaporeTime = getSingaporeTime(utcDate);
   console.log('🕘 Displaying time:');
   console.log('UTC input:', utcDate.toISOString());
-  console.log('Singapore time:', singaporeTime.toLocaleString());
+  console.log('Singaporeformat time:', singaporeTime.toLocaleString());
   return singaporeTime;
 };
 
@@ -681,6 +681,7 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
           const sortedAppointments = response.appointments.sort((a: Appointment, b: Appointment) => 
             new Date(b.start_datetime).getTime() - new Date(a.start_datetime).getTime()
           );
+          console.log("Previous Appointments: " + JSON.stringify(sortedAppointments));
           setAppointments(sortedAppointments);
         }
       } catch (error) {
@@ -748,8 +749,8 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
         // Convert UTC to Singapore time for display
         const startTimeSGT = new Date(appointment.start_datetime);
         const endTimeSGT = new Date(appointment.end_datetime);
-        startTimeSGT.setHours(startTimeSGT.getHours() + 8);
-        endTimeSGT.setHours(endTimeSGT.getHours() + 8);
+        // startTimeSGT.setHours(startTimeSGT.getHours() + 8);
+        // endTimeSGT.setHours(endTimeSGT.getHours() + 8);
         
         return (
           <div 
@@ -780,9 +781,9 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
               
               {/* Creator and Agent Info */}
               <div className="text-xs text-gray-500 mt-1">
-                <div>Created by: <span className="font-medium">{appointment.creator_name}</span></div>
-                <div>Assigned to: <span className="font-medium">{appointment.agent_name}</span></div>
-                <div>Lead assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div>
+                {/* <div>Created by: <span className="font-medium">{appointment.creator_name}</span></div> */}
+                <div>Created by: <span className="font-medium">{appointment.agent_name}</span></div>
+                {/* <div>Lead assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div> */}
               </div>
               
               {/* Loan Status */}

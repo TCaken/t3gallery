@@ -635,8 +635,8 @@ export default function LeadDetailPage({ params }: PageProps) {
                       const startTimeSGT = new Date(appointment.start_datetime);
                       const endTimeSGT = new Date(appointment.end_datetime);
                       // Add 8 hours for Singapore timezone (UTC+8)
-                      startTimeSGT.setHours(startTimeSGT.getHours() + 8);
-                      endTimeSGT.setHours(endTimeSGT.getHours() + 8);
+                      // startTimeSGT.setHours(startTimeSGT.getHours() + 8);
+                      // endTimeSGT.setHours(endTimeSGT.getHours() + 8);
                       
                       return (
                         <div key={appointment.id} className={`border rounded-lg p-4 ${statusConfig.colors}`}>
@@ -659,7 +659,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                                 {/* Creator and Agent Info */}
                                 <div className="text-xs text-gray-500 mb-2">
                                   <div>Created by: <span className="font-medium">{appointment.agent_name}</span></div>
-                                  <div>Assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div>
+                                  {/* <div>Assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div> */}
                                 </div>
 
                                 {/* Appointment Status */}

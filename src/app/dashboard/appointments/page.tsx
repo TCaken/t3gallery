@@ -418,6 +418,7 @@ export default function AppointmentsPage() {
     const statusConfig = APPOINTMENT_STATUSES[appointment.status as keyof typeof APPOINTMENT_STATUSES];
     const startTime = format(new Date(appointment.start_datetime), 'h:mm a');
     const endTime = format(new Date(appointment.end_datetime), 'h:mm a');
+    console.log("Appointment: " + JSON.stringify(appointment), "Start datetime: " + startTime, "End datetime: " + endTime);
 
     const handleAppointmentClick = (e: React.MouseEvent) => {
       router.push(`/dashboard/leads/${appointment.lead?.id}/appointment`);
