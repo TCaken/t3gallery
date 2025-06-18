@@ -24,7 +24,15 @@ import { truncate } from 'fs/promises';
 import { auth } from '@clerk/nextjs/server';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
 import { updateAppointmentStatusesByTime, testAppointmentStatusUpdate } from '~/app/_actions/appointmentStatusUpdateAction';
-  
+
+// Extended type for appointments with creator information
+type ExtendedAppointment = AppointmentWithLead & {
+  creator_name?: string;
+  creator_email?: string;
+  agent_name?: string;
+  agent_email?: string;
+};
+
 const APPOINTMENT_STATUSES = {
   upcoming: { icon: ClockIcon, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
   done: { icon: CheckCircleIcon, color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' },
@@ -81,7 +89,7 @@ interface StatusUpdateResult {
 
 export default function AppointmentsPage() {
   const router = useRouter();
-  const [allAppointments, setAllAppointments] = useState<AppointmentWithLead[]>([]);
+  const [allAppointments, setAllAppointments] = useState<ExtendedAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'day' | 'week'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -102,6 +110,10 @@ export default function AppointmentsPage() {
   const [statusUpdateLoading, setStatusUpdateLoading] = useState(false);
   const [statusUpdateResults, setStatusUpdateResults] = useState<StatusUpdateResult | null>(null);
 
+  // Hover modal state
+  const [hoveredAppointment, setHoveredAppointment] = useState<ExtendedAppointment | null>(null);
+  const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 });
+
   // TODO: Get this from user context/auth - for now assuming retail user
   const isRetailUser = true; // This should come from your auth/user context
 
@@ -110,20 +122,13 @@ export default function AppointmentsPage() {
 
   const timeSlots = generateTimeSlots();
 
-  // Fetch data only when date range or view changes (not on search/filter changes)
+  // Fetch data when date range, view changes, or when search query changes
   useEffect(() => {
     void fetchAppointmentData();
   }, [currentDate, viewMode]);
 
-  // Separate effect for search that only triggers after debounce
-  useEffect(() => {
-    if (debouncedSearchQuery !== searchQuery) {
-      // Only refetch if the debounced search is different and not empty
-      if (debouncedSearchQuery.trim()) {
-        void fetchAppointmentData();
-      }
-    }
-  }, [debouncedSearchQuery]);
+  // We don't need a separate effect for search since we do client-side filtering
+  // This removes potential race conditions and data mismatches
 
   const fetchAppointmentData = useCallback(async () => {
     setLoading(true);
@@ -139,8 +144,10 @@ export default function AppointmentsPage() {
         sortBy: 'start_datetime'
       };
 
+      console.log("Filters: " + JSON.stringify(filters));
       const fetchedAppointments = await fetchAppointments(filters);
       setAllAppointments(fetchedAppointments);
+      // console.log("Fetched appointments: " + JSON.stringify(fetchedAppointments));
     } catch (error) {
       console.error("Error fetching appointments:", error);
     } finally {
@@ -167,6 +174,8 @@ export default function AppointmentsPage() {
         (apt.lead?.email?.toLowerCase().includes(searchTerm) ?? false)
       );
     }
+    console.log("All appointments: " + allAppointments.length);
+    console.log("Filtered appointments: " + filtered.length);
 
     return filtered;
   }, [allAppointments, selectedStatuses, debouncedSearchQuery]);
@@ -418,16 +427,32 @@ export default function AppointmentsPage() {
     const statusConfig = APPOINTMENT_STATUSES[appointment.status as keyof typeof APPOINTMENT_STATUSES];
     const startTime = format(new Date(appointment.start_datetime), 'h:mm a');
     const endTime = format(new Date(appointment.end_datetime), 'h:mm a');
-    console.log("Appointment: " + JSON.stringify(appointment), "Start datetime: " + startTime, "End datetime: " + endTime);
+    // console.log("Appointment: " + JSON.stringify(appointment), "Start datetime: " + startTime, "End datetime: " + endTime);
 
     const handleAppointmentClick = (e: React.MouseEvent) => {
       router.push(`/dashboard/leads/${appointment.lead?.id}/appointment`);
+    };
+
+    const handleMouseEnter = (e: React.MouseEvent) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setModalPosition({
+        x: rect.left + rect.width + 10,
+        y: rect.top
+      });
+      setHoveredAppointment(appointment);
+      console.log("Hovered appointment: " + JSON.stringify(appointment));
+    };
+
+    const handleMouseLeave = () => {
+      setHoveredAppointment(null);
     };
 
     return (
       <div
         key={appointment.id}
         onClick={handleAppointmentClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         onAuxClick={(e) => {
           if (e.button === 1) { // Middle mouse button
             e.preventDefault();
@@ -456,6 +481,21 @@ export default function AppointmentsPage() {
         <div className="text-gray-600 text-xs font-medium truncate w-full mb-1">
           {startTime}
         </div>
+
+        {/* Loan Status for Done Appointments */}
+        {appointment.status === 'done' && appointment.loan_status && (
+          <div className="text-xs font-medium mb-1">
+            <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+              appointment.loan_status === 'P' ? 'bg-green-100 text-green-800' :
+              appointment.loan_status === 'PRS' ? 'bg-blue-100 text-blue-800' :
+              appointment.loan_status === 'RS' ? 'bg-yellow-100 text-yellow-800' :
+              appointment.loan_status === 'R' ? 'bg-red-100 text-red-800' :
+              'bg-gray-100 text-gray-800'
+            }`}>
+              {appointment.loan_status}
+            </span>
+          </div>
+        )}
 
         {/* Phone Number */}
         {appointment.lead?.phone_number && (
@@ -694,6 +734,8 @@ export default function AppointmentsPage() {
         </div>
       </div>
 
+
+
       {/* Calendar Grid */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
         <div className="overflow-x-auto">
@@ -773,13 +815,218 @@ export default function AppointmentsPage() {
         </div>
       )}
 
-      {/* Results Summary */}
-      {(searchQuery || selectedStatuses.length < 4) && (
-        <div className="mt-6 text-sm text-gray-600 text-center bg-blue-50 border border-blue-200 rounded-lg py-3 px-4">
-          <span className="font-medium">Showing {filteredAppointments.length} of {allAppointments.length} appointments</span>
-          {searchQuery && <span className="text-blue-700"> matching {searchQuery}</span>}
+
+
+      {/* Statistics Breakdown */}
+      {filteredAppointments.length > 0 && (
+        <div className="mt-6 space-y-6">
+          {/* Combined Status Breakdown */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-6">Status Breakdown</h3>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Appointment Status */}
+              <div>
+                <h4 className="text-md font-medium text-gray-800 mb-4">Appointment Status</h4>
+                <div className="space-y-3">
+                  {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => {
+                    const count = filteredAppointments.filter(apt => apt.status === status).length;
+                    const percentage = filteredAppointments.length > 0 ? Math.round((count / filteredAppointments.length) * 100) : 0;
+                    
+                    return (
+                      <div key={status} className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <config.icon className={`h-4 w-4 mr-2 ${config.color}`} />
+                          <span className="capitalize font-medium text-gray-700">{status}</span>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <div className="w-20 bg-gray-200 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full ${config.color.replace('text-', 'bg-').replace('-600', '-500')}`}
+                              style={{ width: `${percentage}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm font-semibold text-gray-900 w-8 text-right">{count}</span>
+                          <span className="text-xs text-gray-500 w-8 text-right">{percentage}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Loan Status for Done Appointments */}
+              {filteredAppointments.filter(apt => apt.status === 'done').length > 0 && (
+                <div>
+                  <h4 className="text-md font-medium text-gray-800 mb-4">Done Appointments - Loan Status</h4>
+                  <div className="space-y-3">
+                    {[
+                      { status: 'P', label: 'Done', color: 'text-green-600 bg-green-500' },
+                      { status: 'PRS', label: 'Customer Rejected', color: 'text-blue-600 bg-blue-500' },
+                      { status: 'RS', label: 'Rejected With Special Reason', color: 'text-yellow-600 bg-yellow-500' },
+                      { status: 'R', label: 'Rejected', color: 'text-red-600 bg-red-500' }
+                    ].map(({ status, label, color }) => {
+                      const doneAppointments = filteredAppointments.filter(apt => apt.status === 'done');
+                      const count = doneAppointments.filter(apt => apt.loan_status === status).length;
+                      const percentage = doneAppointments.length > 0 ? Math.round((count / doneAppointments.length) * 100) : 0;
+                      
+                      return (
+                        <div key={status} className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div className={`w-3 h-3 rounded-full mr-2 ${color.split(' ')[1]}`}></div>
+                            <span className="font-medium text-gray-700">{status} - {label}</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-20 bg-gray-200 rounded-full h-2">
+                              <div 
+                                className={color.split(' ')[1]}
+                                style={{ width: `${percentage}%`, height: '100%', borderRadius: '9999px' }}
+                              ></div>
+                            </div>
+                            <span className="text-sm font-semibold text-gray-900 w-8 text-right">{count}</span>
+                            <span className="text-xs text-gray-500 w-8 text-right">{percentage}%</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Status Breakdown by Creator */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-6">Status Breakdown by Creator</h3>
+            
+            <div className="space-y-6">
+              {(() => {
+                const creatorStats: Record<string, {
+                  name: string;
+                  email: string | null;
+                  total: number;
+                  statuses: Record<string, number>;
+                  loanStatuses: Record<string, number>;
+                }> = {};
+                
+                // Collect stats by creator
+                filteredAppointments.forEach(apt => {
+                  const creatorName = apt.agent.first_name + ' ' + apt.agent.last_name;
+                  const creatorEmail = apt.agent.email;
+                  
+                  creatorStats[creatorName] ??= {
+                    name: creatorName,
+                    email: creatorEmail,
+                    total: 0,
+                    statuses: {},
+                    loanStatuses: {}
+                  };
+                  
+                  creatorStats[creatorName].total++;
+                  creatorStats[creatorName].statuses[apt.status] = (creatorStats[creatorName].statuses[apt.status] ?? 0) + 1;
+                  
+                  if (apt.status === 'done' && apt.loan_status) {
+                    creatorStats[creatorName].loanStatuses[apt.loan_status] = (creatorStats[creatorName].loanStatuses[apt.loan_status] ?? 0) + 1;
+                  }
+                });
+
+                return Object.values(creatorStats)
+                  .sort((a, b) => b.total - a.total)
+                  .map(creator => (
+                    <div key={creator.name} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h4 className="text-md font-medium text-gray-900">{creator.name}</h4>
+                          {creator.email && (
+                            <p className="text-sm text-gray-500">{creator.email}</p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-lg font-bold text-gray-900">{creator.total}</span>
+                          <p className="text-xs text-gray-500">appointments</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Appointment Status for this creator */}
+                        <div>
+                          <h5 className="text-sm font-medium text-gray-700 mb-2">Appointment Status</h5>
+                          <div className="space-y-2">
+                            {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => {
+                              const count = creator.statuses[status] ?? 0;
+                              const percentage = creator.total > 0 ? Math.round((count / creator.total) * 100) : 0;
+                              
+                              if (count === 0) return null;
+                              
+                              return (
+                                <div key={status} className="flex items-center justify-between text-sm">
+                                  <div className="flex items-center">
+                                    <config.icon className={`h-3 w-3 mr-1 ${config.color}`} />
+                                    <span className="capitalize">{status}</span>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <div className="w-12 bg-gray-200 rounded-full h-1.5">
+                                      <div 
+                                        className={`h-1.5 rounded-full ${config.color.replace('text-', 'bg-').replace('-600', '-500')}`}
+                                        style={{ width: `${percentage}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className="font-medium w-6 text-right">{count}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        
+                        {/* Loan Status for done appointments by this creator */}
+                        {Object.keys(creator.loanStatuses).length > 0 && (
+                          <div>
+                            <h5 className="text-sm font-medium text-gray-700 mb-2">Done - Loan Status</h5>
+                            <div className="space-y-2">
+                              {[
+                                { status: 'P', label: 'Done', color: 'bg-green-500' },
+                                { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
+                                { status: 'RS', label: 'Rejected w/ Reason', color: 'bg-yellow-500' },
+                                { status: 'R', label: 'Rejected', color: 'bg-red-500' }
+                              ].map(({ status, label, color }) => {
+                                const count = creator.loanStatuses[status] ?? 0;
+                                const doneCount = creator.statuses.done ?? 0;
+                                const percentage = doneCount > 0 ? Math.round((count / doneCount) * 100) : 0;
+                                
+                                if (count === 0) return null;
+                                
+                                return (
+                                  <div key={status} className="flex items-center justify-between text-sm">
+                                    <div className="flex items-center">
+                                      <div className={`w-2 h-2 rounded-full mr-1 ${color}`}></div>
+                                      <span>{status}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <div className="w-12 bg-gray-200 rounded-full h-1.5">
+                                        <div 
+                                          className={color}
+                                          style={{ width: `${percentage}%`, height: '100%', borderRadius: '9999px' }}
+                                        ></div>
+                                      </div>
+                                      <span className="font-medium w-6 text-right">{count}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ));
+              })()}
+            </div>
+          </div>
         </div>
       )}
+
+
 
       {/* Quick Create Modal */}
       {showQuickCreate && (
@@ -871,6 +1118,123 @@ export default function AppointmentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Hover Modal for Appointment Details */}
+      {hoveredAppointment && (
+        <div
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-80"
+          style={{
+            left: modalPosition.x,
+            top: modalPosition.y,
+            maxWidth: 'calc(100vw - 20px)',
+            maxHeight: 'calc(100vh - 20px)',
+            transform: modalPosition.x > window.innerWidth - 340 ? 'translateX(-100%)' : 'translateX(0)',
+          }}
+        >
+          <div className="space-y-3">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+              <h4 className="font-semibold text-gray-900">Appointment Details</h4>
+              <div className="flex items-center">
+                {getStatusBadge(hoveredAppointment.status)}
+                <span className="ml-2 text-sm font-medium capitalize text-gray-700">
+                  {hoveredAppointment.status}
+                </span>
+              </div>
+            </div>
+
+            {/* Lead Information */}
+            <div>
+              <h5 className="text-sm font-medium text-gray-700 mb-1">Lead Information</h5>
+              <div className="text-sm space-y-1">
+                <div><span className="font-medium">Name:</span> {hoveredAppointment.lead?.full_name ?? 'Unknown'}</div>
+                {hoveredAppointment.lead?.phone_number && (
+                  <div className="flex items-center">
+                    <PhoneIcon className="h-3 w-3 mr-1" />
+                    <span>{hoveredAppointment.lead.phone_number}</span>
+                  </div>
+                )}
+                {hoveredAppointment.lead?.email && (
+                  <div><span className="font-medium">Email:</span> {hoveredAppointment.lead.email}</div>
+                )}
+              </div>
+            </div>
+
+            {/* Appointment Time */}
+            <div>
+              <h5 className="text-sm font-medium text-gray-700 mb-1">Schedule</h5>
+              <div className="text-sm space-y-1">
+                <div><span className="font-medium">Date:</span> {format(new Date(hoveredAppointment.start_datetime), 'EEEE, MMMM d, yyyy')}</div>
+                <div><span className="font-medium">Time:</span> {format(new Date(hoveredAppointment.start_datetime), 'h:mm a')} - {format(new Date(hoveredAppointment.end_datetime), 'h:mm a')}</div>
+              </div>
+            </div>
+
+            {/* Creator Information */}
+            <div>
+              <h5 className="text-sm font-medium text-gray-700 mb-1">Created By</h5>
+              <div className="text-sm space-y-1">
+                                 <div className="flex items-center">
+                   <UserIcon className="h-3 w-3 mr-1" />
+                   <span>{hoveredAppointment.agent.first_name + ' ' + hoveredAppointment.agent.last_name}</span>
+                 </div>
+                <div className="text-gray-500">
+                  {format(new Date(hoveredAppointment.created_at), 'MMM d, yyyy h:mm a')}
+                </div>
+              </div>
+            </div>
+
+            {/* Loan Status for Done Appointments */}
+            {hoveredAppointment.status === 'done' && hoveredAppointment.loan_status && (
+              <div>
+                <h5 className="text-sm font-medium text-gray-700 mb-1">Loan Status</h5>
+                <div className="flex items-center space-x-2">
+                  <span className={`px-2 py-1 rounded text-sm font-bold ${
+                    hoveredAppointment.loan_status === 'P' ? 'bg-green-100 text-green-800' :
+                    hoveredAppointment.loan_status === 'PRS' ? 'bg-blue-100 text-blue-800' :
+                    hoveredAppointment.loan_status === 'RS' ? 'bg-yellow-100 text-yellow-800' :
+                    hoveredAppointment.loan_status === 'R' ? 'bg-red-100 text-red-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {hoveredAppointment.loan_status}
+                  </span>
+                  <span className="text-sm text-gray-600">
+                    {hoveredAppointment.loan_status === 'P' ? 'Done' :
+                     hoveredAppointment.loan_status === 'PRS' ? 'Customer Rejected' :
+                     hoveredAppointment.loan_status === 'RS' ? 'Rejected With Special Reason' :
+                     hoveredAppointment.loan_status === 'R' ? 'Rejected' :
+                     'Unknown Status'}
+                  </span>
+                </div>
+                {hoveredAppointment.loan_notes && (
+                  <div className="mt-1 text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                    <span className="font-medium">Notes:</span> {hoveredAppointment.loan_notes}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Notes */}
+            {hoveredAppointment.notes && (
+              <div>
+                <h5 className="text-sm font-medium text-gray-700 mb-1">Notes</h5>
+                <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                  {hoveredAppointment.notes}
+                </div>
+              </div>
+            )}
+
+            {/* Action Button */}
+            {/* <div className="pt-2 border-t border-gray-200">
+              <button
+                onClick={() => router.push(`/dashboard/leads/${hoveredAppointment.lead?.id}/appointment`)}
+                className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+              >
+                View Full Details
+              </button>
+            </div> */}
           </div>
         </div>
       )}
