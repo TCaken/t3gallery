@@ -84,11 +84,11 @@ const convertToUTC = (localDateTimeString: string) => {
   return utcTime;
 };
 
-const formatSingaporeTime = (utcDate: Date) => {
+const SingaporeTime = (utcDate: Date) => {
   const singaporeTime = getSingaporeTime(utcDate);
   console.log('🕘 Displaying time:');
   console.log('UTC input:', utcDate.toISOString());
-  console.log('Singapore time:', singaporeTime.toLocaleString());
+  console.log('Singaporeformat time:', singaporeTime.toLocaleString());
   return singaporeTime;
 };
 
