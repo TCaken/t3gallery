@@ -3,12 +3,11 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
-import { appointments, leads, timeslots } from "~/server/db/schema";
+import { appointments, leads } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq, and, gte, lte, or, like, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { format, addHours } from 'date-fns';
-import { updateLead, createLead, addLeadNote } from "~/app/_actions/leadActions";
-import { getCurrentSGT, getTodaySGT, convertUTCToSGT } from '~/lib/timezone';
+import { updateLead } from "~/app/_actions/leadActions";
 
 // Types for Excel data structure (based on the provided JSON)
 interface ExcelRow {
@@ -64,7 +63,6 @@ export async function POST(request: NextRequest) {
     // Get request parameters - handle both JSON and form data from Workato
     let excelData: ExcelData | undefined;
     let thresholdHours = 2.5;
-    let targetDate: string | undefined; // New parameter for flexible date input
     
     const contentType = request.headers.get('content-type') ?? '';
     console.log('📥 Content-Type:', contentType);
@@ -72,14 +70,9 @@ export async function POST(request: NextRequest) {
     if (contentType.includes('application/json')) {
       // Handle JSON format
       try {
-        const body = await request.json() as { 
-          excelData?: ExcelData; 
-          thresholdHours?: number;
-          targetDate?: string; // YYYY-MM-DD format
-        };
+        const body = await request.json() as { excelData?: ExcelData; thresholdHours?: number };
         excelData = body.excelData;
         thresholdHours = body.thresholdHours ?? 2.5;
-        targetDate = body.targetDate;
         console.log('📋 Parsed as JSON');
       } catch (jsonError) {
         console.error('❌ JSON parsing failed:', jsonError);
@@ -155,13 +148,7 @@ export async function POST(request: NextRequest) {
           
           const thresholdParam = formData.get('thresholdHours');
           if (thresholdParam && typeof thresholdParam === 'string') {
-            thresholdHours = parseFloat(thresholdParam) ?? 2.5;
-          }
-
-          // Get target date from form data
-          const targetDateParam = formData.get('targetDate');
-          if (targetDateParam && typeof targetDateParam === 'string') {
-            targetDate = targetDateParam;
+            thresholdHours = parseFloat(thresholdParam) || 2.5;
           }
           
           console.log('✅ Successfully parsed form data');
@@ -194,7 +181,6 @@ export async function POST(request: NextRequest) {
               sheet: url.searchParams.get('sheet') ?? 'Sheet1'
             };
             thresholdHours = parseFloat(url.searchParams.get('thresholdHours') ?? '2.5');
-            targetDate = url.searchParams.get('targetDate') ?? undefined;
             console.log('✅ Successfully parsed URL parameters');
           } else {
             throw new Error('No rows parameter found');
@@ -213,43 +199,16 @@ export async function POST(request: NextRequest) {
     console.log('🔄 Starting appointment status update process...');
     console.log('📊 Excel data provided:', !!excelData);
     console.log('⏰ Threshold hours:', thresholdHours);
-    console.log('📅 Target date:', targetDate || 'current date');
 
-    // Determine the target date - use provided date or current Singapore time
-    let todaySingapore: string;
-    let singaporeTime: Date;
+    // Get today's date in Singapore timezone (UTC+8)
+    const now = new Date();
+    const singaporeOffset = 8 * 60; // 8 hours in minutes
+    const singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
+    const todaySingapore = singaporeTime.toISOString().split('T')[0]; // YYYY-MM-DD format
 
-    if (targetDate) {
-      // Validate target date format (YYYY-MM-DD)
-      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(targetDate)) {
-        return NextResponse.json({
-          error: "Invalid target date format",
-          details: "Expected format: YYYY-MM-DD (e.g., 2024-01-15)",
-          received: targetDate
-        }, { status: 400 });
-      }
-      
-      todaySingapore = targetDate;
-      // Create Singapore time for the target date at current time
-      const now = new Date();
-      const singaporeOffset = 8 * 60; // 8 hours in minutes
-      singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
-      
-      console.log('📅 Using provided target date:', todaySingapore);
-    } else {
-      // Use current Singapore time
-      const now = new Date();
-      const singaporeOffset = 8 * 60; // 8 hours in minutes
-      singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
-      todaySingapore = singaporeTime.toISOString().split('T')[0]!; // YYYY-MM-DD format, non-null assertion safe here
-      
-      console.log('📅 Using current Singapore date:', todaySingapore);
-    }
+    console.log('📅 Today (Singapore):', todaySingapore);
 
-    console.log('📅 Processing date (Singapore):', todaySingapore);
-
-    // Fetch all upcoming appointments for the target date
+    // Fetch all upcoming appointments for today
     const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
     const endOfDaySGT = new Date(`${todaySingapore}T23:59:59.999Z`);
     
@@ -272,7 +231,7 @@ export async function POST(request: NextRequest) {
         )
       );
 
-    console.log(`📋 Found ${upcomingAppointments.length} upcoming appointments for ${todaySingapore}`);
+    console.log(`📋 Found ${upcomingAppointments.length} upcoming appointments for today`);
     
     // Debug: List all found appointments
     upcomingAppointments.forEach(record => {
@@ -282,493 +241,13 @@ export async function POST(request: NextRequest) {
       console.log(`📅 Found appointment ${appt.id}: Lead "${leadData?.full_name}" (${leadData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
     });
 
-    // **PHASE 2: WALK-IN DETECTION LOGIC**
-    const walkInLeads: Array<{
-      excelRow: ExcelRow;
-      cleanPhone: string;
-      isNewLead: boolean;
-      existingLeadId?: number;
-    }> = [];
-
-    if (excelData?.rows) {
-      console.log('🚶‍♂️ Phase 2: Detecting walk-in leads...');
-      
-      for (const row of excelData.rows) {
-        // Skip if not a new loan case
-        if (row["col_New or Reloan? "]?.trim() !== "New Loan - 新贷款") {
-          continue;
-        }
-
-        // Parse and validate the timestamp from Excel
-        let excelDate: string;
-        try {
-          const timestampStr = row.col_Timestamp;
-          if (!timestampStr) {
-            console.log(`⚠️ Row ${row.row_number}: Empty timestamp, skipping`);
-            continue;
-          }
-
-          // Handle DD/MM/YY or DD/MM/YYYY format
-          if (timestampStr.includes('/') || timestampStr.includes('-')) {
-            const parts = timestampStr.split(/[\/-]/);
-            if (parts.length !== 3) {
-              console.log(`⚠️ Row ${row.row_number}: Invalid date format: ${timestampStr}`);
-              continue;
-            }
-
-            const [day, month, yearTime] = parts;
-            if (!day || !month || !yearTime) {
-              console.log(`⚠️ Row ${row.row_number}: Missing date components: ${timestampStr}`);
-              continue;
-            }
-
-            const [yearPart] = yearTime.split(' ');
-            if (!yearPart) {
-              console.log(`⚠️ Row ${row.row_number}: Missing year: ${timestampStr}`);
-              continue;
-            }
-
-            // Handle both 2-digit and 4-digit years
-            const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
-            excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-          } else {
-            console.log(`⚠️ Row ${row.row_number}: Unsupported date format: ${timestampStr}`);
-            continue;
-          }
-        } catch (error) {
-          console.error(`❌ Row ${row.row_number}: Error parsing timestamp:`, error);
-          continue;
-        }
-
-        // Only process if the Excel row is from the target date
-        if (excelDate !== todaySingapore) {
-          console.log(`⏭️ Row ${row.row_number}: Not from target date (${excelDate} vs ${todaySingapore})`);
-          continue;
-        }
-
-        // Clean and validate phone number
-        const cleanExcelPhone = row["col_Mobile Number"]?.toString().replace(/\D/g, '');
-        if (!cleanExcelPhone) {
-          console.log(`⚠️ Row ${row.row_number}: No phone number found`);
-          continue;
-        }
-
-        // Format phone number to Singapore format
-        let formattedPhone: string;
-        try {
-          // Add +65 if not present
-          if (cleanExcelPhone.startsWith('65')) {
-            formattedPhone = `+${cleanExcelPhone}`;
-          } else if (cleanExcelPhone.length === 8) {
-            formattedPhone = `+65${cleanExcelPhone}`;
-          } else {
-            formattedPhone = `+65${cleanExcelPhone}`;
-          }
-          
-          // Validate Singapore phone number format
-          const sgPhoneRegex = /^\+65[896]\d{7}$/;
-          if (!sgPhoneRegex.test(formattedPhone)) {
-            console.log(`⚠️ Row ${row.row_number}: Invalid Singapore phone format: ${cleanExcelPhone}`);
-            continue;
-          }
-        } catch (error) {
-          console.log(`⚠️ Row ${row.row_number}: Error formatting phone: ${cleanExcelPhone}`);
-          continue;
-        }
-
-        // Check if this lead has an appointment today
-        const hasAppointmentToday = upcomingAppointments.some(record => {
-          const leadPhone = record.lead?.phone_number?.replace(/\+65/g, '');
-          return leadPhone === cleanExcelPhone;
-        });
-
-        if (hasAppointmentToday) {
-          console.log(`✅ Row ${row.row_number}: Lead ${cleanExcelPhone} already has appointment today`);
-          continue; // Skip - they already have an appointment
-        }
-
-        // Check if lead exists in database
-        const existingLead = await db
-          .select({ id: leads.id, phone_number: leads.phone_number, full_name: leads.full_name })
-          .from(leads)
-          .where(
-            or(
-              eq(leads.phone_number, formattedPhone),
-              eq(leads.phone_number_2, formattedPhone),
-              eq(leads.phone_number_3, formattedPhone)
-            )
-          )
-          .limit(1);
-
-        // Add to walk-in leads list
-        walkInLeads.push({
-          excelRow: row,
-          cleanPhone: cleanExcelPhone,
-          isNewLead: existingLead.length === 0,
-          existingLeadId: existingLead.length > 0 ? existingLead[0]?.id : undefined
-        });
-
-        console.log(`🚶‍♂️ Walk-in detected: ${row["col_Full Name"]} (${cleanExcelPhone}) - ${existingLead.length === 0 ? 'New Lead' : `Existing Lead ID: ${existingLead[0]?.id}`}`);
-      }
-
-      console.log(`🚶‍♂️ Walk-in Detection Summary:`);
-      console.log(`📊 Total walk-ins detected: ${walkInLeads.length}`);
-      console.log(`🆕 New leads to create: ${walkInLeads.filter(w => w.isNewLead).length}`);
-      console.log(`👤 Existing leads: ${walkInLeads.filter(w => !w.isNewLead).length}`);
-    }
-
-    // Use fallback userId for updates (since auth is commented out)
-    const fallbackUserId = "system-update";
-
-    if (upcomingAppointments.length === 0 && walkInLeads.length === 0) {
+    if (upcomingAppointments.length === 0) {
       return NextResponse.json({
         success: true,
-        message: "No upcoming appointments or walk-ins found for the target date",
+        message: "No upcoming appointments found for today",
         processed: 0,
-        updated: 0,
-        walkInsDetected: 0,
-        walkInsProcessed: 0,
-        todaySingapore: todaySingapore
+        updated: 0
       });
-    }
-
-    // **PHASE 3: LEAD CREATION SYSTEM**
-    let walkInsProcessed = 0;
-    let walkInsCreated = 0;
-    const walkInResults: Array<{
-      excelRow: ExcelRow;
-      leadId?: number;
-      leadName: string;
-      phone: string;
-      status: 'created' | 'existing' | 'failed';
-      reason?: string;
-      error?: string;
-    }> = [];
-
-    if (walkInLeads.length > 0) {
-      console.log('🏭 Phase 3: Creating leads for walk-ins...');
-      
-      // Import the createLead function
-      const { createLead } = await import('~/app/_actions/leadActions');
-      
-      for (const walkIn of walkInLeads) {
-        walkInsProcessed++;
-        const row = walkIn.excelRow;
-        
-        console.log(`🏭 Processing walk-in ${walkInsProcessed}/${walkInLeads.length}: ${row["col_Full Name"]} (${walkIn.cleanPhone})`);
-        
-        if (!walkIn.isNewLead && walkIn.existingLeadId) {
-          // Lead already exists - just record it
-          walkInResults.push({
-            excelRow: row,
-            leadId: walkIn.existingLeadId,
-            leadName: row["col_Full Name"] ?? 'Unknown',
-            phone: walkIn.cleanPhone,
-            status: 'existing',
-            reason: `Lead already exists with ID: ${walkIn.existingLeadId}`
-          });
-          console.log(`👤 Using existing lead ID: ${walkIn.existingLeadId}`);
-          continue;
-        }
-        
-        // Create new lead - map Excel columns to lead fields
-        try {
-          // Format phone number
-          let formattedPhone = walkIn.cleanPhone;
-          if (formattedPhone.startsWith('65')) {
-            formattedPhone = `+${formattedPhone}`;
-          } else if (formattedPhone.length === 8) {
-            formattedPhone = `+65${formattedPhone}`;
-          } else {
-            formattedPhone = `+65${formattedPhone}`;
-          }
-          
-          // Extract and map Excel data to lead fields
-          const leadData = {
-            // Basic Information
-            full_name: row["col_Full Name"]?.toString().trim() ?? '',
-            phone_number: formattedPhone,
-            email: row["col_Email Address"]?.toString().trim() ?? '',
-            source: 'Walk-in',
-            
-            // Residential Information
-            residential_status: row["col_Please choose your nationality or Work Pass "]?.toString().trim() === "Local" ? "Local" : "Foreigner",
-            
-            // Employment Information  
-            employment_status: row["col_Employment Type"]?.toString().trim() ?? '',
-            employment_salary: row["col_Monthly Income"]?.toString().trim() ?? '',
-            
-            // Loan Information
-            amount: row["col_Loan Amount Applying?"]?.toString().trim() ?? '',
-            loan_purpose: row["col_What is the purpose of the Loan?"]?.toString().trim() ?? '',
-            existing_loans: row["col_How many Moneylender Company do you currently have outstanding loan?"]?.toString().trim() === "0" ? "No" : "Yes",
-            
-            // Additional fields
-            status: 'new',
-            bypassEligibility: false, // Run eligibility check for walk-ins
-            created_by: fallbackUserId,
-            received_time: new Date() // Mark as received now
-          };
-          
-          console.log(`📝 Creating lead with data:`, {
-            name: leadData.full_name,
-            phone: leadData.phone_number,
-            email: leadData.email,
-            source: leadData.source,
-            residential_status: leadData.residential_status,
-            employment_status: leadData.employment_status,
-            amount: leadData.amount
-          });
-          
-          // Create the lead
-          const createResult = await createLead(leadData);
-          
-          if (createResult.success && createResult.lead) {
-            walkInsCreated++;
-            walkInResults.push({
-              excelRow: row,
-              leadId: createResult.lead.id,
-              leadName: createResult.lead.full_name ?? 'Unknown',
-              phone: walkIn.cleanPhone,
-              status: 'created',
-              reason: `New lead created successfully. Eligibility: ${createResult.lead.eligibility_status}`
-            });
-            
-            console.log(`✅ Created new lead ID: ${createResult.lead.id} for ${createResult.lead.full_name} - Status: ${createResult.lead.status}, Eligible: ${createResult.lead.eligibility_status}`);
-          } else {
-            walkInResults.push({
-              excelRow: row,
-              leadName: row["col_Full Name"] ?? 'Unknown',
-              phone: walkIn.cleanPhone,
-              status: 'failed',
-              error: createResult.error ?? 'Unknown error during lead creation'
-            });
-            
-            console.error(`❌ Failed to create lead for ${row["col_Full Name"]}: ${createResult.error}`);
-          }
-          
-        } catch (error) {
-          walkInResults.push({
-            excelRow: row,
-            leadName: row["col_Full Name"] ?? 'Unknown',
-            phone: walkIn.cleanPhone,
-            status: 'failed',
-            error: `Exception during lead creation: ${error instanceof Error ? error.message : String(error)}`
-          });
-          
-          console.error(`❌ Exception creating lead for ${row["col_Full Name"]}:`, error);
-        }
-      }
-      
-      console.log(`🏭 Lead Creation Summary:`);
-      console.log(`📊 Walk-ins processed: ${walkInsProcessed}`);
-      console.log(`🆕 New leads created: ${walkInsCreated}`);
-      console.log(`👤 Existing leads found: ${walkInResults.filter(r => r.status === 'existing').length}`);
-      console.log(`❌ Failed creations: ${walkInResults.filter(r => r.status === 'failed').length}`);
-    }
-
-    // **PHASE 4: APPOINTMENT AUTO-SCHEDULING**
-    let appointmentsCreated = 0;
-    const appointmentResults: Array<{
-      leadId: number;
-      leadName: string;
-      phone: string;
-      appointmentId?: number;
-      timeslotId?: number;
-      appointmentTime?: string;
-      status: 'created' | 'failed' | 'ineligible';
-      reason?: string;
-      error?: string;
-    }> = [];
-
-    // Get eligible leads for appointment creation (created or existing leads)
-    const eligibleForAppointments = walkInResults.filter(result => 
-      (result.status === 'created' || result.status === 'existing') && result.leadId
-    );
-
-    if (eligibleForAppointments.length > 0) {
-      console.log('📅 Phase 4: Creating appointments for eligible walk-ins...');
-      
-      // Import appointment functions
-      const { fetchAvailableTimeslots } = await import('~/app/_actions/appointmentAction');
-      const { createAppointmentWorkflow } = await import('~/app/_actions/transactionOrchestrator');
-      
-      try {
-        // Get available timeslots for the target date
-        console.log(`🔍 Fetching available timeslots for ${todaySingapore}...`);
-        const availableTimeslots = await fetchAvailableTimeslots(todaySingapore);
-        
-        if (availableTimeslots.length === 0) {
-          console.log(`⚠️ No timeslots available for ${todaySingapore}. Skipping appointment creation.`);
-          
-          // Mark all as failed due to no timeslots
-          for (const walkInResult of eligibleForAppointments) {
-            appointmentResults.push({
-              leadId: walkInResult.leadId!,
-              leadName: walkInResult.leadName,
-              phone: walkInResult.phone,
-              status: 'failed',
-              reason: `No timeslots available for ${todaySingapore}`
-            });
-          }
-        } else {
-          console.log(`📅 Found ${availableTimeslots.length} available timeslots`);
-          
-          // Sort timeslots by start time to get earliest slots first
-          const sortedTimeslots = availableTimeslots
-            .filter(slot => !slot.is_disabled && (slot.occupied_count ?? 0) < (slot.max_capacity ?? 1))
-            .sort((a, b) => a.start_time.localeCompare(b.start_time));
-          
-          console.log(`📅 Available slots after filtering: ${sortedTimeslots.length}`);
-          
-          if (sortedTimeslots.length === 0) {
-            console.log(`⚠️ All timeslots are full for ${todaySingapore}. Skipping appointment creation.`);
-            
-            // Mark all as failed due to full timeslots
-            for (const walkInResult of eligibleForAppointments) {
-              appointmentResults.push({
-                leadId: walkInResult.leadId!,
-                leadName: walkInResult.leadName,
-                phone: walkInResult.phone,
-                status: 'failed',
-                reason: `All timeslots are full for ${todaySingapore}`
-              });
-            }
-          } else {
-            // Create appointments for eligible leads
-            let timeslotIndex = 0;
-            
-            for (const walkInResult of eligibleForAppointments) {
-              console.log(`📅 Creating appointment for Lead ID: ${walkInResult.leadId} (${walkInResult.leadName})`);
-              
-              // Check if lead is eligible (not unqualified)
-              if (walkInResult.reason?.includes('eligibility_status') && walkInResult.reason.includes('unqualified')) {
-                appointmentResults.push({
-                  leadId: walkInResult.leadId!,
-                  leadName: walkInResult.leadName,
-                  phone: walkInResult.phone,
-                  status: 'ineligible',
-                  reason: 'Lead is unqualified - not eligible for appointment'
-                });
-                console.log(`⚠️ Skipping appointment for unqualified lead: ${walkInResult.leadName}`);
-                continue;
-              }
-              
-              // Get the next available timeslot (with capacity checking)
-              let selectedTimeslot = null;
-              
-              for (let i = timeslotIndex; i < sortedTimeslots.length; i++) {
-                const slot = sortedTimeslots[i];
-                if (!slot) continue;
-                
-                const occupiedCount = slot.occupied_count ?? 0;
-                const maxCapacity = slot.max_capacity ?? 1;
-                
-                if (occupiedCount < maxCapacity) {
-                  selectedTimeslot = slot;
-                  timeslotIndex = i; // Start from this slot for next lead
-                  break;
-                }
-              }
-              
-              if (!selectedTimeslot) {
-                appointmentResults.push({
-                  leadId: walkInResult.leadId!,
-                  leadName: walkInResult.leadName,
-                  phone: walkInResult.phone,
-                  status: 'failed',
-                  reason: 'No available timeslots with capacity remaining'
-                });
-                console.log(`❌ No available timeslots for ${walkInResult.leadName}`);
-                continue;
-              }
-              
-              try {
-                // Create appointment using the transaction orchestrator
-                const appointmentData = {
-                  leadId: walkInResult.leadId!,
-                  timeslotId: selectedTimeslot.id,
-                  notes: `Walk-in appointment auto-created from Excel data on ${todaySingapore}`,
-                  isUrgent: false,
-                  phone: walkInResult.phone
-                };
-                
-                console.log(`📅 Creating appointment with data:`, {
-                  leadId: appointmentData.leadId,
-                  timeslotId: appointmentData.timeslotId,
-                  time: `${selectedTimeslot.start_time} - ${selectedTimeslot.end_time}`,
-                  notes: appointmentData.notes
-                });
-                
-                const appointmentResult = await createAppointmentWorkflow(appointmentData);
-                
-                if (appointmentResult.success) {
-                  appointmentsCreated++;
-                  
-                  // Update the timeslot occupied count in our local array for next iteration
-                  selectedTimeslot.occupied_count = (selectedTimeslot.occupied_count ?? 0) + 1;
-                  
-                  appointmentResults.push({
-                    leadId: walkInResult.leadId!,
-                    leadName: walkInResult.leadName,
-                    phone: walkInResult.phone,
-                    appointmentId: appointmentResult.results?.[0]?.result?.data?.appointment?.id,
-                    timeslotId: selectedTimeslot.id,
-                    appointmentTime: `${selectedTimeslot.start_time} - ${selectedTimeslot.end_time}`,
-                    status: 'created',
-                    reason: `Appointment created successfully at ${selectedTimeslot.start_time}`
-                  });
-                  
-                  console.log(`✅ Created appointment for ${walkInResult.leadName} at ${selectedTimeslot.start_time} - ${selectedTimeslot.end_time}`);
-                } else {
-                  appointmentResults.push({
-                    leadId: walkInResult.leadId!,
-                    leadName: walkInResult.leadName,
-                    phone: walkInResult.phone,
-                    timeslotId: selectedTimeslot.id,
-                    status: 'failed',
-                    error: appointmentResult.error ?? 'Unknown error during appointment creation'
-                  });
-                  
-                  console.error(`❌ Failed to create appointment for ${walkInResult.leadName}: ${appointmentResult.error}`);
-                }
-                
-              } catch (error) {
-                appointmentResults.push({
-                  leadId: walkInResult.leadId!,
-                  leadName: walkInResult.leadName,
-                  phone: walkInResult.phone,
-                  timeslotId: selectedTimeslot.id,
-                  status: 'failed',
-                  error: `Exception during appointment creation: ${error instanceof Error ? error.message : String(error)}`
-                });
-                
-                console.error(`❌ Exception creating appointment for ${walkInResult.leadName}:`, error);
-              }
-            }
-          }
-        }
-        
-      } catch (error) {
-        console.error('❌ Error in appointment auto-scheduling phase:', error);
-        
-        // Mark all as failed due to system error
-        for (const walkInResult of eligibleForAppointments) {
-          appointmentResults.push({
-            leadId: walkInResult.leadId!,
-            leadName: walkInResult.leadName,
-            phone: walkInResult.phone,
-            status: 'failed',
-            error: `System error during appointment scheduling: ${error instanceof Error ? error.message : String(error)}`
-          });
-        }
-      }
-      
-      console.log(`📅 Appointment Creation Summary:`);
-      console.log(`📊 Eligible for appointments: ${eligibleForAppointments.length}`);
-      console.log(`✅ Appointments created: ${appointmentsCreated}`);
-      console.log(`⚠️ Ineligible leads: ${appointmentResults.filter(r => r.status === 'ineligible').length}`);
-      console.log(`❌ Failed appointments: ${appointmentResults.filter(r => r.status === 'failed').length}`);
     }
 
     let processedCount = 0;
@@ -786,6 +265,9 @@ export async function POST(request: NextRequest) {
       timeDiffHours: string;
       error?: string;
     }> = [];
+
+    // Use fallback userId for updates (since auth is commented out)
+    const fallbackUserId = "system-update";
 
     // First, process Excel rows for new loan cases
     if (excelData?.rows) {
@@ -1087,20 +569,7 @@ export async function POST(request: NextRequest) {
       message: "Appointment status update completed",
       processed: processedCount,
       updated: updatedCount,
-      results,
-      // Walk-in processing results
-      walkInSystem: {
-        walkInsDetected: walkInLeads.length,
-        walkInsProcessed: walkInsProcessed,
-        leadsCreated: walkInsCreated,
-        appointmentsCreated: appointmentsCreated,
-        walkInResults: walkInResults,
-        appointmentResults: appointmentResults
-      },
-      // Summary
-      todaySingapore: todaySingapore,
-      targetDate: todaySingapore,
-      thresholdHours: thresholdHours
+      results
     });
 
   } catch (error) {

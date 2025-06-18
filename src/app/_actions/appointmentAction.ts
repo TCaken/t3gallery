@@ -36,7 +36,6 @@ import {
   endOfWeek,
   isWeekend
 } from 'date-fns';
-import { convertUTCToSGT } from '~/lib/timezone';
 
 // Types
 export type Timeslot = typeof timeslots.$inferSelect;
@@ -523,17 +522,9 @@ export async function fetchAppointments(filters: {
     
     const results = await query;
     
-    // Transform results into the expected format with SGT conversion
+    // Transform results into the expected format
     return results.map(item => ({
       ...item.appointment,
-      // Convert appointment times from UTC to SGT for display
-      start_datetime: convertUTCToSGT(item.appointment.start_datetime),
-      end_datetime: convertUTCToSGT(item.appointment.end_datetime),
-      created_at: convertUTCToSGT(item.appointment.created_at),
-      updated_at: item.appointment.updated_at ? convertUTCToSGT(item.appointment.updated_at) : null,
-      // Keep original UTC times for reference (if needed for database operations)
-      start_datetime_utc: item.appointment.start_datetime,
-      end_datetime_utc: item.appointment.end_datetime,
       lead: item.lead
     })) as AppointmentWithLead[];
   } catch (error) {
@@ -564,21 +555,11 @@ export async function getAppointmentById(appointmentId: number) {
       return { success: false, message: "Appointment not found" };
     }
     
-    const appointment = result[0]!.appointment;
-    
     return { 
       success: true, 
       appointment: {
-        ...appointment,
-        // Convert appointment times from UTC to SGT for display
-        start_datetime: convertUTCToSGT(appointment.start_datetime),
-        end_datetime: convertUTCToSGT(appointment.end_datetime),
-        created_at: convertUTCToSGT(appointment.created_at),
-        updated_at: appointment.updated_at ? convertUTCToSGT(appointment.updated_at) : null,
-        // Keep original UTC times for reference
-        start_datetime_utc: appointment.start_datetime,
-        end_datetime_utc: appointment.end_datetime,
-        lead: result[0]!.lead
+        ...result[0].appointment,
+        lead: result[0].lead
       } as AppointmentWithLead
     };
   } catch (error) {
@@ -788,7 +769,7 @@ export async function getAppointmentsForLead(leadId: number) {
       .where(eq(appointments.lead_id, leadId))
       .orderBy(desc(appointments.start_datetime));
     
-    // console.log('Appointments query results:', results);
+    console.log('Appointments query results:', results);
     
     return { 
       success: true, 
@@ -800,13 +781,10 @@ export async function getAppointmentsForLead(leadId: number) {
         loan_status: row.loan_status,
         loan_notes: row.loan_notes,
         notes: row.notes,
-        // Convert UTC times to Singapore Time for display
-        start_datetime: convertUTCToSGT(row.start_datetime),
-        end_datetime: convertUTCToSGT(row.end_datetime),
-        start_datetime_utc: row.start_datetime, // Keep original UTC for reference
-        end_datetime_utc: row.end_datetime,     // Keep original UTC for reference
-        created_at: convertUTCToSGT(row.created_at),
-        updated_at: row.updated_at ? convertUTCToSGT(row.updated_at) : null,
+        start_datetime: row.start_datetime,
+        end_datetime: row.end_datetime,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
         created_by: row.created_by,
         updated_by: row.updated_by,
         
