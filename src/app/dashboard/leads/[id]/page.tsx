@@ -658,7 +658,7 @@ export default function LeadDetailPage({ params }: PageProps) {
                                 
                                 {/* Creator and Agent Info */}
                                 <div className="text-xs text-gray-500 mb-2">
-                                  <div>Created by: <span className="font-medium">{appointment.agent_name}</span></div>
+                                  <div>Booked by: <span className="font-medium">{appointment.agent_name}</span></div>
                                   {/* <div>Assigned to: <span className="font-medium">{appointment.assigned_user_name}</span></div> */}
                                 </div>
 

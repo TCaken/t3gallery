@@ -780,7 +780,7 @@ export async function getAppointmentsForLead(leadId: number) {
       .leftJoin(sql`${users} as creator_user`, sql`${appointments.created_by} = creator_user.id`)
       .leftJoin(sql`${users} as assigned_user`, sql`${leads.assigned_to} = assigned_user.id`)
       .where(eq(appointments.lead_id, leadId))
-      .orderBy(desc(appointments.start_datetime));
+      .orderBy(desc(appointments.created_at));
     
     console.log('Appointments query results:', results);
     

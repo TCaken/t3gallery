@@ -1174,7 +1174,7 @@ export default function AppointmentsPage() {
 
             {/* Creator Information */}
             <div>
-              <h5 className="text-sm font-medium text-gray-700 mb-1">Created By</h5>
+              <h5 className="text-sm font-medium text-gray-700 mb-1">Booked By</h5>
               <div className="text-sm space-y-1">
                                  <div className="flex items-center">
                    <UserIcon className="h-3 w-3 mr-1" />
