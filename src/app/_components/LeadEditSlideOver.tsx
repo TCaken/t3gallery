@@ -246,6 +246,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     }
     
     if (selectedAction === 'status_reason_modal') {
+      console.log("🔴 STATUS REASON MODAL PATH - selectedReason:", selectedReason);
+      
       if (!selectedReason) {
         showNotification('Please select a reason', 'error');
         return;
@@ -263,6 +265,9 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         return;
       }
 
+      // console.log("🔴 STATUS REASON MODAL - Processing reason:", reasonOption);
+      // console.log("🔴 STATUS REASON MODAL - Custom text:", customReasonText);
+
       // Save any pending changes first
       const updatedValues = {
         ...formValues,
@@ -273,8 +278,37 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         follow_up_date: null // Clear follow-up date when changing to final status
       };
 
-      // console.log("updatedValues", updatedValues);
+      // console.log("🔴 STATUS REASON MODAL - updatedValues:", updatedValues);
       setFormValues(updatedValues);
+      
+      // CHECK FOR LEAD NOTES in status reason modal path
+      // console.log("🔴 STATUS REASON MODAL - Checking for lead notes in form...");
+      const formElement = document.querySelector('form');
+      if (formElement) {
+        const formData = new FormData(formElement);
+        const leadNotesFromForm = formData.get('lead_notes');
+        // console.log("🔴 STATUS REASON MODAL - Lead notes from form:", leadNotesFromForm);
+        
+        if (leadNotesFromForm && leadNotesFromForm.toString().trim() && lead.id) {
+          // console.log("🔴 STATUS REASON MODAL - ATTEMPTING to save lead notes...");
+          try {
+            const noteResult = await addLeadNote(lead.id, leadNotesFromForm.toString().trim());
+            // console.log("🔴 STATUS REASON MODAL - Lead notes save result:", noteResult);
+            showNotification?.('Lead notes saved successfully', 'success');
+          } catch (error) {
+            console.error('🔴 STATUS REASON MODAL - Error saving lead notes:', error);
+            showNotification?.('Failed to save lead notes', 'error');
+          }
+        } else {
+          // console.log("🔴 STATUS REASON MODAL - NO LEAD NOTES found in form:", {
+          //   leadNotesFromForm,
+          //   hasContent: !!(leadNotesFromForm && leadNotesFromForm.toString().trim()),
+          //   hasLeadId: !!lead.id
+          // });
+        }
+      } else {
+        // console.log("🔴 STATUS REASON MODAL - No form element found!");
+      }
       
       await onSave(updatedValues);
       onClose();
@@ -350,17 +384,29 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         break;
     }
 
-    console.log("finalValues", finalValues);
-    console.log("selectedAction", selectedAction);
+    // console.log("finalValues", finalValues);
+    // console.log("selectedAction", selectedAction);
+    // console.log("🗒️ Lead notes content:", leadNotesContent);
+    // console.log("🗒️ Lead notes content length:", leadNotesContent.length);
+    // console.log("🗒️ Lead ID:", lead.id);
 
     if (leadNotesContent.trim() && lead.id) {
+      // console.log("🗒️ ATTEMPTING to save lead notes...");
       try {
-        await addLeadNote(lead.id, leadNotesContent.trim());
+        const noteResult = await addLeadNote(lead.id, leadNotesContent.trim());
+        // console.log("🗒️ Lead notes save result:", noteResult);
         showNotification?.('Lead notes saved successfully', 'success');
       } catch (error) {
-        console.error('Error saving lead notes:', error);
+        console.error('🗒️ Error saving lead notes:', error);
         showNotification?.('Failed to save lead notes', 'error');
       }
+    } else {
+      console.log("🗒️ NO LEAD NOTES to save:", {
+        hasContent: !!leadNotesContent.trim(),
+        contentLength: leadNotesContent.length,
+        hasLeadId: !!lead.id,
+        leadId: lead.id
+      });
     }
 
 

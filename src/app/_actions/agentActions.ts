@@ -241,16 +241,16 @@ export async function autoAssignLeads() {
 // Get auto-assignment settings
 export async function getAutoAssignmentSettings() {
   try {
-    console.log("📋 getAutoAssignmentSettings: Fetching settings from database...");
+    // console.log("📋 getAutoAssignmentSettings: Fetching settings from database...");
     
     const settings = await db.query.autoAssignmentSettings.findFirst({
       orderBy: [desc(autoAssignmentSettings.id)]
     });
     
-    console.log("📋 getAutoAssignmentSettings: Raw settings from DB:", settings);
+    // console.log("📋 getAutoAssignmentSettings: Raw settings from DB:", settings);
     
     if (!settings) {
-      console.log("📋 getAutoAssignmentSettings: No settings found, creating default...");
+      // console.log("📋 getAutoAssignmentSettings: No settings found, creating default...");
       // Create default settings if none exist
       const defaultSettings = await db.insert(autoAssignmentSettings).values({
         is_enabled: false,
@@ -259,7 +259,7 @@ export async function getAutoAssignmentSettings() {
         max_leads_per_agent_per_day: 20
       }).returning();
       
-      console.log("📋 getAutoAssignmentSettings: Created default settings:", defaultSettings[0]);
+      // console.log("📋 getAutoAssignmentSettings: Created default settings:", defaultSettings[0]);
       
       return {
         success: true,
@@ -267,7 +267,7 @@ export async function getAutoAssignmentSettings() {
       };
     }
     
-    console.log("✅ getAutoAssignmentSettings: Returning existing settings:", settings);
+    // console.log("✅ getAutoAssignmentSettings: Returning existing settings:", settings);
     
     return {
       success: true,
