@@ -152,7 +152,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
     if (!input.bypassEligibility) {
       // Run eligibility check
       const eligibilityResult = await checkLeadEligibility(formattedPhone);
-      console.log('eligibilityResult', eligibilityResult);
+      // console.log('eligibilityResult', eligibilityResult);
       eligibilityStatus = eligibilityResult.isEligible ? 'eligible' : 'ineligible';
       eligibilityNotes = eligibilityResult.notes;
       finalStatus = eligibilityResult.isEligible ? 'new' : 'unqualified';
@@ -205,7 +205,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
 
     // Auto-assign the lead only if eligible
     if (lead?.id && eligibilityStatus === 'eligible') {
-      console.log("Inside auto-assignment", assignedToMe);
+      // console.log("Inside auto-assignment", assignedToMe);
       if (assignedToMe) {
         // Check if the creator is an agent and assign directly to them
         const userRoles = await getUserRoles();
@@ -601,20 +601,20 @@ export async function updateLead(
     delete updateData.id;
     delete updateData.created_at;
     delete updateData.created_by;
-    console.log('updateData', updateData);
+    // console.log('updateData', updateData);
 
     // Update the lead
-    console.log('💾 Updating lead with data:', updateData);
+    // console.log('💾 Updating lead with data:', updateData);
     const [updated] = await db.update(leads)
       .set(updateData)
       .where(eq(leads.id, leadId))
       .returning();
 
-    console.log('✅ Lead updated successfully:', {
-      id: updated?.id,
-      updated_at: updated?.updated_at?.toISOString(),
-      status: updated?.status
-    });
+    // console.log('✅ Lead updated successfully:', {
+    //   id: updated?.id,
+    //   updated_at: updated?.updated_at?.toISOString(),
+    //   status: updated?.status
+    // });
 
     // Add log entry for lead update
     const changedFields = Object.keys(leadData).filter(key => 
@@ -747,23 +747,23 @@ export async function fetchFilteredLeads({
       return { success: false, error: 'Not authenticated' };
     }
 
-    console.log('🔍 fetchFilteredLeads called with:', { 
-      userId, 
-      status, 
-      search, 
-      sortBy, 
-      sortOrder, 
-      page, 
-      limit, 
-      isSearchMode 
-    });
+    // console.log('🔍 fetchFilteredLeads called with:', { 
+    //   userId, 
+    //   status, 
+    //   search, 
+    //   sortBy, 
+    //   sortOrder, 
+    //   page, 
+    //   limit, 
+    //   isSearchMode 
+    // });
 
     // Get user's roles
     const userRolesResult = await getUserRoles();
     const isAdmin = userRolesResult.some(r => r.roleName.toLowerCase() === 'admin');
     const isAgent = userRolesResult.some(r => r.roleName.toLowerCase() === 'agent');
 
-    console.log('👤 User roles:', { isAdmin, isAgent, userRoles: userRolesResult.map(r => r.roleName) });
+    // console.log('👤 User roles:', { isAdmin, isAgent, userRoles: userRolesResult.map(r => r.roleName) });
 
     const offset = (page - 1) * limit;
 
@@ -773,16 +773,16 @@ export async function fetchFilteredLeads({
     // In search mode, ignore role restrictions and status filters
     // Otherwise maintain existing logic
     if (!isSearchMode) {
-      console.log('📋 NORMAL MODE - applying status and role filters');
+      // console.log('📋 NORMAL MODE - applying status and role filters');
       // Normal mode: apply status filter if provided
       if (status) {
-        console.log('🎯 STATUS FILTER applied:', status);
+        // console.log('🎯 STATUS FILTER applied:', status);
         conditions.push(eq(leads.status, status));
       }
       
       // For agents in normal mode: special logic for give_up vs other statuses
       if (isAgent) {
-        console.log('👨‍💼 AGENT MODE - applying agent-specific conditions');
+        // console.log('👨‍💼 AGENT MODE - applying agent-specific conditions');
         // Agent can see:
         // 1. All give_up leads (from any agent)
         // 2. Only their own assigned leads for other statuses
@@ -794,14 +794,14 @@ export async function fetchFilteredLeads({
           conditions.push(agentCondition);
         }
       } else {
-        console.log('👑 ADMIN MODE - no additional role restrictions');
+        // console.log('👑 ADMIN MODE - no additional role restrictions');
       }
     } else {
-      console.log('🔍 SEARCH MODE - ignoring role restrictions and status filters');
+      // console.log('🔍 SEARCH MODE - ignoring role restrictions and status filters');
     }
     
     if (search) {
-      console.log('🔎 SEARCH FILTER applied:', search);
+      // console.log('🔎 SEARCH FILTER applied:', search);
       const searchConditions = [
         ilike(leads.full_name, `%${search}%`),
         like(leads.phone_number, `%${search}%`),
@@ -818,7 +818,7 @@ export async function fetchFilteredLeads({
       }
     }
 
-    console.log('🔗 Total conditions applied:', conditions.length);
+    // console.log('🔗 Total conditions applied:', conditions.length);
 
     // Build the base query with proper joins and selection
     const baseQuery = db.select({
@@ -902,10 +902,10 @@ export async function fetchFilteredLeads({
     let finalQuery;
     
     if (isSearchMode) {
-      console.log('🔍 SEARCH MODE QUERY PATH');
+      // console.log('🔍 SEARCH MODE QUERY PATH');
       // Search mode: Simple sorting by relevance and updated_at, no role restrictions
       if (conditions.length > 0) {
-        console.log('🔍 Search mode WITH conditions');
+        // console.log('🔍 Search mode WITH conditions');
         finalQuery = baseQuery
           .where(and(...conditions))
           .orderBy(
@@ -917,7 +917,7 @@ export async function fetchFilteredLeads({
           .limit(limit + 1)
           .offset(offset);
       } else {
-        console.log('🔍 Search mode WITHOUT conditions');
+        // console.log('🔍 Search mode WITHOUT conditions');
         finalQuery = baseQuery
           .orderBy(
             desc(leads.updated_at),
@@ -929,10 +929,10 @@ export async function fetchFilteredLeads({
           .offset(offset);
       }
     } else if (isAgent) {
-      console.log('👨‍💼 AGENT MODE QUERY PATH');
+      // console.log('👨‍💼 AGENT MODE QUERY PATH');
       // For agents: Priority ordering with give_up before done
       if (conditions.length > 0) {
-        console.log('👨‍💼 Agent mode WITH conditions');
+        // console.log('👨‍💼 Agent mode WITH conditions');
         finalQuery = baseQuery
           .where(and(...conditions))
           .orderBy(
@@ -952,7 +952,7 @@ export async function fetchFilteredLeads({
           .limit(limit + 1)
           .offset(offset);
       } else {
-        console.log('👨‍💼 Agent mode WITHOUT conditions');
+        // console.log('👨‍💼 Agent mode WITHOUT conditions');
         finalQuery = baseQuery
           .orderBy(
             desc(leads.updated_at),
@@ -972,10 +972,10 @@ export async function fetchFilteredLeads({
           .offset(offset);
       }
     } else {
-      console.log('👑 ADMIN MODE QUERY PATH');
+      // console.log('👑 ADMIN MODE QUERY PATH');
       // For admins: Standard ordering
       if (conditions.length > 0) {
-        console.log('👑 Admin mode WITH conditions');
+        // console.log('👑 Admin mode WITH conditions');
         finalQuery = baseQuery
           .where(and(...conditions))
           .orderBy(
@@ -987,7 +987,7 @@ export async function fetchFilteredLeads({
           .limit(limit + 1)
           .offset(offset);
       } else {
-        console.log('👑 Admin mode WITHOUT conditions');
+        // console.log('👑 Admin mode WITHOUT conditions');
         finalQuery = baseQuery
           .orderBy(
             desc(leads.updated_at),
@@ -1001,25 +1001,25 @@ export async function fetchFilteredLeads({
     }
 
     // Execute query
-    console.log('🚀 Executing query...');
+    // console.log('🚀 Executing query...');
     
     // Log the SQL query for debugging
     try {
       const querySQL = finalQuery.toSQL();
-      console.log('📝 SQL Query:', querySQL.sql);
-      console.log('📝 SQL Params:', querySQL.params);
+      // console.log('📝 SQL Query:', querySQL.sql);
+      // console.log('📝 SQL Params:', querySQL.params);
     } catch (error) {
       console.log('❌ Could not extract SQL query:', error);
     }
     
     const results = await finalQuery;
-    console.log(`📊 Query returned ${results.length} results`);
+    // console.log(`📊 Query returned ${results.length} results`);
     
     // Log first few results for debugging
     if (results.length > 0) {
-      console.log('🔍 First 3 results (id, updated_at, status):');
+      // console.log('🔍 First 3 results (id, updated_at, status):');
       results.slice(0, 3).forEach((lead, index) => {
-        console.log(`  ${index + 1}. ID: ${lead.id}, Updated: ${lead.updated_at?.toISOString() ?? 'null'}, Status: ${lead.status}`);
+        // console.log(`  ${index + 1}. ID: ${lead.id}, Updated: ${lead.updated_at?.toISOString() ?? 'null'}, Status: ${lead.status}`);
       });
     }
     
@@ -1033,7 +1033,7 @@ export async function fetchFilteredLeads({
     const hasMore = results.length > limit;
     const leadsToReturn = hasMore ? transformedLeads.slice(0, limit) : transformedLeads;
 
-    console.log(`✅ Returning ${leadsToReturn.length} leads, hasMore: ${hasMore}`);
+    // console.log(`✅ Returning ${leadsToReturn.length} leads, hasMore: ${hasMore}`);
 
     return {
       success: true,
