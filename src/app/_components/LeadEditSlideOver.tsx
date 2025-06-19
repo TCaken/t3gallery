@@ -267,11 +267,14 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
       const updatedValues = {
         ...formValues,
         status: reasonOption.finalStatus,
-        notes: reasonOption.customReason
+        eligibility_notes: reasonOption.customReason
           ? `${reasonOption.label.toUpperCase()} (${customReasonText.trim()})`
           : `${reasonOption.label.toUpperCase()}`,
         follow_up_date: null // Clear follow-up date when changing to final status
       };
+
+      // console.log("updatedValues", updatedValues);
+      setFormValues(updatedValues);
       
       await onSave(updatedValues);
       onClose();
@@ -347,6 +350,9 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         break;
     }
 
+    console.log("finalValues", finalValues);
+    console.log("selectedAction", selectedAction);
+
     if (leadNotesContent.trim() && lead.id) {
       try {
         await addLeadNote(lead.id, leadNotesContent.trim());
@@ -356,6 +362,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         showNotification?.('Failed to save lead notes', 'error');
       }
     }
+
+
 
     // Save the lead first
     await onSave(finalValues);
