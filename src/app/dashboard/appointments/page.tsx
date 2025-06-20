@@ -435,10 +435,41 @@ export default function AppointmentsPage() {
 
     const handleMouseEnter = (e: React.MouseEvent) => {
       const rect = e.currentTarget.getBoundingClientRect();
-      setModalPosition({
-        x: rect.left + rect.width + 10,
-        y: rect.top
-      });
+      const modalWidth = 320; // w-80 = 320px
+      const modalHeight = 400; // Estimated max height
+      const padding = 10; // Padding from edges
+      
+      // Calculate optimal position
+      let x = rect.left + rect.width + padding; // Default: right side
+      let y = rect.top; // Default: align with top
+      
+      // Check horizontal boundaries
+      if (x + modalWidth > window.innerWidth - padding) {
+        // Not enough space on right, show on left
+        x = rect.left - modalWidth - padding;
+        
+        // If still doesn't fit on left, position to stay within viewport
+        if (x < padding) {
+          x = window.innerWidth - modalWidth - padding;
+        }
+      }
+      
+      // Check vertical boundaries
+      if (y + modalHeight > window.innerHeight - padding) {
+        // Position above if not enough space below
+        y = rect.bottom - modalHeight;
+        
+        // If still doesn't fit above, center vertically in viewport
+        if (y < padding) {
+          y = Math.max(padding, (window.innerHeight - modalHeight) / 2);
+        }
+      }
+      
+      // Ensure position is never negative or outside viewport
+      x = Math.max(padding, Math.min(x, window.innerWidth - modalWidth - padding));
+      y = Math.max(padding, Math.min(y, window.innerHeight - modalHeight - padding));
+      
+      setModalPosition({ x, y });
       setHoveredAppointment(appointment);
       console.log("Hovered appointment: " + JSON.stringify(appointment));
     };
@@ -1125,13 +1156,10 @@ export default function AppointmentsPage() {
       {/* Hover Modal for Appointment Details */}
       {hoveredAppointment && (
         <div
-          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-80"
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-80 max-h-96 overflow-y-auto"
           style={{
             left: modalPosition.x,
             top: modalPosition.y,
-            maxWidth: 'calc(100vw - 20px)',
-            maxHeight: 'calc(100vh - 20px)',
-            transform: modalPosition.x > window.innerWidth - 340 ? 'translateX(-100%)' : 'translateX(0)',
           }}
         >
           <div className="space-y-3">

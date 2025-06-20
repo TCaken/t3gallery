@@ -275,10 +275,10 @@ export async function POST(request: NextRequest) {
         processedCount++;
         
         // Skip if not a new loan case
-        if (row["col_New or Reloan? "]?.trim() !== "New Loan - 新贷款") {
-          // console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
-          continue;
-        }
+        // if (row["col_New or Reloan? "]?.trim() !== "New Loan - 新贷款") {
+        //   // console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
+        //   continue;
+        // }
 
         // Parse the timestamp from Excel (which is in GMT+8)
         let excelDate: string;
