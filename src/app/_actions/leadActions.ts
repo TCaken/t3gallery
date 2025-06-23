@@ -194,9 +194,20 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
     // Create the lead
     const [lead] = await db.insert(leads).values(baseValues).returning();
 
-    // Add log entry for lead creation
+    // Add log entry for lead creation with important business information
+    const createLogDescription = [
+      `Created new lead - Status: ${finalStatus}`,
+      `Source: ${baseValues.source}`,
+      `Amount: ${baseValues.amount || 'Not specified'}`,
+      `Lead Type: ${baseValues.lead_type}`,
+      `Eligibility: ${eligibilityStatus}`,
+      eligibilityNotes ? `Notes: ${eligibilityNotes}` : '',
+      baseValues.employment_status ? `Employment: ${baseValues.employment_status}` : '',
+      baseValues.loan_purpose ? `Purpose: ${baseValues.loan_purpose}` : ''
+    ].filter(Boolean).join(' | ');
+    
     await db.insert(logs).values({
-      description: `Created new lead with phone ${formattedPhone}${input.full_name ? ` for ${input.full_name}` : ''}`,
+      description: createLogDescription,
       entity_type: 'lead',
       entity_id: lead?.id.toString() ?? '',
       action: 'create',
@@ -497,8 +508,17 @@ export async function fetchLeadNotes(leadId: number) {
   if (!userId) throw new Error("Not authenticated");
   
   try {
-    const result = await db.select()
+    const result = await db.select({
+      id: lead_notes.id,
+      lead_id: lead_notes.lead_id,
+      content: lead_notes.content,
+      created_by: lead_notes.created_by,
+      created_at: lead_notes.created_at,
+      user_first_name: users.first_name,
+      user_last_name: users.last_name
+    })
       .from(lead_notes)
+      .innerJoin(users, eq(lead_notes.created_by, users.id))
       .where(eq(lead_notes.lead_id, leadId))
       .orderBy(desc(lead_notes.created_at));
     
@@ -616,13 +636,27 @@ export async function updateLead(
     //   status: updated?.status
     // });
 
-    // Add log entry for lead update
+    // Add log entry for lead update with actual values
     const changedFields = Object.keys(leadData).filter(key => 
       leadData[key as keyof typeof leadData] !== originalLead[key as keyof typeof originalLead]
     );
 
+    // Build detailed description with actual values (excluding personal information)
+    const businessFields = ['status', 'eligibility_status', 'eligibility_notes', 'status', 'assigned_to'];
+    const businessChanges = changedFields
+      .filter(field => businessFields.includes(field))
+      .map(field => {
+        const oldValue = originalLead[field as keyof typeof originalLead];
+        const newValue = leadData[field as keyof typeof leadData];
+        return `${field}: ${oldValue || 'empty'} → ${newValue || 'empty'}`;
+      });
+
+    const updateDescription = businessChanges.length > 0 
+      ? `Updated lead - ${businessChanges.join(' | ')}`
+      : `Updated lead - Fields: ${changedFields.join(', ')}`;
+
     await db.insert(logs).values({
-      description: `Fields: ${changedFields.join(', ')}`,
+      description: updateDescription,
       entity_type: 'lead',
       entity_id: leadId.toString(),
       action: 'update',
@@ -1078,9 +1112,18 @@ export async function deleteLead(leadId: number) {
     // Delete the lead (cascade will handle related records)
     await db.delete(leads).where(eq(leads.id, leadId));
 
-    // Add log entry for lead deletion
+    // Add log entry for lead deletion with business information
+    const deleteLogDescription = [
+      `Deleted lead - Status: ${leadToDelete.status}`,
+      `Source: ${leadToDelete.source || 'Unknown'}`,
+      `Amount: ${leadToDelete.amount || 'Not specified'}`,
+      `Eligibility: ${leadToDelete.eligibility_status || 'Not checked'}`,
+      leadToDelete.loan_status ? `Loan Status: ${leadToDelete.loan_status}` : '',
+      leadToDelete.assigned_to ? `Was assigned to: ${leadToDelete.assigned_to}` : ''
+    ].filter(Boolean).join(' | ');
+    
     await db.insert(logs).values({
-      description: `Deleted lead with phone ${leadToDelete.phone_number}${leadToDelete.full_name ? ` for ${leadToDelete.full_name}` : ''}`,
+      description: deleteLogDescription,
       entity_type: 'lead',
       entity_id: leadId.toString(),
       action: 'delete',
