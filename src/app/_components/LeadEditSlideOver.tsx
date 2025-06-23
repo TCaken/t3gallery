@@ -468,8 +468,36 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   // Handle booking action
   const handleBooking = async () => {
     try {
-      // First save any changes
+      // First save any changes including lead notes
       if (hasUnsavedChanges) {
+        // Get form data to extract lead notes (similar to handleSubmit)
+        const formElement = document.querySelector('form');
+        let leadNotesContent = '';
+        
+        if (formElement) {
+          const formData = new FormData(formElement);
+          const leadNotesValue = formData.get('lead_notes');
+          if (leadNotesValue) {
+            leadNotesContent = leadNotesValue.toString();
+          }
+        }
+        
+        // Save lead notes first if they exist
+        if (leadNotesContent.trim() && lead.id) {
+          try {
+            const noteResult = await addLeadNote(lead.id, leadNotesContent.trim());
+            if (noteResult.success) {
+              showNotification?.('Lead notes saved successfully', 'success');
+            } else {
+              showNotification?.('Failed to save lead notes', 'error');
+            }
+          } catch (error) {
+            console.error('Error saving lead notes during booking:', error);
+            showNotification?.('Failed to save lead notes', 'error');
+          }
+        }
+        
+        // Then save other form changes
         const updatedValues = {
           ...formValues
         };
@@ -479,13 +507,13 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
       // Close the modal
       onClose();
       
-      // Open booking page in new tab
+      // Navigate to booking page
       if (lead.id) {
         router.push(`/dashboard/leads/${lead.id}/appointment`);
       }
     } catch (error) {
       console.error('Error during booking:', error);
-      // Optionally add error handling UI here
+      showNotification?.('An error occurred during booking', 'error');
     }
   };
 

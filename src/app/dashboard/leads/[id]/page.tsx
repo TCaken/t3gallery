@@ -32,7 +32,10 @@ import { useUserRole } from "../useUserRole";
 import { format } from "date-fns";
 
 type Lead = InferSelectModel<typeof leads>;
-type LeadNote = InferSelectModel<typeof lead_notes>;
+type LeadNote = InferSelectModel<typeof lead_notes> & {
+  user_first_name?: string | null;
+  user_last_name?: string | null;
+};
 type Appointment = EnhancedAppointment;
 
 interface LeadResponse {
@@ -745,9 +748,17 @@ export default function LeadDetailPage({ params }: PageProps) {
                     notes.map((note) => (
                       <div key={note.id} className="border border-gray-200 rounded-lg p-4">
                         <p className="text-gray-800">{note.content}</p>
-                        <div className="mt-3 flex items-center text-xs text-gray-500">
-                          <ClockIcon className="h-3 w-3 mr-1" />
-                          {note.created_at ? format(new Date(note.created_at), 'MMM dd, yyyy • h:mm a') : 'Unknown date'}
+                        <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                          <div className="flex items-center">
+                            <ClockIcon className="h-3 w-3 mr-1" />
+                            {note.created_at ? format(new Date(note.created_at), 'MMM dd, yyyy • h:mm a') : 'Unknown date'}
+                          </div>
+                          <div className="flex items-center">
+                            <UserIcon className="h-3 w-3 mr-1" />
+                            {note.user_first_name && note.user_last_name 
+                              ? `${note.user_first_name} ${note.user_last_name}`
+                              : 'Unknown user'}
+                          </div>
                         </div>
                       </div>
                     ))
