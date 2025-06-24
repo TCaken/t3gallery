@@ -329,6 +329,7 @@ export async function exportAllLeadsToCSV(selectedStatuses: string[] = []): Prom
         
         // Map leads to CSV rows
         const csvRows = agentLeads.map(lead => {
+          // console.log("Lead", JSON.stringify(lead));
           return columns.map(column => {
             let value = "";
             
@@ -340,7 +341,7 @@ export async function exportAllLeadsToCSV(selectedStatuses: string[] = []): Prom
               const phoneNumber = lead.phone_number || "";
               value = phoneNumber.startsWith("+65") ? phoneNumber.substring(1) : phoneNumber;
             } else if (column === "email") {
-              value = lead.email !== null && lead.email !== "UNKNOWN" 
+              value = lead.email !== null && lead.email !== "UNKNOWN" && lead.email !== ""
                 ? lead.email 
                 : `notimportant${lead.phone_number}@test.com`;
             } else {
