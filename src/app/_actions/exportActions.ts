@@ -259,19 +259,34 @@ export async function exportAllLeadsToCSV(selectedStatuses: string[] = []): Prom
         const followUpDateGMT = new Date(lead.follow_up_date);
         const followUpDateSGT = new Date(followUpDateGMT.getTime() + (8 * 60 * 60 * 1000));
         
+        // Get today's date in SGT
+        const nowSGT = new Date(new Date().getTime() + (8 * 60 * 60 * 1000));
+        const todaySGT = new Date(nowSGT.getFullYear(), nowSGT.getMonth(), nowSGT.getDate());
+        const followUpDateOnly = new Date(followUpDateSGT.getFullYear(), followUpDateSGT.getMonth(), followUpDateSGT.getDate());
+        
         console.log(`Lead ${lead.id}: Follow-up date GMT: ${followUpDateGMT.toISOString()}`);
         console.log(`Lead ${lead.id}: Follow-up date SGT: ${followUpDateSGT.toISOString()}`);
+        console.log(`Lead ${lead.id}: Today SGT: ${todaySGT.toISOString()}`);
+        console.log(`Lead ${lead.id}: Follow-up date only: ${followUpDateOnly.toISOString()}`);
         console.log(`Lead ${lead.id}: SGT Hours: ${followUpDateSGT.getHours()}, Minutes: ${followUpDateSGT.getMinutes()}`);
         
         // Check if time is 00:00 (midnight)
         const isAtMidnight = followUpDateSGT.getHours() === 0 && followUpDateSGT.getMinutes() === 0;
         
+        // Check if follow-up date is today or in the past (not future)
+        const isNotFutureDate = followUpDateOnly <= todaySGT;
+        
         if (!isAtMidnight) {
           console.log(`Lead ${lead.id}: Follow-up time is not 00:00 SGT, skipping export`);
           return;
-        } else {
-          console.log(`Lead ${lead.id}: Follow-up time is 00:00 SGT, including in export`);
         }
+        
+        if (!isNotFutureDate) {
+          console.log(`Lead ${lead.id}: Follow-up date is in the future, skipping export`);
+          return;
+        }
+        
+        console.log(`Lead ${lead.id}: Follow-up time is 00:00 SGT and date is today or past, including in export`);
       }
       
       const agentId = lead.assigned_to ?? 'unassigned';
