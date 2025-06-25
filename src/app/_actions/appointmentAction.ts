@@ -175,6 +175,18 @@ export async function createAppointment(data: {
 
     // Use a transaction to ensure all operations succeed or fail together
     return await db.transaction(async (tx) => {
+      // Get the lead to access its source
+      const [lead] = await tx
+        .select({
+          source: leads.source
+        })
+        .from(leads)
+        .where(eq(leads.id, data.leadId));
+      
+      if (!lead) {
+        throw new Error("Lead not found");
+      }
+      
       // Create appointment datetime strings and convert to UTC properly
       const slotDate = typeof selectedSlot.date === 'string' ? selectedSlot.date : format(selectedSlot.date, 'yyyy-MM-dd');
       const startTimeString = `${slotDate}T${selectedSlot.start_time}`;
@@ -184,6 +196,7 @@ export async function createAppointment(data: {
       console.log('Slot date:', slotDate);
       console.log('Start time string (SGT):', startTimeString);
       console.log('End time string (SGT):', endTimeString);
+      console.log('Lead source:', lead.source);
       
       // Parse as Singapore time and convert to UTC
       // Method 1: Manual timezone conversion (SGT = UTC+8)
@@ -199,7 +212,7 @@ export async function createAppointment(data: {
       console.log('End SGT:', endSGT.toISOString());
       console.log('End UTC (for DB):', endUTC.toISOString());
       
-      // Create the appointment
+      // Create the appointment with lead source
       const [newAppointment] = await tx
         .insert(appointments)
         .values({
@@ -207,6 +220,7 @@ export async function createAppointment(data: {
           agent_id: userId,
           status: 'upcoming',
           notes: data.notes,
+          lead_source: lead.source, // Capture the lead source when appointment is created
           start_datetime: startUTC,
           end_datetime: endUTC,
           created_at: new Date(),
