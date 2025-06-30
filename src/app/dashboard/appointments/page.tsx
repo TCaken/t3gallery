@@ -40,6 +40,11 @@ const APPOINTMENT_STATUSES = {
   cancelled: { icon: XCircleIcon, color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' }
 };
 
+// Function to get display status (shows "TUR" instead of "done")
+const getDisplayStatus = (status: string): string => {
+  return status === 'done' ? 'TUR' : status;
+};
+
 // Generate timeslots for display (10 AM to 8 PM)
 const generateTimeSlots = () => {
   const slots = [];
@@ -513,7 +518,7 @@ export default function AppointmentsPage() {
           {startTime}
         </div>
 
-        {/* Loan Status for Done Appointments */}
+        {/* Loan Status for TUR Appointments */}
         {appointment.status === 'done' && appointment.loan_status && (
           <div className="text-xs font-medium mb-1">
             <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
@@ -628,7 +633,7 @@ export default function AppointmentsPage() {
                     className="sr-only"
                   />
                   <config.icon className={`h-4 w-4 mr-2 ${config.color}`} />
-                  <span className="capitalize text-sm font-medium">{status}</span>
+                  <span className="capitalize text-sm font-medium">{getDisplayStatus(status)}</span>
                 </label>
               ))}
             </div>
@@ -868,7 +873,7 @@ export default function AppointmentsPage() {
                       <div key={status} className="flex items-center justify-between">
                         <div className="flex items-center">
                           <config.icon className={`h-4 w-4 mr-2 ${config.color}`} />
-                          <span className="capitalize font-medium text-gray-700">{status}</span>
+                          <span className="capitalize font-medium text-gray-700">{getDisplayStatus(status)}</span>
                         </div>
                         <div className="flex items-center space-x-3">
                           <div className="w-20 bg-gray-200 rounded-full h-2">
@@ -886,10 +891,10 @@ export default function AppointmentsPage() {
                 </div>
               </div>
 
-              {/* Loan Status for Done Appointments */}
+              {/* Loan Status for TUR Appointments */}
               {filteredAppointments.filter(apt => apt.status === 'done').length > 0 && (
                 <div>
-                  <h4 className="text-md font-medium text-gray-800 mb-4">Done Appointments - Loan Status</h4>
+                  <h4 className="text-md font-medium text-gray-800 mb-4">TUR Appointments - Loan Status</h4>
                   <div className="space-y-3">
                     {[
                       { status: 'P', label: 'Done', color: 'text-green-600 bg-green-500' },
@@ -993,7 +998,7 @@ export default function AppointmentsPage() {
                                 <div key={status} className="flex items-center justify-between text-sm">
                                   <div className="flex items-center">
                                     <config.icon className={`h-3 w-3 mr-1 ${config.color}`} />
-                                    <span className="capitalize">{status}</span>
+                                    <span className="capitalize">{getDisplayStatus(status)}</span>
                                   </div>
                                   <div className="flex items-center space-x-2">
                                     <div className="w-12 bg-gray-200 rounded-full h-1.5">
@@ -1010,15 +1015,15 @@ export default function AppointmentsPage() {
                           </div>
                         </div>
                         
-                        {/* Loan Status for done appointments by this creator */}
+                        {/* Loan Status for TUR appointments by this creator */}
                         {Object.keys(creator.loanStatuses).length > 0 && (
                           <div>
-                            <h5 className="text-sm font-medium text-gray-700 mb-2">Done - Loan Status</h5>
+                            <h5 className="text-sm font-medium text-gray-700 mb-2">TUR - Loan Status</h5>
                             <div className="space-y-2">
                               {[
                                 { status: 'P', label: 'Done', color: 'bg-green-500' },
                                 { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
-                                { status: 'RS', label: 'Rejected w/ Reason', color: 'bg-yellow-500' },
+                                { status: 'RS', label: 'Rejected with Special Reason', color: 'bg-yellow-500' },
                                 { status: 'R', label: 'Rejected', color: 'bg-red-500' }
                               ].map(({ status, label, color }) => {
                                 const count = creator.loanStatuses[status] ?? 0;
@@ -1169,7 +1174,7 @@ export default function AppointmentsPage() {
               <div className="flex items-center">
                 {getStatusBadge(hoveredAppointment.status)}
                 <span className="ml-2 text-sm font-medium capitalize text-gray-700">
-                  {hoveredAppointment.status}
+                  {getDisplayStatus(hoveredAppointment.status)}
                 </span>
               </div>
             </div>
@@ -1214,7 +1219,7 @@ export default function AppointmentsPage() {
               </div>
             </div>
 
-            {/* Loan Status for Done Appointments */}
+            {/* Loan Status for TUR Appointments */}
             {hoveredAppointment.status === 'done' && hoveredAppointment.loan_status && (
               <div>
                 <h5 className="text-sm font-medium text-gray-700 mb-1">Loan Status</h5>

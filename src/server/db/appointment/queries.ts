@@ -218,6 +218,18 @@ export async function createAppointment(data: {
       return { success: false, message: "This timeslot is already fully booked" };
     }
     
+    // Get the lead to access its source
+    const [lead] = await db
+      .select({
+        source: leads.source
+      })
+      .from(leads)
+      .where(eq(leads.id, data.leadId));
+    
+    if (!lead) {
+      return { success: false, message: "Lead not found" };
+    }
+    
     // Create the appointment
     const [newAppointment] = await db
       .insert(appointments)
@@ -226,7 +238,7 @@ export async function createAppointment(data: {
         agent_id: user.userId,
         status: 'upcoming',
         notes: data.notes,
-        is_urgent: data.isUrgent,
+        lead_source: lead.source, // Capture the lead source when appointment is created
         start_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.start_time}`),
         end_datetime: new Date(`${format(selectedSlot.date, 'yyyy-MM-dd')}T${selectedSlot.end_time}`),
         created_at: new Date(),

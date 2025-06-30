@@ -165,6 +165,58 @@ export const tagTypeEnum = pgEnum('tag_type', [
   'done'
 ]);
 
+// Define enum for borrower AA status
+export const aaStatusEnum = pgEnum('aa_status', [
+  'yes',
+  'no',
+  'pending'
+]);
+
+// Define enum for ID types
+export const idTypeEnum = pgEnum('id_type', [
+  'singapore_nric',
+  'singapore_pr', 
+  'fin'
+]);
+
+// Define enum for income document types
+export const incomeDocumentTypeEnum = pgEnum('income_document_type', [
+  'bank_statement',
+  'noa',
+  'cpf'
+]);
+
+// Define enum for borrower status (same as leads)
+export const borrowerStatusEnum = pgEnum('borrower_status', [
+  'new',
+  'assigned',
+  'no_answer',
+  'follow_up',
+  'booked',
+  'done',
+  'missed/RS',
+  'unqualified',
+  'give_up',
+  'blacklisted'
+]);
+
+// Define enum for financial commitment changes
+export const financialCommitmentChangeEnum = pgEnum('financial_commitment_change', [
+  'increased',
+  'decreased', 
+  'same',
+  'not_applicable'
+]);
+
+// Define enum for customer rating
+export const customerRatingEnum = pgEnum('customer_rating', [
+  'excellent',
+  'very_good',
+  'good',
+  'fair',
+  'poor'
+]);
+
 // Tags table
 export const tags = createTable(
   "tags",
@@ -292,6 +344,7 @@ export const appointments = createTable(
     loan_status: d.varchar({ length: 50 }).default(sql`NULL`),
     loan_notes: d.text().default(sql`NULL`),
     notes: d.text(),
+    lead_source: d.varchar({ length: 100 }).default('SEO'), // Capture lead source when appointment is created
     start_datetime: d.timestamp({ withTimezone: true }).notNull(),
     end_datetime: d.timestamp({ withTimezone: true }).notNull(),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -653,5 +706,350 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
   role: one(roles, {
     fields: [userRoles.roleId],
     references: [roles.id],
+  }),
+}));
+
+// Loan Plans table
+export const loan_plans = createTable(
+  "loan_plans",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    loan_id: d.varchar({ length: 100 }).notNull(),
+    borrower_id: d.integer().references(() => borrowers.id, { onDelete: "cascade" }).notNull(),
+    
+    // Selection and Status
+    is_selected: d.boolean().default(false), // Marks the primary loan for this borrower
+    
+    // Loan Details
+    product_name: d.varchar({ length: 100 }).default(''), // e.g., "3. MONTHLY LOAN"
+    estimated_reloan_amount: d.varchar({ length: 50 }).default(''),
+    interest_rate: d.varchar({ length: 50 }).default(''),
+    loan_tenure: d.varchar({ length: 50 }).default(''),
+    monthly_installment: d.varchar({ length: 50 }).default(''),
+    
+    // Loan Flags (from external API)
+    has_bd: d.boolean().default(false),
+    has_bhv: d.boolean().default(false),
+    has_dnc: d.boolean().default(false),
+    is_overdue: d.boolean().default(false),
+    
+    // Dates
+    next_due_date: d.timestamp({ withTimezone: true }),
+    loan_completed_date: d.timestamp({ withTimezone: true }),
+    
+    // Additional Data
+    loan_comments: d.text().default(sql`NULL`),
+    plan_details: d.json(), // Store complete loan data from external API
+    
+    // System Fields
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+    created_by: d.varchar({ length: 256 }).references(() => users.id),
+    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+  }),
+  (t) => [
+    index("loan_plans_loan_id_idx").on(t.loan_id),
+    index("loan_plans_borrower_id_idx").on(t.borrower_id)
+  ]
+);
+
+// Borrowers table
+export const borrowers = createTable(
+  "borrowers",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    atom_borrower_id: d.varchar({ length: 100 }).default(''), // For cross-referencing with another system
+    
+    // Basic Information
+    full_name: d.varchar({ length: 255 }).notNull(),
+    phone_number: d.varchar({ length: 20 }).notNull(),
+    phone_number_2: d.varchar({ length: 20 }).default(''),
+    phone_number_3: d.varchar({ length: 20 }).default(''),
+    email: d.varchar({ length: 255 }).default(''),
+    residential_status: d.varchar({ length: 50 }).default(''),
+    status: d.varchar({ length: 50 }).notNull(),
+    source: d.varchar({ length: 50 }).default(''),
+
+    // Identity Information
+    aa_status: d.varchar({ length: 20 }).default('pending').notNull(),
+    id_type: d.varchar({ length: 50 }).notNull(),
+    id_number: d.varchar({ length: 50 }).default(''),
+    
+    // Employment & Income Information
+    income_document_type: d.varchar({ length: 50 }).default(''),
+    current_employer: d.varchar({ length: 255 }).default(''),
+    average_monthly_income: d.varchar({ length: 50 }).default(''),
+    annual_income: d.varchar({ length: 50 }).default(''),
+    
+    // Loan Information (minimal - just for linking to primary loan plan)
+    estimated_reloan_amount: d.varchar({ length: 50 }).default(''),
+    loan_id: d.varchar({ length: 100 }).default(''), // Reference to primary loan plan
+    latest_completed_loan_date: d.date(), // Summary field from external API
+    
+    // Customer Performance Buckets (from external API)
+    is_in_closed_loan: d.varchar({ length: 10 }).default(''), // '', 'Yes', 'No'
+    is_in_2nd_reloan: d.varchar({ length: 10 }).default(''), // '', 'Yes', 'No'  
+    is_in_attrition: d.varchar({ length: 10 }).default(''), // '', 'Yes', 'No'
+    is_in_last_payment_due: d.varchar({ length: 10 }).default(''), // '', 'Yes', 'No'
+    is_in_bhv1: d.varchar({ length: 10 }).default(''), // '', 'Yes', 'No'
+    
+    // Additional Financial Information
+    credit_score: d.varchar({ length: 50 }).default(''),
+    loan_amount: d.varchar({ length: 50 }).default(''),
+    loan_status: d.varchar({ length: 50 }).default(sql`NULL`),
+    loan_notes: d.text().default(sql`NULL`),
+    lead_score: d.integer().default(0),
+    financial_commitment_change: d.varchar({ length: 50 }).default('not_applicable'),
+    contact_preference: d.varchar({ length: 50 }).default('No Preferences'),
+    communication_language: d.varchar({ length: 50 }).default('No Preferences'),
+    follow_up_date: d.timestamp({ withTimezone: true }).default(sql`NULL`),
+    
+    // System Fields
+    assigned_to: d.varchar({ length: 256 }),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+    created_by: d.varchar({ length: 256 }).references(() => users.id),
+    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+    is_deleted: d.boolean().default(false),
+  }),
+  (t) => [
+    index("borrower_phone_idx").on(t.phone_number),
+    index("borrower_email_idx").on(t.email),
+    index("borrower_status_idx").on(t.status),
+    index("borrower_assigned_to_idx").on(t.assigned_to),
+    index("borrower_loan_id_idx").on(t.loan_id),
+    index("borrower_aa_status_idx").on(t.aa_status),
+    index("borrower_atom_id_idx").on(t.atom_borrower_id)
+  ]
+);
+
+// Borrower Appointments table
+export const borrower_appointments = createTable(
+  "borrower_appointments",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    borrower_id: d.integer().references(() => borrowers.id, { onDelete: "cascade" }).notNull(),
+    agent_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    status: d.varchar({ length: 50 }).default('upcoming').notNull(),
+    appointment_type: d.varchar({ length: 50 }).default('reloan_consultation'),
+    loan_status: d.varchar({ length: 50 }).default(sql`NULL`),
+    loan_notes: d.text().default(sql`NULL`),
+    notes: d.text(),
+    lead_source: d.varchar({ length: 50 }).default(''),
+    start_datetime: d.timestamp({ withTimezone: true }).notNull(),
+    end_datetime: d.timestamp({ withTimezone: true }).notNull(),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+    created_by: d.varchar({ length: 256 }).references(() => users.id),
+    updated_by: d.varchar({ length: 256 }).references(() => users.id)
+  }),
+  (t) => [
+    index("borrower_appointment_borrower_id_idx").on(t.borrower_id),
+    index("borrower_appointment_agent_id_idx").on(t.agent_id),
+    index("borrower_appointment_status_idx").on(t.status),
+    index("borrower_appointment_datetime_idx").on(t.start_datetime)
+  ]
+);
+
+// Borrower Appointment Timeslots junction table
+export const borrower_appointment_timeslots = createTable(
+  "borrower_appointment_timeslots",
+  (d) => ({
+    borrower_appointment_id: d.integer().references(() => borrower_appointments.id, { onDelete: "cascade" }).notNull(),
+    timeslot_id: d.integer().references(() => timeslots.id, { onDelete: "cascade" }).notNull(),
+    primary: d.boolean().default(true),
+  }),
+  (t) => [
+    primaryKey({ columns: [t.borrower_appointment_id, t.timeslot_id] }),
+    index("borrower_appt_timeslot_appt_id_idx").on(t.borrower_appointment_id),
+    index("borrower_appt_timeslot_slot_id_idx").on(t.timeslot_id)
+  ]
+);
+
+// Borrower Notes table
+export const borrower_notes = createTable(
+  "borrower_notes",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    borrower_id: d.integer().references(() => borrowers.id, { onDelete: "cascade" }).notNull(),
+    content: d.text().notNull(),
+    note_type: d.varchar({ length: 50 }).default('general'), // general, loan_discussion, payment_issue, etc.
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+    created_by: d.varchar({ length: 256 }).references(() => users.id),
+    updated_by: d.varchar({ length: 256 }).references(() => users.id),
+  }),
+  (t) => [
+    index("borrower_notes_borrower_id_idx").on(t.borrower_id),
+    index("borrower_notes_type_idx").on(t.note_type)
+  ]
+);
+
+// Borrower Actions table (similar to lead_actions)
+export const borrower_actions = createTable(
+  "borrower_actions",
+  (d) => ({
+    action_id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    borrower_id: d.integer().references(() => borrowers.id, { onDelete: "cascade" }).notNull(),
+    user_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    action_type: d.varchar({ length: 50 }).notNull(),
+    content: d.text(),
+    timestamp: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    created_by: d.varchar({ length: 256 }),
+  }),
+  (t) => [
+    index("borrower_action_borrower_id_idx").on(t.borrower_id),
+    index("borrower_action_user_id_idx").on(t.user_id),
+    index("borrower_action_type_idx").on(t.action_type)
+  ]
+);
+
+// Borrower Tags junction table
+export const borrower_tags = createTable(
+  "borrower_tags",
+  (d) => ({
+    borrower_id: d.integer().references(() => borrowers.id, { onDelete: "cascade" }).notNull(),
+    tag_id: d.integer().references(() => tags.id, { onDelete: "cascade" }).notNull(),
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    created_by: d.varchar({ length: 256 }).references(() => users.id),
+  }),
+  (t) => [
+    primaryKey({ columns: [t.borrower_id, t.tag_id] })
+  ]
+);
+
+// Pinned Borrowers table
+export const pinned_borrowers = createTable(
+  "pinned_borrowers", 
+  (d) => ({
+    user_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    borrower_id: d.integer().references(() => borrowers.id, { onDelete: "cascade" }).notNull(),
+    pinned_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    reason: d.text(),
+    primary: d.boolean().default(false),
+  }),
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.borrower_id] })
+  ]
+);
+
+// Loan Plans Relations
+export const loanPlansRelations = relations(loan_plans, ({ one }) => ({
+  borrower: one(borrowers, {
+    fields: [loan_plans.borrower_id],
+    references: [borrowers.id],
+  }),
+  createdBy: one(users, {
+    fields: [loan_plans.created_by],
+    references: [users.id],
+  }),
+  updatedBy: one(users, {
+    fields: [loan_plans.updated_by],
+    references: [users.id],
+  }),
+}));
+
+// Borrower Relations
+export const borrowersRelations = relations(borrowers, ({ one, many }) => ({
+  assignedTo: one(users, {
+    fields: [borrowers.assigned_to],
+    references: [users.id],
+  }),
+  createdBy: one(users, {
+    fields: [borrowers.created_by],
+    references: [users.id],
+  }),
+  updatedBy: one(users, {
+    fields: [borrowers.updated_by],
+    references: [users.id],
+  }),
+  appointments: many(borrower_appointments),
+  notes: many(borrower_notes),
+  actions: many(borrower_actions),
+  tags: many(borrower_tags),
+  pinnedBy: many(pinned_borrowers),
+  loanPlans: many(loan_plans),
+}));
+
+export const borrowerAppointmentsRelations = relations(borrower_appointments, ({ one, many }) => ({
+  borrower: one(borrowers, {
+    fields: [borrower_appointments.borrower_id],
+    references: [borrowers.id],
+  }),
+  agent: one(users, {
+    fields: [borrower_appointments.agent_id],
+    references: [users.id],
+  }),
+  createdBy: one(users, {
+    fields: [borrower_appointments.created_by],
+    references: [users.id],
+  }),
+  updatedBy: one(users, {
+    fields: [borrower_appointments.updated_by],
+    references: [users.id],
+  }),
+  timeslots: many(borrower_appointment_timeslots),
+}));
+
+export const borrowerAppointmentTimeslotsRelations = relations(borrower_appointment_timeslots, ({ one }) => ({
+  appointment: one(borrower_appointments, {
+    fields: [borrower_appointment_timeslots.borrower_appointment_id],
+    references: [borrower_appointments.id],
+  }),
+  timeslot: one(timeslots, {
+    fields: [borrower_appointment_timeslots.timeslot_id],
+    references: [timeslots.id],
+  }),
+}));
+
+export const borrowerNotesRelations = relations(borrower_notes, ({ one }) => ({
+  borrower: one(borrowers, {
+    fields: [borrower_notes.borrower_id],
+    references: [borrowers.id],
+  }),
+  createdBy: one(users, {
+    fields: [borrower_notes.created_by],
+    references: [users.id],
+  }),
+  updatedBy: one(users, {
+    fields: [borrower_notes.updated_by],
+    references: [users.id],
+  }),
+}));
+
+export const borrowerActionsRelations = relations(borrower_actions, ({ one }) => ({
+  borrower: one(borrowers, {
+    fields: [borrower_actions.borrower_id],
+    references: [borrowers.id],
+  }),
+  user: one(users, {
+    fields: [borrower_actions.user_id],
+    references: [users.id],
+  }),
+}));
+
+export const borrowerTagsRelations = relations(borrower_tags, ({ one }) => ({
+  borrower: one(borrowers, {
+    fields: [borrower_tags.borrower_id],
+    references: [borrowers.id],
+  }),
+  tag: one(tags, {
+    fields: [borrower_tags.tag_id],
+    references: [tags.id],
+  }),
+  createdBy: one(users, {
+    fields: [borrower_tags.created_by],
+    references: [users.id],
+  }),
+}));
+
+export const pinnedBorrowersRelations = relations(pinned_borrowers, ({ one }) => ({
+  user: one(users, {
+    fields: [pinned_borrowers.user_id],
+    references: [users.id],
+  }),
+  borrower: one(borrowers, {
+    fields: [pinned_borrowers.borrower_id],
+    references: [borrowers.id],
   }),
 }));

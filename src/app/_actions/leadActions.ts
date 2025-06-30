@@ -6,7 +6,7 @@ import { db } from "~/server/db";
 import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs, appointments } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import type { InferSelectModel } from "drizzle-orm";
-import { eq, desc, like, or, and, SQL, asc, sql, ilike } from "drizzle-orm";
+import { eq, desc, like, or, and, SQL, asc, sql, ilike, not } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import { checkLeadEligibility } from "./leadEligibility";
 import { getUserRoles } from "~/server/rbac/queries";
@@ -1134,5 +1134,98 @@ export async function deleteLead(leadId: number) {
   } catch (error) {
     console.error('Error deleting lead:', error);
     return { success: false, message: 'Failed to delete lead' };
+  }
+}
+
+// Find leads with duplicate phone numbers
+export async function findDuplicatePhoneLeads() {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    // Query to find all leads and group them by phone numbers
+    const allLeads = await db
+      .select({
+        id: leads.id,
+        phone_number: leads.phone_number,
+        phone_number_2: leads.phone_number_2,
+        phone_number_3: leads.phone_number_3,
+        full_name: leads.full_name,
+        email: leads.email,
+        status: leads.status,
+        source: leads.source,
+        created_at: leads.created_at,
+        updated_at: leads.updated_at,
+        assigned_to: leads.assigned_to,
+        amount: leads.amount,
+        eligibility_status: leads.eligibility_status,
+        is_deleted: leads.is_deleted,
+        assigned_user_name: sql<string | null>`COALESCE(${users.first_name} || ' ' || ${users.last_name}, null)`,
+      })
+      .from(leads)
+      .leftJoin(users, eq(leads.assigned_to, users.id))
+      .where(and(eq(leads.is_deleted, false), not(eq(leads.status, 'unqualified'))))
+      .orderBy(desc(leads.created_at));
+
+    // Group leads by phone numbers
+    const phoneGroups: Record<string, typeof allLeads> = {};
+
+    allLeads.forEach(lead => {
+      // Check all three phone number fields
+      const phoneNumbers = [
+        lead.phone_number,
+        lead.phone_number_2,
+        lead.phone_number_3
+      ].filter(phone => phone && phone.trim() !== '' && phone !== lead.phone_number);
+
+      // Add primary phone
+      if (lead.phone_number) {
+        if (!phoneGroups[lead.phone_number]) {
+          phoneGroups[lead.phone_number] = [];
+        }
+        phoneGroups[lead.phone_number].push(lead);
+      }
+
+      // Add secondary phones if they exist and are different from primary
+      phoneNumbers.forEach(phone => {
+        if (phone && phone !== lead.phone_number) {
+          if (!phoneGroups[phone]) {
+            phoneGroups[phone] = [];
+          }
+                                // Check if this lead is already in this phone group
+           const existingLead = phoneGroups[phone]?.find(existingLead => existingLead.id === lead.id);
+           if (!existingLead) {
+             phoneGroups[phone]?.push(lead);
+           }
+        }
+      });
+    });
+
+    // Filter only groups with duplicates (more than 1 lead)
+    const duplicateGroups = Object.entries(phoneGroups)
+      .filter(([phone, leadsInGroup]) => leadsInGroup.length > 1)
+      .map(([phone, leadsInGroup]) => ({
+        phoneNumber: phone,
+        leads: leadsInGroup,
+        count: leadsInGroup.length
+      }))
+      .sort((a, b) => b.count - a.count); // Sort by number of duplicates
+
+    return { 
+      success: true, 
+      duplicateGroups,
+      totalGroups: duplicateGroups.length,
+      totalDuplicateLeads: duplicateGroups.reduce((sum, group) => sum + group.count, 0)
+    };
+    
+  } catch (error) {
+    console.error("Error finding duplicate phone leads:", error);
+    return { 
+      success: false, 
+      message: "Failed to find duplicate leads",
+      duplicateGroups: [],
+      totalGroups: 0,
+      totalDuplicateLeads: 0
+    };
   }
 }

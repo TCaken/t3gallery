@@ -191,7 +191,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (formUrl.includes('moneyright.sg')) return 'MoneyRight';
     if (formUrl.includes('loanable.sg')) return 'Loanable';
     if (formUrl.includes('crawfort.com')) return 'SEO';
-    if (formUrl.includes('moneyiq.sg')) return 'MoneyIQ SG';
+    if (formUrl.includes('moneyiq.sg')) return 'MoneyIQ';
   }
 
   // Check subject if provided
@@ -202,7 +202,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     if (subjectLower.includes('1% loan') || subjectLower.includes('one percent')) return '1% Loan';
     if (subjectLower.includes('loanable')) return 'Loanable';
     if (subjectLower.includes('crawfort')) return 'SEO';
-    if (subjectLower.includes('moneyiq')) return 'MoneyIQ SG';
+    if (subjectLower.includes('moneyiq')) return 'MoneyIQ';
   }
 
   // Then check message content
@@ -212,7 +212,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     { source: 'MoneyRight', keywords: ['MoneyRight', '1% Interest'] },
     { source: 'Loanable', keywords: ['Loanable', 'loanable.sg'] },
     { source: 'SEO', keywords: ['SEO', 'crawfort.com', 'crawfort', 'seo'] },
-    { source: 'MoneyIQ SG', keywords: ['MoneyIQ', 'moneyiq.sg'] }
+    { source: 'MoneyIQ', keywords: ['MoneyIQ', 'moneyiq.sg'] }
   ];
 
   for (const check of sourceChecks) {
@@ -237,7 +237,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     return fromValue;
   }
 
-  return 'Unknown';
+  return 'UNKNOWN';
 }
 
 // Helper function to clean loan purpose value

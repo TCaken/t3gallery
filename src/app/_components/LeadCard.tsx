@@ -180,18 +180,14 @@ export default function LeadCard({
   // Helper function to format appointment status
   const formatAppointmentStatus = (status: string) => {
     switch (status) {
-      case 'P':
-        return 'Pending';
-      case 'R':
-        return 'Rescheduled';
-      case 'S':
-        return 'Scheduled';
-      case 'PR':
-        return 'Pending Reschedule';
-      case 'RS':
-        return 'Rescheduled & Scheduled';
-      case 'PRS':
-        return 'Pending Reschedule & Scheduled';
+      case 'done':
+        return 'TU';
+      case 'upcoming':
+        return 'Upcoming';
+      case 'missed':
+        return 'Missed';
+      case 'cancelled':
+        return 'Cancelled';
       default:
         return status;
     }

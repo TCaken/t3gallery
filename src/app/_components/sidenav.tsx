@@ -18,7 +18,8 @@ import {
   CalendarIcon,
   ShoppingBagIcon,
   UserGroupIcon,
-  BookOpenIcon
+  BookOpenIcon,
+  PhoneIcon
 } from "@heroicons/react/24/solid";
 
 interface NavItem {
@@ -72,6 +73,12 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       roles: ["admin", "agent"] // Only admin and agent can access leads
     },
     {
+      title: "Duplicate Phone Numbers",
+      href: "/dashboard/leads/duplicates",
+      icon: <PhoneIcon className="h-5 w-5" />,
+      roles: ["admin", "agent"] // Only admin and agent can access duplicate detection
+    },
+    {
       title: "Appointments",
       href: "/dashboard/appointments",
       icon: <CalendarIcon className="h-5 w-5" />,
@@ -110,7 +117,19 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       href: "/dashboard/playbooks",
       icon: <BookOpenIcon className="h-5 w-5" />,
       roles: ["admin"]
+    },
+    {
+      title: "Borrowers",
+      href: "/dashboard/borrowers",
+      icon: <UsersIcon className="h-5 w-5" />,
+      roles: ["admin"] // Only admin can access borrowers
     }
+    // {
+    //   title: "Borrower Settings",
+    //   href: "/dashboard/borrowers/settings",
+    //   icon: <Cog6ToothIcon className="h-5 w-5" />,
+    //   roles: ["admin"]
+    // }
   ];
 
   // Filter nav items based on user roles
