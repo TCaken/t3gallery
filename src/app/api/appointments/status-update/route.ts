@@ -242,11 +242,27 @@ export async function POST(request: NextRequest) {
     });
 
     if (upcomingAppointments.length === 0) {
+      console.log(`📊 No appointments found - Final Summary:`);
+      console.log(`   Today (Singapore): ${todaySingapore}`);
+      console.log(`   Threshold hours: ${thresholdHours}`);
+      console.log(`   Excel data provided: ${!!excelData}`);
+      
       return NextResponse.json({
         success: true,
         message: "No upcoming appointments found for today",
         processed: 0,
-        updated: 0
+        updated: 0,
+        todaySingapore,
+        thresholdHours,
+        results: [],
+        summary: {
+          excelDataProvided: !!excelData,
+          excelRowsProcessed: excelData?.rows?.length ?? 0,
+          upcomingAppointmentsFound: 0,
+          appointmentStatusUpdates: 0,
+          timeBasedMissedUpdates: 0,
+          errorCount: 0
+        }
       });
     }
 
@@ -271,6 +287,8 @@ export async function POST(request: NextRequest) {
 
     // First, process Excel rows for new loan cases
     if (excelData?.rows) {
+      console.log(`📊 Processing ${excelData.rows.length} Excel rows...`);
+      
       for (const row of excelData.rows) {
         processedCount++;
         
@@ -503,6 +521,23 @@ export async function POST(request: NextRequest) {
         });
         console.log(`✅ Updated lead ${lead.id} to ${newLeadStatus}`);
 
+        // Add to results array
+        const appointmentTimeUTC = new Date(appointment.start_datetime);
+        const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
+        
+        results.push({
+          appointmentId: appointment.id.toString(),
+          leadId: lead.id.toString(),
+          leadName: lead.full_name ?? 'Unknown',
+          oldAppointmentStatus: appointment.status,
+          newAppointmentStatus: newAppointmentStatus,
+          oldLeadStatus: lead.status,
+          newLeadStatus: newLeadStatus,
+          reason: `Excel Code: ${code} - ${eligibilityNotes}${updateReason}`,
+          appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
+          timeDiffHours: 'N/A (Excel Update)'
+        });
+
         updatedCount++;
         console.log(`✅ Updated appointment ${appointment.id} to ${newAppointmentStatus} (Code: ${code}) - ${updateReason}`);
       }
@@ -554,22 +589,68 @@ export async function POST(request: NextRequest) {
             updated_by: fallbackUserId
           });
 
+          // Add to results array
+          results.push({
+            appointmentId: appointment.id.toString(),
+            leadId: lead.id.toString(),
+            leadName: lead.full_name ?? 'Unknown',
+            oldAppointmentStatus: appointment.status,
+            newAppointmentStatus: 'missed',
+            oldLeadStatus: lead.status,
+            newLeadStatus: 'missed/RS',
+            reason: `Time threshold exceeded (${timeDiffHours.toFixed(2)}h late, threshold: ${thresholdHours}h)`,
+            appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
+            timeDiffHours: timeDiffHours.toFixed(2)
+          });
+
           updatedCount++;
           console.log(`✅ Marked appointment ${appointment.id} as missed (${timeDiffHours.toFixed(2)}h late)`);
         } catch (error) {
           console.error(`❌ Error updating appointment ${appointment.id}:`, error);
+          
+          // Add error to results array
+          results.push({
+            appointmentId: appointment.id.toString(),
+            leadId: lead.id.toString(),
+            leadName: lead.full_name ?? 'Unknown',
+            oldAppointmentStatus: appointment.status,
+            newAppointmentStatus: appointment.status,
+            oldLeadStatus: lead.status,
+            newLeadStatus: lead.status,
+            reason: `Failed to update: ${(error as Error).message}`,
+            appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
+            timeDiffHours: timeDiffHours.toFixed(2),
+            error: (error as Error).message
+          });
         }
       } else {
         console.log(`ℹ️ No update needed for appointment ${appointment.id}: Time diff ${timeDiffHours.toFixed(2)}h < ${thresholdHours}h`);
       }
     }
 
+    console.log(`📊 Final Summary:`);
+    console.log(`   Total Excel rows processed: ${processedCount}`);
+    console.log(`   Total appointments updated: ${updatedCount}`);
+    console.log(`   Results entries: ${results.length}`);
+    console.log(`   Today (Singapore): ${todaySingapore}`);
+    console.log(`   Threshold hours: ${thresholdHours}`);
+
     return NextResponse.json({
       success: true,
-      message: "Appointment status update completed",
+      message: `Appointment status update completed. Processed ${processedCount} Excel rows, updated ${updatedCount} appointments.`,
       processed: processedCount,
       updated: updatedCount,
-      results
+      todaySingapore,
+      thresholdHours,
+      results,
+      summary: {
+        excelDataProvided: !!excelData,
+        excelRowsProcessed: excelData?.rows?.length ?? 0,
+        upcomingAppointmentsFound: upcomingAppointments.length,
+        appointmentStatusUpdates: results.filter(r => r.reason.includes('Excel Code')).length,
+        timeBasedMissedUpdates: results.filter(r => r.reason.includes('Time threshold')).length,
+        errorCount: results.filter(r => r.error).length
+      }
     });
 
   } catch (error) {
