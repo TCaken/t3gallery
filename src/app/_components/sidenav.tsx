@@ -78,12 +78,6 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       icon: <PhoneIcon className="h-5 w-5" />,
       roles: ["admin", "agent"] // Only admin and agent can access duplicate detection
     },
-    // {
-    //   title: "Borrowers",
-    //   href: "/dashboard/borrowers",
-    //   icon: <UsersIcon className="h-5 w-5" />,
-    //   roles: ["admin"] // Only admin can access borrowers
-    // },
     {
       title: "Appointments",
       href: "/dashboard/appointments",
@@ -124,12 +118,18 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       icon: <BookOpenIcon className="h-5 w-5" />,
       roles: ["admin"]
     },
-    // {
-    //   title: "Borrower Settings",
-    //   href: "/dashboard/borrowers/settings",
-    //   icon: <Cog6ToothIcon className="h-5 w-5" />,
-    //   roles: ["admin"]
-    // }
+    {
+      title: "Borrowers",
+      href: "/dashboard/borrowers",
+      icon: <UsersIcon className="h-5 w-5" />,
+      roles: ["admin"] // Only admin can access borrowers
+    },
+    {
+      title: "Borrower Settings",
+      href: "/dashboard/borrowers/settings",
+      icon: <Cog6ToothIcon className="h-5 w-5" />,
+      roles: ["admin"]
+    }
   ];
 
   // Filter nav items based on user roles

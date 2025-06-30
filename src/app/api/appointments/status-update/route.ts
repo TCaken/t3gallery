@@ -268,6 +268,7 @@ export async function POST(request: NextRequest) {
 
     let processedCount = 0;
     let updatedCount = 0;
+    const processedAppointmentIds = new Set<number>(); // Track appointments already updated by Excel data
     const results: Array<{
       appointmentId: string;
       leadId: string;
@@ -385,10 +386,17 @@ export async function POST(request: NextRequest) {
 
         // Format eligibility notes based on code
         let eligibilityNotes = '';
+        let additionalLeadNotes = '';
+        
         if (code === 'RS') {
           const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
-          const rsReason = row.col_RS.trim() ?? '';
-          eligibilityNotes = `RS - ${rsReason} - ${rsDetailed}`;
+          const rsReason = row.col_RS?.trim() ?? '';
+          eligibilityNotes = `RS - ${rsReason}`;
+          
+          // Add detailed reason to lead notes if it has content
+          if (rsDetailed) {
+            additionalLeadNotes = `RS Details: ${rsDetailed}`;
+          }
         } else if (code === 'R') {
           eligibilityNotes = 'R - Rejected';
         } else if (code === 'PRS') {
@@ -435,9 +443,9 @@ export async function POST(request: NextRequest) {
             newAppointmentStatus = 'done';
             newLeadStatus = 'missed/RS';
             newLeadLoanStatus = 'RS';
-            newLeadLoanNotes = 'RS - Rejected';
+            newLeadLoanNotes = additionalLeadNotes ? `RS - Rejected. ${additionalLeadNotes}` : 'RS - Rejected';
             newAppointmentLoanStatus = 'RS';
-            newAppointmentLoanNotes = 'RS - Rejected';
+            newAppointmentLoanNotes = additionalLeadNotes ? `RS - Rejected. ${additionalLeadNotes}` : 'RS - Rejected';
             break;
           case 'R':
             newAppointmentStatus = 'done';
@@ -538,12 +546,19 @@ export async function POST(request: NextRequest) {
           timeDiffHours: 'N/A (Excel Update)'
         });
 
+        // Mark this appointment as processed to avoid duplicate updates
+        processedAppointmentIds.add(appointment.id);
+
         updatedCount++;
         console.log(`✅ Updated appointment ${appointment.id} to ${newAppointmentStatus} (Code: ${code}) - ${updateReason}`);
       }
+      
+      console.log(`📊 Excel processing completed: ${processedAppointmentIds.size} appointments updated from Excel data`);
     }
 
     // Then, check remaining appointments for time threshold
+    console.log(`🕐 Starting time threshold check for ${upcomingAppointments.length} total appointments (${processedAppointmentIds.size} already processed by Excel)`);
+    
     for (const record of upcomingAppointments) {
       const appointment = record.appointment;
       const lead = record.lead;
@@ -554,7 +569,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Skip if this appointment was already processed by Excel data
+      if (processedAppointmentIds.has(appointment.id)) {
+        console.log(`⏭️ Skipping appointment ${appointment.id} - already processed by Excel data`);
+        continue;
+      }
+
+      // Skip if appointment status is no longer 'upcoming' (safety check)
       if (appointment.status !== 'upcoming') {
+        console.log(`⏭️ Skipping appointment ${appointment.id} - status is ${appointment.status}, not upcoming`);
         continue;
       }
 
@@ -631,6 +653,7 @@ export async function POST(request: NextRequest) {
     console.log(`📊 Final Summary:`);
     console.log(`   Total Excel rows processed: ${processedCount}`);
     console.log(`   Total appointments updated: ${updatedCount}`);
+    console.log(`   Appointments processed by Excel: ${processedAppointmentIds.size}`);
     console.log(`   Results entries: ${results.length}`);
     console.log(`   Today (Singapore): ${todaySingapore}`);
     console.log(`   Threshold hours: ${thresholdHours}`);
