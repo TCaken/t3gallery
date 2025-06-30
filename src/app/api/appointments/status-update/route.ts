@@ -386,9 +386,9 @@ export async function POST(request: NextRequest) {
         // Format eligibility notes based on code
         let eligibilityNotes = '';
         if (code === 'RS') {
-          // const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
-          // const rsReason = row.col_RS.trim() ?? '';
-          eligibilityNotes = `RS - Rejected With Special Reason`;
+          const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
+          const rsReason = row.col_RS.trim() ?? '';
+          eligibilityNotes = `RS - ${rsReason} - ${rsDetailed}`;
         } else if (code === 'R') {
           eligibilityNotes = 'R - Rejected';
         } else if (code === 'PRS') {
