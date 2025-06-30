@@ -237,7 +237,7 @@ function determineLeadSource(message: string, formUrl?: string, subject?: string
     return fromValue;
   }
 
-  return 'Unknown';
+  return 'UNKNOWN';
 }
 
 // Helper function to clean loan purpose value
