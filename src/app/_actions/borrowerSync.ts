@@ -268,7 +268,7 @@ function determineBorrowerSource(bucketData: {
     return "BHV1";
   }
   
-  return "Not in All Buckets";
+  return "Not Eligible";
 }
 
 // Sync single borrower
@@ -322,7 +322,7 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
 
      // Determine status based on loan activity and bucket membership
      let borrowerStatus: string;
-     if (borrowerSource === "Not in All Buckets") {
+     if (borrowerSource === "Not in All Buckets" || borrowerSource === "Not Eligible") {
        borrowerStatus = "done"; // Force done status for borrowers not in any bucket
     //  } else if (hasActiveLoan) {
     //    borrowerStatus = "new";

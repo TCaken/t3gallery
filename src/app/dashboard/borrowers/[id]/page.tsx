@@ -6,22 +6,78 @@ import { getBorrower } from "~/app/_actions/borrowers";
 import { getBorrowerLoanPlans } from "~/app/_actions/borrowerSync";
 import { getBorrowerActions } from "~/app/_actions/borrowers";
 import { getBorrowerAppointments } from "~/app/_actions/borrowerAppointments";
+import {
+  UserIcon,
+  IdentificationIcon,
+  CogIcon,
+  ChartBarIcon,
+  DocumentTextIcon,
+  CurrencyDollarIcon,
+  ClockIcon,
+  CalendarIcon,
+  PhoneIcon,
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ChatBubbleLeftRightIcon
+} from '@heroicons/react/24/outline';
 
 import BorrowerActionButtons from "~/app/_components/BorrowerActionButtons";
 import BorrowerCommunicationPreferences from "~/app/_components/BorrowerCommunicationPreferences";
+
+// Import types directly from schema - this is the proper way!
+import type { 
+  borrowers,
+  loan_plans,
+  borrower_appointments,
+  borrower_actions 
+} from "~/server/db/schema";
+
+// Use inferred types from schema - much cleaner!
+type Borrower = typeof borrowers.$inferSelect;
+type LoanPlan = typeof loan_plans.$inferSelect;  
+type BorrowerAppointment = typeof borrower_appointments.$inferSelect;
+type BorrowerAction = typeof borrower_actions.$inferSelect;
+
+// Simple type guard for loan plan to avoid unsafe member access
+interface LoanPlanData {
+  loan_comments?: string | null;
+  product_name?: string | null;
+  has_bd?: boolean;
+  has_bhv?: boolean;
+  has_dnc?: boolean;
+  is_overdue?: boolean;
+  next_due_date?: string | null;
+  loan_completed_date?: string | null;
+  estimated_reloan_amount?: string | null;
+  interest_rate?: string | null;
+  loan_tenure?: string | null;
+  monthly_installment?: string | null;
+  [key: string]: any; // Allow other properties
+}
+
+// Type guard function
+const isLoanPlan = (plan: any): plan is LoanPlanData => {
+  return plan && typeof plan === 'object';
+};
 
 export default function BorrowerDetailPage() {
   const params = useParams();
   const borrowerId = parseInt(params.id as string);
   
-  const [borrower, setBorrower] = useState<any>(null);
-  const [loanPlans, setLoanPlans] = useState<any[]>([]);
-  const [actions, setActions] = useState<any[]>([]);
-  const [appointments, setAppointments] = useState<any[]>([]);
+  // Use proper schema types - no more 'any'!
+  const [borrower, setBorrower] = useState<Borrower | null>(null);
+  const [loanPlans, setLoanPlans] = useState<LoanPlan[]>([]);
+  const [actions, setActions] = useState<BorrowerAction[]>([]);
+  const [appointments, setAppointments] = useState<BorrowerAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [error, setError] = useState<string>("");
 
+  // Helper function to safely access loan plan properties
+  const safeLoanPlanAccess = (plan: any, property: string): any => {
+    return plan && typeof plan === 'object' ? plan[property] : null;
+  };
 
   useEffect(() => {
     const fetchBorrowerData = async () => {
@@ -64,18 +120,20 @@ export default function BorrowerDetailPage() {
     }
   }, [borrowerId]);
 
-  const formatDate = (dateString: string | null) => {
+  const formatDate = (dateString: string | Date | null) => {
     if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleDateString("en-SG", {
+    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    return date.toLocaleDateString("en-SG", {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
   };
 
-  const formatDateTime = (dateString: string | null) => {
+  const formatDateTime = (dateString: string | Date | null) => {
     if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleString("en-SG", {
+    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    return date.toLocaleString("en-SG", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -119,7 +177,7 @@ export default function BorrowerDetailPage() {
       return { source: "2nd Reloan", priority: "medium", color: "#ff9800" };
     }
     if (borrower?.is_in_attrition === "Yes") {
-      return { source: "Attrition Risk", priority: "high", color: "#f44336" };
+      return { source: "Attrition Risk", priority: "medium", color: "#f44336" };
     }
     if (borrower?.is_in_last_payment_due === "Yes") {
       return { source: "Last Payment Due", priority: "medium", color: "#9c27b0" };
@@ -129,7 +187,7 @@ export default function BorrowerDetailPage() {
     }
     
     // Default fallback
-    return { source: "Standard", priority: "low", color: "#9e9e9e" };
+    return { source: "Not Eligible", priority: "low", color: "#9e9e9e" };
   };
 
   // Get the latest/upcoming appointment
@@ -199,10 +257,10 @@ export default function BorrowerDetailPage() {
           <div style={{ padding: "15px", backgroundColor: "#f8f9fa", borderRadius: "6px" }}>
             <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>PRIMARY LOAN</div>
             <div style={{ fontSize: "16px", fontWeight: "bold", color: "#333" }}>
-              {borrower.loan_product || "No Active Loan"}
+              {primaryLoanPlan?.product_name || borrower.loan_id || "No Active Loan"}
             </div>
             <div style={{ fontSize: "14px", color: "#666" }}>
-              {borrower.loan_id && `ID: ${borrower.loan_id}`}
+              {primaryLoanPlan?.loan_id || borrower.loan_id ? `ID: ${primaryLoanPlan?.loan_id || borrower.loan_id}` : ""}
             </div>
           </div>
           
@@ -244,7 +302,7 @@ export default function BorrowerDetailPage() {
                   {formatDateTime(upcomingAppointment.start_datetime)}
                 </div>
                 <div style={{ fontSize: "12px", color: "#666", marginTop: "5px" }}>
-                  with {upcomingAppointment.agent_name}
+                  with {(upcomingAppointment as any).agent_name}
                 </div>
               </div>
             ) : latestAppointment ? (
@@ -274,10 +332,14 @@ export default function BorrowerDetailPage() {
                 borderRadius: "4px",
                 fontSize: "12px",
                 cursor: "pointer",
-                fontWeight: "500"
+                fontWeight: "500",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
               }}
             >
-              📅 Manage Appointments
+              <CalendarIcon className="h-4 w-4" />
+              Manage Appointments
             </button>
           </div>
 
@@ -320,11 +382,11 @@ export default function BorrowerDetailPage() {
       <div style={{ marginBottom: "20px" }}>
         <div style={{ borderBottom: "2px solid #e9ecef", display: "flex", gap: "20px" }}>
           {[
-            { id: "overview", label: "Overview" },
-            { id: "loan_plans", label: `Loan Plans (${loanPlans.length})` },
-            { id: "financial", label: "Financial Info" },
-            { id: "appointments", label: `Appointments (${appointments.length})` },
-            { id: "history", label: `History (${actions.length})` },
+            { id: "overview", label: "Overview", icon: <UserIcon className="h-4 w-4" /> },
+            { id: "loan_plans", label: `Loan Plans (${loanPlans.length})`, icon: <DocumentTextIcon className="h-4 w-4" /> },
+            { id: "financial", label: "Financial Info", icon: <CurrencyDollarIcon className="h-4 w-4" /> },
+            { id: "appointments", label: `Appointments (${appointments.length})`, icon: <CalendarIcon className="h-4 w-4" /> },
+            { id: "history", label: `History (${actions.length})`, icon: <ClockIcon className="h-4 w-4" /> },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -338,8 +400,12 @@ export default function BorrowerDetailPage() {
                 fontWeight: activeTab === tab.id ? "bold" : "normal",
                 cursor: "pointer",
                 fontSize: "14px",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
               }}
             >
+              {tab.icon}
               {tab.label}
             </button>
           ))}
@@ -348,54 +414,97 @@ export default function BorrowerDetailPage() {
 
       {/* Tab Content */}
       {activeTab === "overview" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-          {/* Basic Information */}
-          <div style={{ 
-            padding: "20px", 
-            backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)" 
-          }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              📋 Basic Information
-            </h3>
-            <div style={{ display: "grid", gap: "12px" }}>
-              <div><strong>Full Name:</strong> {borrower.full_name}</div>
-              <div>
-                <strong>Phone Numbers:</strong>
-                <div style={{ marginLeft: "10px", fontSize: "14px" }}>
-                  <div>Primary: {borrower.phone_number}</div>
-                  <div>Secondary: {borrower.phone_number_2 ?? "N/A"}</div>
-                  <div>Tertiary: {borrower.phone_number_3 ?? "N/A"}</div>
+        <div style={{ display: "grid", gap: "20px" }}>
+          {/* Top Row - Key Information Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px" }}>
+            {/* Contact & Personal Information */}
+            <div style={{ 
+              padding: "24px", 
+              backgroundColor: "#fff", 
+              borderRadius: "12px", 
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid #e9ecef"
+            }}>
+              <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+                <UserIcon className="h-6 w-6 text-blue-600" />
+                Contact & Personal Details
+              </h3>
+              
+              {/* Contact Methods */}
+              <div style={{ marginBottom: "24px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Contact Information
+                </h4>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <PhoneIcon className="h-4 w-4 text-green-600" />
+                    <span style={{ fontWeight: "500" }}>Primary:</span> {borrower.phone_number}
+                  </div>
+                  {borrower.phone_number_2 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "20px" }}>
+                      <span style={{ fontWeight: "500" }}>Secondary:</span> {borrower.phone_number_2}
+                    </div>
+                  )}
+                  {borrower.phone_number_3 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "20px" }}>
+                      <span style={{ fontWeight: "500" }}>Tertiary:</span> {borrower.phone_number_3}
+                    </div>
+                  )}
+                  {borrower.email && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <ChatBubbleLeftRightIcon className="h-4 w-4 text-blue-600" />
+                      <span style={{ fontWeight: "500" }}>Email:</span> {borrower.email}
+                    </div>
+                  )}
                 </div>
               </div>
-              <div><strong>Email:</strong> {borrower.email ?? "N/A"}</div>
-              <div><strong>Residential Status:</strong> {borrower.residential_status ?? "N/A"}</div>
-              <div><strong>Source:</strong> {borrower.source ?? "N/A"}</div>
-              <div><strong>Latest Loan Completed:</strong> {formatDate(borrower.latest_completed_loan_date)}</div>
-              <div><strong>Created:</strong> {formatDateTime(borrower.created_at)}</div>
-              <div><strong>Last Updated:</strong> {formatDateTime(borrower.updated_at)}</div>
-            </div>
-          </div>
 
-          {/* Identity & Documentation */}
-          <div style={{ 
-            padding: "20px", 
-            backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)" 
-          }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              🆔 Identity & Documentation
-            </h3>
-            <div style={{ display: "grid", gap: "12px" }}>
+              {/* Personal Details */}
+              <div style={{ marginBottom: "24px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Personal Details
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <div><span style={{ fontWeight: "500" }}>Residential Status:</span> {borrower.id_type?.replace("_", " ").toUpperCase() ?? "N/A"}</div>
+                  <div><span style={{ fontWeight: "500" }}>Source:</span> {borrower.source ?? "N/A"}</div>
+                  <div><span style={{ fontWeight: "500" }}>Current Employer:</span> {borrower.current_employer ?? "N/A"}</div>
+                  <div><span style={{ fontWeight: "500" }}>Latest Loan Completed:</span> {formatDate(borrower.latest_completed_loan_date)}</div>
+                </div>
+              </div>
+
+              {/* System Timestamps */}
               <div>
-                <strong>AA Status:</strong> 
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Record History
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", fontSize: "14px", color: "#666" }}>
+                  <div><span style={{ fontWeight: "500" }}>Created:</span> {formatDateTime(borrower.created_at)}</div>
+                  <div><span style={{ fontWeight: "500" }}>Last Updated:</span> {formatDateTime(borrower.updated_at)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Identity & Status Card */}
+            <div style={{ 
+              padding: "24px", 
+              backgroundColor: "#fff", 
+              borderRadius: "12px", 
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid #e9ecef"
+            }}>
+              <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+                <IdentificationIcon className="h-6 w-6 text-purple-600" />
+                Identity & Status
+              </h3>
+              
+              {/* AA Status - Prominent */}
+              <div style={{ marginBottom: "20px", textAlign: "center" }}>
+                <div style={{ fontSize: "12px", color: "#666", marginBottom: "8px", textTransform: "uppercase" }}>AA Status</div>
                 <span style={{ 
-                  marginLeft: "10px",
-                  padding: "4px 8px", 
-                  borderRadius: "4px", 
-                  fontSize: "12px",
+                  padding: "8px 16px", 
+                  borderRadius: "20px", 
+                  fontSize: "14px",
+                  fontWeight: "600",
                   backgroundColor: borrower.aa_status === "yes" ? "#d4edda" : 
                                  borrower.aa_status === "no" ? "#f8d7da" : "#fff3cd",
                   color: borrower.aa_status === "yes" ? "#155724" : 
@@ -404,182 +513,212 @@ export default function BorrowerDetailPage() {
                   {borrower.aa_status.toUpperCase()}
                 </span>
               </div>
-              <div><strong>Has DNC:</strong> {borrower.is_dnc ? "Yes" : "No"}</div>
-              <div><strong>ID Type:</strong> {borrower.id_type.replace("_", " ").toUpperCase()}</div>
-              <div><strong>ID Number:</strong> {borrower.id_number || "N/A"}</div>
-              <div><strong>Income Document Type:</strong> {borrower.income_document_type.replace("_", " ").toUpperCase()}</div>
-              <div><strong>Current Employer:</strong> {borrower.current_employer ?? "N/A"}</div>
-              <div><strong>Average Monthly Income:</strong> ${borrower.average_monthly_income ?? "N/A"}</div>
-              <div><strong>Annual Income:</strong> ${borrower.annual_income ?? "N/A"}</div>
-              <div><strong>Estimated Reloan Amount:</strong> ${borrower.estimated_reloan_amount ?? "N/A"}</div>
-            </div>
-          </div>
 
-          {/* Interactive Communication Preferences Component */}
-          <BorrowerCommunicationPreferences
-            borrowerId={borrowerId}
-            currentContactPreference={borrower.contact_preference}
-            currentCommunicationLanguage={borrower.communication_language}
-                       onSuccess={() => {
-               // Refresh the page data after updating preferences
-               window.location.reload();
-             }}
-          />
-
-          {/* System Information */}
-          <div style={{ 
-            padding: "20px", 
-            backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)" 
-          }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              ⚙️ System Information
-            </h3>
-            <div style={{ display: "grid", gap: "12px" }}>
-              <div>
-                <strong>Assigned Agent:</strong>{" "}
-                {borrower.assigned_agent_name ? (
-                  <span style={{ 
-                    color: "#1976d2", 
-                    fontWeight: "500" 
-                  }}>
-                    {borrower.assigned_agent_name}
-                  </span>
-                ) : (
-                  <span style={{ color: "#666", fontStyle: "italic" }}>Unassigned</span>
-                )}
-                {borrower.assigned_agent_email && (
-                  <div style={{ fontSize: "12px", color: "#666", marginLeft: "10px" }}>
-                    {borrower.assigned_agent_email}
-                  </div>
-                )}
-              </div>
-              
-              <div>
-                <strong>Follow-up Date:</strong>{" "}
-                {borrower.follow_up_date ? (
-                  <span style={{ 
-                    color: new Date(borrower.follow_up_date) < new Date() ? "#f44336" : "#4caf50",
-                    fontWeight: "500"
-                  }}>
-                    {formatDateTime(borrower.follow_up_date)}
-                    {new Date(borrower.follow_up_date) < new Date() && (
-                      <span style={{ marginLeft: "8px", fontSize: "12px" }}>⚠️ OVERDUE</span>
-                    )}
-                  </span>
-                ) : (
-                  <span style={{ color: "#666", fontStyle: "italic" }}>Not scheduled</span>
-                )}
+              {/* ID Information */}
+              <div style={{ marginBottom: "20px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Identification
+                </h4>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div><span style={{ fontWeight: "500" }}>Type:</span> {borrower.id_type?.replace("_", " ").toUpperCase()}</div>
+                  {/* <div><span style={{ fontWeight: "500" }}>Number:</span> {borrower.id_number ?? "N/A"}</div> */}
+                  <div><span style={{ fontWeight: "500" }}>Income Doc:</span> {borrower.income_document_type?.replace("_", " ").toUpperCase() ?? "N/A"}</div>
+                </div>
               </div>
 
+              {/* Lead Source */}
               <div>
-                <strong>Lead Source:</strong>{" "}
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Lead Source
+                </h4>
                 {(() => {
                   const leadSourceInfo = getLeadSource(borrower);
                   return (
-                    <span style={{ 
-                      color: leadSourceInfo.color,
-                      fontWeight: "500",
-                      padding: "4px 8px",
-                      backgroundColor: `${leadSourceInfo.color}20`,
-                      borderRadius: "4px",
-                      fontSize: "13px"
-                    }}>
-                      {leadSourceInfo.source}
+                    <div style={{ textAlign: "center" }}>
                       <span style={{ 
-                        marginLeft: "6px", 
-                        fontSize: "10px",
-                        opacity: 0.8,
-                        textTransform: "uppercase"
+                        color: leadSourceInfo.color,
+                        fontWeight: "600",
+                        padding: "6px 12px",
+                        backgroundColor: `${leadSourceInfo.color}20`,
+                        borderRadius: "8px",
+                        fontSize: "13px",
+                        display: "inline-block"
                       }}>
-                        {leadSourceInfo.priority}
+                        {leadSourceInfo.source}
+                        <span style={{ 
+                          marginLeft: "8px", 
+                          fontSize: "10px",
+                          opacity: 0.8,
+                          textTransform: "uppercase",
+                          backgroundColor: `${leadSourceInfo.color}40`,
+                          padding: "2px 6px",
+                          borderRadius: "4px"
+                        }}>
+                          {leadSourceInfo.priority}
+                        </span>
                       </span>
-                    </span>
+                    </div>
                   );
                 })()}
               </div>
+            </div>
+          </div>
 
-              <div>
-                <strong>Credit Score:</strong>{" "}
-                {borrower.credit_score ? (
-                  <span style={{ fontWeight: "500" }}>{borrower.credit_score}</span>
-                ) : (
-                  <span style={{ color: "#666", fontStyle: "italic" }}>Not available</span>
+          {/* Middle Row - Financial Overview */}
+          <div style={{ 
+            padding: "24px", 
+            backgroundColor: "#fff", 
+            borderRadius: "12px", 
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+            border: "1px solid #e9ecef"
+          }}>
+            <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+              <CurrencyDollarIcon className="h-6 w-6 text-green-600" />
+              Financial Overview
+            </h3>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "20px" }}>
+              {/* Income Information */}
+              <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Income
+                </h4>
+                <div style={{ fontSize: "24px", fontWeight: "bold", color: "#28a745", marginBottom: "4px" }}>
+                  ${borrower.average_monthly_income ?? "N/A"}
+                </div>
+                <div style={{ fontSize: "12px", color: "#666" }}>Monthly Average</div>
+                {borrower.annual_income && (
+                  <div style={{ fontSize: "14px", color: "#666", marginTop: "8px" }}>
+                    Annual: ${borrower.annual_income}
+                  </div>
                 )}
               </div>
 
-              <div>
-                <strong>Lead Score:</strong>{" "}
-                <span style={{ 
-                  fontWeight: "500",
-                  color: borrower.lead_score >= 75 ? "#4caf50" : 
-                         borrower.lead_score >= 50 ? "#ff9800" : "#f44336"
-                }}>
-                  {borrower.lead_score}/100
-                </span>
+              {/* Loan Amount */}
+              <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Estimated Reloan
+                </h4>
+                <div style={{ fontSize: "24px", fontWeight: "bold", color: "#007bff", marginBottom: "4px" }}>
+                  ${borrower.estimated_reloan_amount ?? "N/A"}
+                </div>
+                <div style={{ fontSize: "12px", color: "#666" }}>Projected Amount</div>
               </div>
 
-              <div>
-                <strong>System Status:</strong>{" "}
-                <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeColor(borrower.status)}`}>
-                  {borrower.status.replace("_", " ").toUpperCase()}
-                </span>
+              {/* Scores */}
+              <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Scores
+                </h4>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "14px" }}>Lead Score:</span>
+                    <span style={{ 
+                      fontWeight: "600",
+                      color: (borrower.lead_score ?? 0) >= 75 ? "#28a745" : 
+                             (borrower.lead_score ?? 0) >= 50 ? "#ffc107" : "#dc3545"
+                    }}>
+                      {borrower.lead_score}/100
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "14px" }}>Credit Score:</span>
+                    <span style={{ fontWeight: "600" }}>
+                      {borrower.credit_score || "N/A"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* System Status */}
+              <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  System Status
+                </h4>
+                <div style={{ marginBottom: "12px" }}>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadgeColor(borrower.status)}`}>
+                    {borrower.status.replace("_", " ").toUpperCase()}
+                  </span>
+                </div>
+                <div style={{ fontSize: "14px", color: "#666" }}>
+                  {(borrower as any).assigned_agent_name ? (
+                    <>
+                      <div><span style={{ fontWeight: "500" }}>Agent:</span> {(borrower as any).assigned_agent_name}</div>
+                      {(borrower as any).assigned_agent_email && (
+                        <div style={{ fontSize: "12px", color: "#999" }}>{(borrower as any).assigned_agent_email}</div>
+                      )}
+                    </>
+                  ) : (
+                    <span style={{ fontStyle: "italic" }}>Unassigned</span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Status Buckets */}
-          <div style={{ 
-            padding: "20px", 
-            backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-            gridColumn: "1 / -1",
-            marginBottom: "20px"
-          }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              📊 Customer Performance Buckets
-            </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
-              <StatusBucket 
-                title="Closed Loan"
-                value={borrower.is_in_closed_loan}
-                description="Customer has closed/completed loans"
-              />
-              <StatusBucket 
-                title="2nd Reloan"
-                value={borrower.is_in_2nd_reloan}
-                description="Customer is in second reloan cycle"
-              />
-              <StatusBucket 
-                title="Attrition"
-                value={borrower.is_in_attrition}
-                description="Customer showing signs of leaving"
-              />
-              <StatusBucket 
-                title="Last Payment Due"
-                value={borrower.is_in_last_payment_due}
-                description="Customer on final payment"
-              />
-              <StatusBucket 
-                title="BHV1"
-                value={borrower.is_in_bhv1}
-                description="Customer behavioral pattern 1"
-              />
+          {/* Bottom Row - Communication & Status Buckets */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "20px" }}>
+            {/* Communication Preferences */}
+            <BorrowerCommunicationPreferences
+              borrowerId={borrowerId}
+              currentContactPreference={borrower.contact_preference ?? undefined}
+              currentCommunicationLanguage={borrower.communication_language ?? undefined}
+              onSuccess={() => {
+                window.location.reload();
+              }}
+            />
+
+            {/* Customer Performance Buckets */}
+            <div style={{ 
+              padding: "24px", 
+              backgroundColor: "#fff", 
+              borderRadius: "12px", 
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid #e9ecef"
+            }}>
+              <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+                <ChartBarIcon className="h-6 w-6 text-indigo-600" />
+                Performance Buckets
+              </h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px" }}>
+                <StatusBucket 
+                  title="Closed Loan"
+                  value={borrower.is_in_closed_loan}
+                  description="Completed loans"
+                />
+                <StatusBucket 
+                  title="2nd Reloan"
+                  value={borrower.is_in_2nd_reloan}
+                  description="Second cycle"
+                />
+                <StatusBucket 
+                  title="Attrition"
+                  value={borrower.is_in_attrition}
+                  description="Leaving risk"
+                />
+                <StatusBucket 
+                  title="Last Payment"
+                  value={borrower.is_in_last_payment_due}
+                  description="Final payment"
+                />
+                <StatusBucket 
+                  title="BHV1"
+                  value={borrower.is_in_bhv1}
+                  description="Behavior pattern"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Quick Action Buttons */}
-          <div style={{ gridColumn: "1 / -1", marginBottom: "20px" }}>
+          {/* Action Buttons */}
+          <div>
             <BorrowerActionButtons
               borrowerId={borrowerId}
               onAction={(action, id) => {
-                // Handle action responses - for now just refresh
                 console.log(`Action ${action} performed on borrower ${id}`);
                 window.location.reload();
               }}
-              isPinned={false} // This would come from pinned borrowers data
+              isPinned={false}
               currentStatus={borrower.status}
               phoneNumber={borrower.phone_number}
               borrowerName={borrower.full_name}
@@ -588,133 +727,22 @@ export default function BorrowerDetailPage() {
               }}
             />
           </div>
-
-          {/* Current Primary Loan */}
-          <div style={{ 
-            padding: "20px", 
-            backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-            gridColumn: "1 / -1"
-          }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              💰 Current Primary Loan
-            </h3>
-            {borrower.loan_id ? (
-              <div style={{ 
-                padding: "15px", 
-                backgroundColor: "#e3f2fd", 
-                border: "1px solid #2196f3", 
-                borderRadius: "6px" 
-              }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "15px" }}>
-                  <div><strong>Loan ID:</strong> {borrower.loan_id}</div>
-                  <div><strong>Product:</strong> {borrower.loan_product}</div>
-                  <div><strong>Amount:</strong> ${borrower.loan_amount}</div>
-                  <div><strong>Status:</strong> {borrower.loan_status || "Active"}</div>
-                  <div><strong>Next Due:</strong> {formatDate(borrower.next_due_date)}</div>
-                  <div><strong>Completed:</strong> {formatDate(borrower.loan_completed_date)}</div>
-                  <div><strong>Latest Completed:</strong> {formatDate(borrower.latest_completed_loan_date)}</div>
-                  <div>
-                    <strong>Has DNC:</strong> 
-                    <span style={{ 
-                      marginLeft: "5px",
-                      padding: "2px 6px", 
-                      borderRadius: "3px", 
-                      fontSize: "11px",
-                      backgroundColor: borrower.is_dnc ? "#ffebee" : "#e8f5e8",
-                      color: borrower.is_dnc ? "#c62828" : "#2e7d32"
-                    }}>
-                      {borrower.is_dnc ? "YES" : "NO"}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* Loan Flags */}
-                <div style={{ marginTop: "15px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                  {borrower.is_bd_loan && (
-                    <span style={{ padding: "4px 8px", backgroundColor: "#ff9800", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                      BD LOAN
-                    </span>
-                  )}
-                  {borrower.is_bhv1_loan && (
-                    <span style={{ padding: "4px 8px", backgroundColor: "#f44336", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                      BHV1 LOAN
-                    </span>
-                  )}
-                  {borrower.is_overdue_loan && (
-                    <span style={{ padding: "4px 8px", backgroundColor: "#d32f2f", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                      OVERDUE
-                    </span>
-                  )}
-                  {borrower.is_dnc && (
-                    <span style={{ padding: "4px 8px", backgroundColor: "#424242", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                      DNC
-                    </span>
-                  )}
-                </div>
-
-                {borrower.loan_notes && (
-                  <div style={{ marginTop: "15px" }}>
-                    <strong>Notes:</strong>
-                    <div style={{ 
-                      marginTop: "5px", 
-                      padding: "10px", 
-                      backgroundColor: "#f5f5f5", 
-                      borderRadius: "4px", 
-                      fontSize: "14px",
-                      maxHeight: "100px",
-                      overflowY: "auto"
-                    }}>
-                      {borrower.loan_notes}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ 
-                padding: "20px", 
-                textAlign: "center", 
-                backgroundColor: "#f8f9fa", 
-                borderRadius: "6px", 
-                color: "#666" 
-              }}>
-                No active loan information available
-              </div>
-            )}
-          </div>
         </div>
       )}
-
       {activeTab === "loan_plans" && (
         <div>
-          <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333" }}>
-            📄 Loan Plans ({loanPlans.length})
+          <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "8px" }}>
+            <DocumentTextIcon className="h-6 w-6 text-gray-600" />
+            Loan Plans ({loanPlans.length})
           </h3>
           
-          {primaryLoanPlan && (
-            <div style={{ marginBottom: "30px" }}>
-              <h4 style={{ fontSize: "16px", marginBottom: "10px", color: "#007bff" }}>
-                🎯 Primary Loan Plan (Active/Selected)
-              </h4>
-              <LoanPlanCard plan={primaryLoanPlan} isPrimary={true} />
+          {loanPlans.length > 0 ? (
+            <div style={{ display: "grid", gap: "20px" }}>
+              {loanPlans.map((plan) => (
+                <LoanPlanCard key={plan.id} plan={plan} />
+              ))}
             </div>
-          )}
-
-          {otherLoanPlans.length > 0 && (
-            <div>
-              <h4 style={{ fontSize: "16px", marginBottom: "10px", color: "#666" }}>
-                📚 Other Loan Plans
-              </h4>
-              <div style={{ display: "grid", gap: "15px" }}>
-                {otherLoanPlans.map((plan) => (
-                  <LoanPlanCard key={plan.id} plan={plan} isPrimary={false} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {loanPlans.length === 0 && (
+          ) : (
             <div style={{ 
               padding: "40px", 
               textAlign: "center", 
@@ -722,7 +750,7 @@ export default function BorrowerDetailPage() {
               borderRadius: "8px", 
               color: "#666" 
             }}>
-              <div style={{ fontSize: "18px", marginBottom: "10px" }}>📄</div>
+              <DocumentTextIcon className="h-12 w-12 mx-auto mb-3 text-gray-400" />
               <div>No loan plans found for this borrower</div>
               <div style={{ fontSize: "14px", marginTop: "5px" }}>
                 Loan plans will appear here after syncing with external API
@@ -733,64 +761,288 @@ export default function BorrowerDetailPage() {
       )}
 
       {activeTab === "financial" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-          {/* Employment Information */}
-          <div style={{ 
-            padding: "20px", 
-            backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)" 
-          }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              💼 Employment Information
-            </h3>
-            <div style={{ display: "grid", gap: "12px" }}>
-              <div><strong>Current Employer:</strong> {borrower.current_employer || "N/A"}</div>
-              <div><strong>Average Monthly Income:</strong> ${borrower.average_monthly_income || "N/A"}</div>
-              <div><strong>Annual Income:</strong> ${borrower.annual_income || "N/A"}</div>
-              <div><strong>Income Document Type:</strong> {borrower.income_document_type.replace("_", " ").toUpperCase()}</div>
-            </div>
-          </div>
+        <div style={{ display: "grid", gap: "20px" }}>
+          {/* Top Row - Employment & Income */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+            {/* Employment Information */}
+            <div style={{ 
+              padding: "24px", 
+              backgroundColor: "#fff", 
+              borderRadius: "12px", 
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid #e9ecef"
+            }}>
+              <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+                <UserIcon className="h-6 w-6 text-blue-600" />
+                Employment & Income
+              </h3>
+              
+              {/* Current Employment */}
+              <div style={{ marginBottom: "20px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Current Employment
+                </h4>
+                <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                  <div style={{ fontSize: "18px", fontWeight: "600", color: "#333", marginBottom: "4px" }}>
+                    {borrower.current_employer || "Not Specified"}
+                  </div>
+                  <div style={{ fontSize: "14px", color: "#666" }}>
+                    Income Document: {borrower.income_document_type?.replace("_", " ").toUpperCase() ?? "N/A"}
+                  </div>
+                </div>
+              </div>
 
-          {/* Financial Assessment */}
-          <div style={{ 
-            padding: "20px", 
-            backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)" 
-          }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              📊 Financial Assessment
-            </h3>
-            <div style={{ display: "grid", gap: "12px" }}>
-              <div><strong>Credit Score:</strong> {borrower.credit_score || "N/A"}</div>
-              <div><strong>Lead Score:</strong> {borrower.lead_score}/100</div>
-              <div><strong>Estimated Reloan Amount:</strong> ${borrower.estimated_reloan_amount || "N/A"}</div>
+              {/* Income Breakdown */}
               <div>
-                <strong>Financial Commitment Change:</strong> 
-                <span style={{ marginLeft: "5px" }}>
-                  {borrower.financial_commitment_change.replace("_", " ").toUpperCase()}
-                </span>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Income Details
+                </h4>
+                <div style={{ display: "grid", gap: "12px" }}>
+                  <div style={{ padding: "12px", backgroundColor: "#e8f5e8", borderRadius: "8px", border: "1px solid #c3e6c3" }}>
+                    <div style={{ fontSize: "12px", color: "#155724", fontWeight: "600", marginBottom: "4px" }}>MONTHLY AVERAGE</div>
+                    <div style={{ fontSize: "24px", fontWeight: "bold", color: "#155724" }}>
+                      ${borrower.average_monthly_income ?? "N/A"}
+                    </div>
+                  </div>
+                  
+                  {borrower.annual_income && (
+                    <div style={{ padding: "12px", backgroundColor: "#e3f2fd", borderRadius: "8px", border: "1px solid #bbdefb" }}>
+                      <div style={{ fontSize: "12px", color: "#0d47a1", fontWeight: "600", marginBottom: "4px" }}>ANNUAL INCOME</div>
+                      <div style={{ fontSize: "20px", fontWeight: "bold", color: "#0d47a1" }}>
+                        ${borrower.annual_income}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Financial Assessment & Scores */}
+            <div style={{ 
+              padding: "24px", 
+              backgroundColor: "#fff", 
+              borderRadius: "12px", 
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid #e9ecef"
+            }}>
+              <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+                <ChartBarIcon className="h-6 w-6 text-purple-600" />
+                Assessment & Scores
+              </h3>
+
+              {/* Credit & Lead Scores */}
+              <div style={{ marginBottom: "20px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Performance Scores
+                </h4>
+                <div style={{ display: "grid", gap: "12px" }}>
+                  {/* Lead Score */}
+                  <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>Lead Score</div>
+                      <div style={{ fontSize: "12px", color: "#666" }}>System calculated</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ 
+                        fontSize: "24px", 
+                        fontWeight: "bold",
+                        color: (borrower.lead_score ?? 0) >= 75 ? "#28a745" : 
+                               (borrower.lead_score ?? 0) >= 50 ? "#ffc107" : "#dc3545"
+                      }}>
+                        {borrower.lead_score}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#666" }}>/100</div>
+                    </div>
+                  </div>
+
+                  {/* Credit Score */}
+                  <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>Credit Score</div>
+                      <div style={{ fontSize: "12px", color: "#666" }}>External rating</div>
+                    </div>
+                    <div style={{ 
+                      fontSize: "20px", 
+                      fontWeight: "bold",
+                      color: borrower.credit_score ? "#333" : "#999"
+                    }}>
+                      {borrower.credit_score || "N/A"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Financial Commitment Change */}
+              <div>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Financial Status
+                </h4>
+                <div style={{ padding: "16px", backgroundColor: "#fff3e0", borderRadius: "8px", border: "1px solid #ffcc02" }}>
+                  <div style={{ fontSize: "12px", color: "#e65100", fontWeight: "600", marginBottom: "4px" }}>COMMITMENT CHANGE</div>
+                  <div style={{ fontSize: "16px", fontWeight: "600", color: "#e65100" }}>
+                    {borrower.financial_commitment_change?.replace("_", " ").toUpperCase() ?? "NOT APPLICABLE"}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Communication Preferences */}
+          {/* Middle Row - Loan Information */}
           <div style={{ 
-            padding: "20px", 
+            padding: "24px", 
             backgroundColor: "#fff", 
-            borderRadius: "8px", 
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-            gridColumn: "1 / -1"
+            borderRadius: "12px", 
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+            border: "1px solid #e9ecef"
           }}>
-            <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
-              📞 Communication Preferences
+            <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+              <CurrencyDollarIcon className="h-6 w-6 text-green-600" />
+              Loan Information
             </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "15px" }}>
-              <div><strong>Contact Preference:</strong> {borrower.contact_preference}</div>
-              <div><strong>Communication Language:</strong> {borrower.communication_language}</div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
+              {/* Estimated Reloan Amount */}
+              <div style={{ padding: "20px", backgroundColor: "#e8f5e8", borderRadius: "12px", border: "1px solid #c3e6c3", textAlign: "center" }}>
+                <div style={{ fontSize: "14px", color: "#155724", fontWeight: "600", marginBottom: "8px", textTransform: "uppercase" }}>
+                  Estimated Reloan Amount
+                </div>
+                <div style={{ fontSize: "32px", fontWeight: "bold", color: "#155724", marginBottom: "4px" }}>
+                  ${borrower.estimated_reloan_amount ?? "N/A"}
+                </div>
+                <div style={{ fontSize: "12px", color: "#155724", opacity: 0.8 }}>
+                  Projected loan value
+                </div>
+              </div>
+
+              {/* Current Loan Status */}
+              <div style={{ padding: "20px", backgroundColor: "#f8f9fa", borderRadius: "12px", border: "1px solid #dee2e6" }}>
+                <div style={{ fontSize: "14px", color: "#666", fontWeight: "600", marginBottom: "12px", textTransform: "uppercase" }}>
+                  Current Loan Status
+                </div>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "14px", color: "#666" }}>Status:</span>
+                    <span style={{ fontWeight: "500" }}>{borrower.loan_status || "N/A"}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "14px", color: "#666" }}>Current Amount:</span>
+                    <span style={{ fontWeight: "500" }}>${borrower.loan_amount || "N/A"}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "14px", color: "#666" }}>Loan ID:</span>
+                    <span style={{ fontWeight: "500", fontSize: "12px", fontFamily: "monospace" }}>{borrower.loan_id || "N/A"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Risk Indicators */}
+              <div style={{ padding: "20px", backgroundColor: "#fff3e0", borderRadius: "12px", border: "1px solid #ffcc02" }}>
+                <div style={{ fontSize: "14px", color: "#e65100", fontWeight: "600", marginBottom: "12px", textTransform: "uppercase" }}>
+                  Risk Indicators
+                </div>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "14px" }}>DNC Listed:</span>
+                    <span style={{ 
+                      padding: "2px 8px", 
+                      borderRadius: "12px", 
+                      fontSize: "12px", 
+                      fontWeight: "600",
+                      backgroundColor: primaryLoanPlan?.has_dnc ? "#ffebee" : "#e8f5e8",
+                      color: primaryLoanPlan?.has_dnc ? "#c62828" : "#2e7d32"
+                    }}>
+                      {primaryLoanPlan?.has_dnc ? "YES" : "NO"}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "14px" }}>Follow-up:</span>
+                    {borrower.follow_up_date ? (
+                      <span style={{ 
+                        fontSize: "12px",
+                        color: new Date(borrower.follow_up_date) < new Date() ? "#c62828" : "#2e7d32",
+                        fontWeight: "600"
+                      }}>
+                        {new Date(borrower.follow_up_date) < new Date() ? "OVERDUE" : "SCHEDULED"}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: "12px", color: "#666", fontStyle: "italic" }}>None set</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Loan Notes Section */}
+            {borrower.loan_notes && (
+              <div style={{ marginTop: "20px" }}>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Loan Notes
+                </h4>
+                <div style={{ 
+                  padding: "16px", 
+                  backgroundColor: "#f8f9fa", 
+                  borderRadius: "8px", 
+                  border: "1px solid #dee2e6",
+                  fontSize: "14px",
+                  lineHeight: "1.5",
+                  color: "#333"
+                }}>
+                  {borrower.loan_notes}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Row - Communication Preferences */}
+          <div style={{ 
+            padding: "24px", 
+            backgroundColor: "#fff", 
+            borderRadius: "12px", 
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+            border: "1px solid #e9ecef"
+          }}>
+            <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "10px" }}>
+              <PhoneIcon className="h-6 w-6 text-indigo-600" />
+              Communication Preferences
+            </h3>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
+              <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                <div style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "8px", textTransform: "uppercase" }}>
+                  Contact Preference
+                </div>
+                <div style={{ fontSize: "16px", fontWeight: "500", color: "#333" }}>
+                  {borrower.contact_preference ?? "No Preference"}
+                </div>
+              </div>
+              
+              <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                <div style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "8px", textTransform: "uppercase" }}>
+                  Communication Language
+                </div>
+                <div style={{ fontSize: "16px", fontWeight: "500", color: "#333" }}>
+                  {borrower.communication_language ?? "No Preference"}
+                </div>
+              </div>
+              
               {borrower.follow_up_date && (
-                <div><strong>Follow-up Date:</strong> {formatDateTime(borrower.follow_up_date)}</div>
+                <div style={{ padding: "16px", backgroundColor: "#f8f9fa", borderRadius: "8px" }}>
+                  <div style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "8px", textTransform: "uppercase" }}>
+                    Follow-up Date
+                  </div>
+                  <div style={{ 
+                    fontSize: "16px", 
+                    fontWeight: "500",
+                    color: new Date(borrower.follow_up_date) < new Date() ? "#c62828" : "#333"
+                  }}>
+                    {formatDateTime(borrower.follow_up_date)}
+                    {new Date(borrower.follow_up_date) < new Date() && (
+                      <div style={{ fontSize: "12px", color: "#c62828", fontWeight: "600", marginTop: "4px" }}>
+                        ⚠️ OVERDUE
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -799,8 +1051,9 @@ export default function BorrowerDetailPage() {
 
       {activeTab === "history" && (
         <div>
-          <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333" }}>
-            📜 Action History ({actions.length})
+          <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "8px" }}>
+            <ClockIcon className="h-6 w-6 text-gray-600" />
+            Action History ({actions.length})
           </h3>
           
           {actions.length > 0 ? (
@@ -826,7 +1079,7 @@ export default function BorrowerDetailPage() {
                         {action.action_type.toUpperCase()}
                       </span>
                       <span style={{ fontSize: "14px", color: "#666" }}>
-                        by {action.user_first_name} {action.user_last_name}
+                        by {(action as any).user_first_name} {(action as any).user_last_name}
                       </span>
                     </div>
                     <span style={{ fontSize: "14px", color: "#999" }}>
@@ -849,7 +1102,7 @@ export default function BorrowerDetailPage() {
               borderRadius: "8px", 
               color: "#666" 
             }}>
-              <div style={{ fontSize: "18px", marginBottom: "10px" }}>📜</div>
+              <ClockIcon className="h-12 w-12 mx-auto mb-3 text-gray-400" />
               <div>No action history found</div>
               <div style={{ fontSize: "14px", marginTop: "5px" }}>
                 Actions will appear here as you interact with this borrower
@@ -861,8 +1114,9 @@ export default function BorrowerDetailPage() {
 
       {activeTab === "appointments" && (
         <div>
-          <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333" }}>
-            📅 Appointments ({appointments.length})
+          <h3 style={{ fontSize: "20px", marginBottom: "20px", color: "#333", display: "flex", alignItems: "center", gap: "8px" }}>
+            <CalendarIcon className="h-6 w-6 text-gray-600" />
+            Appointments ({appointments.length})
           </h3>
           
           <div style={{ marginBottom: "20px", textAlign: "right" }}>
@@ -876,10 +1130,14 @@ export default function BorrowerDetailPage() {
                 borderRadius: "6px",
                 fontSize: "14px",
                 cursor: "pointer",
-                fontWeight: "500"
+                fontWeight: "500",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px"
               }}
             >
-              📅 Manage Appointments
+              <CalendarIcon className="h-5 w-5" />
+              Manage Appointments
             </button>
           </div>
 
@@ -905,7 +1163,7 @@ export default function BorrowerDetailPage() {
                           {appointment.status.toUpperCase()}
                         </span>
                         <span style={{ fontSize: "14px", color: "#666" }}>
-                          {appointment.appointment_type?.replace('_', ' ').toUpperCase() || 'GENERAL'}
+                          {appointment.appointment_type?.replace('_', ' ').toUpperCase() ?? 'GENERAL'}
                         </span>
                       </div>
                       <div style={{ fontSize: "18px", fontWeight: "bold", color: "#333" }}>
@@ -917,7 +1175,7 @@ export default function BorrowerDetailPage() {
                     </div>
                     <div style={{ textAlign: "right" }}>
                       <div style={{ fontSize: "14px", color: "#666", marginBottom: "5px" }}>
-                        <strong>Agent:</strong> {appointment.agent_first_name} {appointment.agent_last_name}
+                        <strong>Agent:</strong> {(appointment as any).agent_first_name} {(appointment as any).agent_last_name}
                       </div>
                       <div style={{ fontSize: "12px", color: "#999" }}>
                         Created: {formatDateTime(appointment.created_at)}
@@ -1010,7 +1268,7 @@ export default function BorrowerDetailPage() {
               borderRadius: "8px", 
               color: "#666" 
             }}>
-              <div style={{ fontSize: "18px", marginBottom: "10px" }}>📅</div>
+              <CalendarIcon className="h-12 w-12 mx-auto mb-3 text-gray-400" />
               <div>No appointments found</div>
               <div style={{ fontSize: "14px", marginTop: "5px" }}>
                 <button
@@ -1079,136 +1337,179 @@ function StatusBucket({ title, value, description }: { title: string; value: any
 }
 
 // Loan Plan Card Component
-function LoanPlanCard({ plan, isPrimary }: { plan: any; isPrimary: boolean }) {
+function LoanPlanCard({ plan }: { plan: any }) {
   const planDetails = plan.plan_details;
   
   return (
     <div style={{
       padding: "20px",
-      backgroundColor: isPrimary ? "#e3f2fd" : "#fff",
-      border: isPrimary ? "2px solid #2196f3" : "1px solid #e0e0e0",
+      backgroundColor: "#fff",
+      border: "1px solid #e0e0e0",
       borderRadius: "8px",
-      position: "relative"
+      boxShadow: "0 2px 4px rgba(0,0,0,0.08)"
     }}>
-      {isPrimary && (
-        <div style={{
-          position: "absolute",
-          top: "-10px",
-          left: "15px",
-          padding: "4px 12px",
-          backgroundColor: "#2196f3",
-          color: "white",
-          borderRadius: "4px",
-          fontSize: "12px",
-          fontWeight: "bold"
+      {/* Header */}
+      <div style={{ marginBottom: "16px" }}>
+        <h4 style={{ 
+          fontSize: "18px", 
+          fontWeight: "600", 
+          margin: "0 0 8px 0",
+          color: "#333"
         }}>
-          PRIMARY LOAN
-        </div>
-      )}
-      
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "15px", marginTop: isPrimary ? "10px" : "0" }}>
-        <div><strong>Loan ID:</strong> {plan.loan_id}</div>
-        <div><strong>Product:</strong> {plan.plan_name}</div>
-        <div><strong>Amount:</strong> ${plan.loan_amount || planDetails?.estimated_reloan_amount || "N/A"}</div>
-        <div>
-          <strong>Status:</strong> 
-          <span style={{ color: planDetails?.is_overdue === "Yes" ? "#d32f2f" : planDetails?.loan_completed_date ? "#666" : "#4caf50", marginLeft: "5px" }}>
-            {planDetails?.is_overdue === "Yes" ? "Overdue" : 
-             planDetails?.loan_completed_date ? "Completed" : "Active"}
-          </span>
-        </div>
-        <div><strong>Next Due:</strong> {planDetails?.next_due_date ? new Date(planDetails.next_due_date).toLocaleDateString() : "N/A"}</div>
-        <div><strong>Completed:</strong> {planDetails?.loan_completed_date ? new Date(planDetails.loan_completed_date).toLocaleDateString() : "N/A"}</div>
-        <div><strong>Created:</strong> {new Date(plan.created_at).toLocaleDateString()}</div>
-        <div><strong>Is Selected:</strong> 
-          <span style={{ 
-            marginLeft: "5px",
-            padding: "2px 6px", 
-            borderRadius: "3px", 
-            fontSize: "10px",
-            backgroundColor: plan.is_selected ? "#e8f5e8" : "#fff3e0",
-            color: plan.is_selected ? "#2e7d32" : "#ef6c00"
-          }}>
-            {plan.is_selected ? "PRIMARY" : "SECONDARY"}
-          </span>
+          {plan.product_name || "Loan Plan"}
+        </h4>
+        <div style={{ display: "flex", gap: "20px", fontSize: "14px", color: "#666" }}>
+          <div><strong>Loan ID:</strong> {plan.loan_id}</div>
+          <div><strong>Amount:</strong> ${plan.estimated_reloan_amount || planDetails?.estimated_reloan_amount || "N/A"}</div>
         </div>
       </div>
 
-      {/* Extended Loan Details */}
-      <div style={{ marginTop: "15px", padding: "12px", backgroundColor: "#f9f9f9", borderRadius: "4px" }}>
-        <h5 style={{ fontSize: "14px", marginBottom: "10px", color: "#555" }}>📋 Extended Details</h5>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px", fontSize: "13px" }}>
-          <div><strong>Has BD:</strong> <span style={{ color: planDetails?.has_bd === "Yes" ? "#d32f2f" : "#4caf50" }}>{planDetails?.has_bd || "N/A"}</span></div>
-          <div><strong>Has BHV:</strong> <span style={{ color: planDetails?.has_bhv === "Yes" ? "#d32f2f" : "#4caf50" }}>{planDetails?.has_bhv || "N/A"}</span></div>
-          <div><strong>Has DNC:</strong> <span style={{ color: planDetails?.has_dnc === "Yes" ? "#d32f2f" : "#4caf50" }}>{planDetails?.has_dnc || "N/A"}</span></div>
-          <div><strong>Interest Rate:</strong> {plan.interest_rate || "N/A"}</div>
-          <div><strong>Loan Tenure:</strong> {plan.loan_tenure || "N/A"}</div>
-          <div><strong>Monthly Installment:</strong> {plan.monthly_installment || "N/A"}</div>
-        </div>
-      </div>
-
-      {planDetails && (
-        <div style={{ marginTop: "15px" }}>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
-            {planDetails.has_bd === "Yes" && (
-              <span style={{ padding: "4px 8px", backgroundColor: "#ff9800", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                BD
+      {/* Risk Status Badges */}
+      {(planDetails?.has_bd === "Yes" || 
+        planDetails?.has_bhv === "Yes" || 
+        planDetails?.has_dnc === "Yes" || 
+        planDetails?.is_overdue === "Yes") && (
+        <div style={{ marginBottom: "16px" }}>
+          <div style={{ fontSize: "12px", fontWeight: "600", color: "#666", marginBottom: "8px", textTransform: "uppercase" }}>
+            Risk Flags
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {planDetails?.has_bd === "Yes" && (
+              <span style={{ 
+                padding: "4px 8px", 
+                backgroundColor: "#fff3cd", 
+                color: "#856404", 
+                borderRadius: "4px", 
+                fontSize: "11px",
+                fontWeight: "500",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }}>
+                <ExclamationTriangleIcon className="h-3 w-3" />
+                BD Risk
               </span>
             )}
-            {planDetails.has_bhv === "Yes" && (
-              <span style={{ padding: "4px 8px", backgroundColor: "#f44336", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                BHV
+            {planDetails?.has_bhv === "Yes" && (
+              <span style={{ 
+                padding: "4px 8px", 
+                backgroundColor: "#f8d7da", 
+                color: "#721c24", 
+                borderRadius: "4px", 
+                fontSize: "11px",
+                fontWeight: "500",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }}>
+                <XCircleIcon className="h-3 w-3" />
+                BHV Risk
               </span>
             )}
-            {planDetails.has_dnc === "Yes" && (
-              <span style={{ padding: "4px 8px", backgroundColor: "#424242", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                DNC
+            {planDetails?.has_dnc === "Yes" && (
+              <span style={{ 
+                padding: "4px 8px", 
+                backgroundColor: "#d1ecf1", 
+                color: "#0c5460", 
+                borderRadius: "4px", 
+                fontSize: "11px",
+                fontWeight: "500",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }}>
+                <PhoneIcon className="h-3 w-3" />
+                DNC Listed
               </span>
             )}
-            {planDetails.is_overdue === "Yes" && (
-              <span style={{ padding: "4px 8px", backgroundColor: "#d32f2f", color: "white", borderRadius: "4px", fontSize: "12px" }}>
-                OVERDUE
+            {planDetails?.is_overdue === "Yes" && (
+              <span style={{ 
+                padding: "4px 8px", 
+                backgroundColor: "#f5c6cb", 
+                color: "#721c24", 
+                borderRadius: "4px", 
+                fontSize: "11px",
+                fontWeight: "500",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px"
+              }}>
+                <ClockIcon className="h-3 w-3" />
+                Overdue
               </span>
             )}
           </div>
+        </div>
+      )}
 
-          {planDetails.next_due_date && (
-            <div style={{ fontSize: "14px", color: "#666", marginBottom: "5px" }}>
-              <strong>Next Due:</strong> {new Date(planDetails.next_due_date).toLocaleDateString()}
-            </div>
-          )}
-
-          {planDetails.loan_comments && planDetails.loan_comments.length > 0 && (
-            <div style={{ marginTop: "10px" }}>
-              <strong style={{ fontSize: "14px" }}>Recent Comments:</strong>
-              <div style={{ 
-                marginTop: "5px", 
-                maxHeight: "100px", 
-                overflowY: "auto", 
-                backgroundColor: "#f5f5f5", 
-                padding: "10px", 
-                borderRadius: "4px",
-                fontSize: "13px"
-              }}>
-                {planDetails.loan_comments.slice(0, 3).map((comment: string, idx: number) => (
-                  <div key={idx} style={{ borderLeft: "2px solid #ddd", paddingLeft: "8px", marginBottom: "5px" }}>
-                    {comment}
-                  </div>
-                ))}
-                {planDetails.loan_comments.length > 3 && (
-                  <div style={{ fontStyle: "italic", color: "#999", fontSize: "12px" }}>
-                    ... and {planDetails.loan_comments.length - 3} more comments
-                  </div>
-                )}
+      {/* Important Dates */}
+      <div style={{ marginBottom: "16px" }}>
+        <div style={{ fontSize: "12px", fontWeight: "600", color: "#666", marginBottom: "8px", textTransform: "uppercase" }}>
+          Important Dates
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px" }}>
+          {planDetails?.next_due_date && (
+            <div>
+              <div style={{ fontSize: "11px", color: "#666" }}>Next Due Date</div>
+              <div style={{ fontSize: "13px", fontWeight: "500" }}>
+                {new Date(planDetails.next_due_date).toLocaleDateString()}
               </div>
             </div>
           )}
+          {planDetails?.loan_completed_date && (
+            <div>
+              <div style={{ fontSize: "11px", color: "#666" }}>Completion Date</div>
+              <div style={{ fontSize: "13px", fontWeight: "500" }}>
+                {new Date(planDetails.loan_completed_date).toLocaleDateString()}
+              </div>
+            </div>
+          )}
+          {/* <div>
+            <div style={{ fontSize: "11px", color: "#666" }}>Plan Created</div>
+            <div style={{ fontSize: "13px", fontWeight: "500" }}>
+              {new Date(plan.created_at).toLocaleDateString()}
+            </div>
+          </div> */}
+        </div>
+      </div>
+
+      {/* Comments - Top 3 Only */}
+      {planDetails?.loan_comments && planDetails.loan_comments.length > 0 && (
+        <div>
+          <div style={{ fontSize: "12px", fontWeight: "600", color: "#666", marginBottom: "8px", textTransform: "uppercase" }}>
+            Recent Comments
+          </div>
+          <div style={{ 
+            backgroundColor: "#f8f9fa", 
+            padding: "12px", 
+            borderRadius: "6px",
+            borderLeft: "3px solid #6c757d"
+          }}>
+            {planDetails.loan_comments.slice(0, 3).map((comment: string, idx: number) => (
+              <div key={idx} style={{ 
+                fontSize: "13px", 
+                lineHeight: "1.4", 
+                marginBottom: idx < Math.min(planDetails.loan_comments.length, 3) - 1 ? "8px" : "0",
+                paddingBottom: idx < Math.min(planDetails.loan_comments.length, 3) - 1 ? "8px" : "0",
+                borderBottom: idx < Math.min(planDetails.loan_comments.length, 3) - 1 ? "1px solid #dee2e6" : "none"
+              }}>
+                "{comment}"
+              </div>
+            ))}
+            {/* {planDetails.loan_comments.length > 3 && (
+              <div style={{ 
+                fontSize: "12px", 
+                color: "#6c757d", 
+                fontStyle: "italic",
+                marginTop: "8px",
+                textAlign: "center"
+              }}>
+                ... and {planDetails.loan_comments.length - 3} more comments
+              </div>
+            )} */}
+          </div>
         </div>
       )}
-      
-      <div style={{ fontSize: "12px", color: "#999", marginTop: "15px" }}>
-        Created: {new Date(plan.created_at).toLocaleDateString()}
-      </div>
     </div>
   );
 } 

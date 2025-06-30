@@ -114,6 +114,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
   
+
   // Load lead info and check for existing appointments
   useEffect(() => {
     const loadLeadData = async () => {
@@ -678,11 +679,11 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
         const response = await getAppointmentsForLead(leadId);
         if (response.success && response.appointments) {
           // Sort appointments by date, newest first
-          const sortedAppointments = response.appointments.sort((a: Appointment, b: Appointment) => 
-            new Date(b.start_datetime).getTime() - new Date(a.start_datetime).getTime()
-          );
-          console.log("Previous Appointments: " + JSON.stringify(sortedAppointments));
-          setAppointments(sortedAppointments);
+          // const sortedAppointments = response.appointments.sort((a: Appointment, b: Appointment) => 
+          //   new Date(b.start_datetime).getTime() - new Date(a.start_datetime).getTime()
+          // );
+          // console.log("Previous Appointments: " + JSON.stringify(sortedAppointments));
+          setAppointments(response.appointments);
         }
       } catch (error) {
         console.error('Error loading appointments:', error);

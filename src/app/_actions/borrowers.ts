@@ -11,7 +11,7 @@ import {
   loan_plans
 } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq, desc, and, sql, ilike, or } from "drizzle-orm";
+import { eq, desc, and, sql, ilike, or, gte, lt, isNotNull, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 // Types for borrower operations
@@ -63,6 +63,11 @@ export type BorrowerFilters = {
   assigned_to?: string;
   aa_status?: string;
   id_type?: string;
+  source?: string;
+  lead_score_range?: string; // 'high', 'medium', 'low'
+  performance_bucket?: string; // 'closed_loan', '2nd_reloan', 'attrition', 'last_payment', 'bhv1'
+  assigned_filter?: string; // 'assigned', 'unassigned', 'my_borrowers'
+  date_range?: string; // 'today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'this_year'
   limit?: number;
   offset?: number;
 };
@@ -222,6 +227,11 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
       assigned_to,
       aa_status,
       id_type,
+      source,
+      lead_score_range,
+      performance_bucket,
+      assigned_filter,
+      date_range,
       limit = 50,
       offset = 0
     } = filters;
@@ -229,6 +239,7 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
     // Build query conditions
     const conditions = [eq(borrowers.is_deleted, false)];
 
+    // Basic filters
     if (search) {
       const searchConditions = or(
         ilike(borrowers.full_name, `%${search}%`),
@@ -245,6 +256,98 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
     if (assigned_to) conditions.push(eq(borrowers.assigned_to, assigned_to));
     if (aa_status) conditions.push(eq(borrowers.aa_status, aa_status));
     if (id_type) conditions.push(eq(borrowers.id_type, id_type));
+    if (source) conditions.push(eq(borrowers.source, source));
+
+    // Lead score range filter
+    if (lead_score_range) {
+      switch (lead_score_range) {
+        case 'high':
+          conditions.push(gte(borrowers.lead_score, 75));
+          break;
+        case 'medium':
+          conditions.push(and(gte(borrowers.lead_score, 50), lt(borrowers.lead_score, 75))!);
+          break;
+        case 'low':
+          conditions.push(lt(borrowers.lead_score, 50));
+          break;
+      }
+    }
+
+    // Performance bucket filter
+    if (performance_bucket) {
+      switch (performance_bucket) {
+        case 'closed_loan':
+          conditions.push(eq(borrowers.is_in_closed_loan, 'yes'));
+          break;
+        case '2nd_reloan':
+          conditions.push(eq(borrowers.is_in_2nd_reloan, 'yes'));
+          break;
+        case 'attrition':
+          conditions.push(eq(borrowers.is_in_attrition, 'yes'));
+          break;
+        case 'last_payment':
+          conditions.push(eq(borrowers.is_in_last_payment_due, 'yes'));
+          break;
+        case 'bhv1':
+          conditions.push(eq(borrowers.is_in_bhv1, 'yes'));
+          break;
+      }
+    }
+
+    // Assignment filter
+    if (assigned_filter) {
+      switch (assigned_filter) {
+        case 'assigned':
+          conditions.push(isNotNull(borrowers.assigned_to));
+          break;
+        case 'unassigned':
+          conditions.push(isNull(borrowers.assigned_to));
+          break;
+        case 'my_borrowers':
+          conditions.push(eq(borrowers.assigned_to, userId));
+          break;
+      }
+    }
+
+    // Date range filter
+    if (date_range) {
+      const now = new Date();
+      let startDate: Date;
+      
+      switch (date_range) {
+        case 'today':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          conditions.push(gte(borrowers.created_at, startDate));
+          break;
+        case 'yesterday':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+          const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          conditions.push(and(gte(borrowers.created_at, startDate), lt(borrowers.created_at, endDate))!);
+          break;
+        case 'this_week':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+          conditions.push(gte(borrowers.created_at, startDate));
+          break;
+        case 'last_week':
+          const lastWeekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() - 7);
+          const lastWeekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+          conditions.push(and(gte(borrowers.created_at, lastWeekStart), lt(borrowers.created_at, lastWeekEnd))!);
+          break;
+        case 'this_month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          conditions.push(gte(borrowers.created_at, startDate));
+          break;
+        case 'last_month':
+          const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
+          conditions.push(and(gte(borrowers.created_at, lastMonthStart), lt(borrowers.created_at, lastMonthEnd))!);
+          break;
+        case 'this_year':
+          startDate = new Date(now.getFullYear(), 0, 1);
+          conditions.push(gte(borrowers.created_at, startDate));
+          break;
+      }
+    }
 
     // Get borrowers with assigned user details
     const borrowersList = await db

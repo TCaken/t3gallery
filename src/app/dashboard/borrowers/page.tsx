@@ -13,7 +13,9 @@ import {
   EyeIcon,
   UserPlusIcon,
   AdjustmentsHorizontalIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  ArrowDownTrayIcon,
+  CalendarIcon
 } from '@heroicons/react/24/outline';
 import { getBorrowers, updateBorrower } from '~/app/_actions/borrowers';
 import { useUserRole } from '../leads/useUserRole';
@@ -32,6 +34,25 @@ const allStatuses = [
   { id: 'give_up', name: 'Give Up', color: 'bg-red-100 text-red-800' },
   { id: 'blacklisted', name: 'Blacklisted', color: 'bg-black text-white' },
 ] as const;
+
+// Enhanced filter options
+const sourceOptions = [
+  'System', 'Manual Import', 'API Integration', 'Website', 'Referral', 'Phone Call', 'Walk-in', 'Email'
+];
+
+const leadScoreRanges = [
+  { value: 'high', label: 'High (75-100)', min: 75, max: 100 },
+  { value: 'medium', label: 'Medium (50-74)', min: 50, max: 74 },
+  { value: 'low', label: 'Low (0-49)', min: 0, max: 49 }
+];
+
+const performanceBuckets = [
+  { value: 'closed_loan', label: 'Closed Loan', field: 'is_in_closed_loan' },
+  { value: '2nd_reloan', label: '2nd Reloan', field: 'is_in_2nd_reloan' },
+  { value: 'attrition', label: 'Attrition Risk', field: 'is_in_attrition' },
+  { value: 'last_payment', label: 'Last Payment Due', field: 'is_in_last_payment_due' },
+  { value: 'bhv1', label: 'BHV1 Pattern', field: 'is_in_bhv1' }
+];
 
 // Get status color
 const getStatusColor = (status: string) => {
@@ -68,7 +89,7 @@ type BorrowerRecord = {
   assigned_to: string | null;
   follow_up_date: Date | null;
   created_at: Date;
-  updated_at: Date;
+  updated_at: Date | null;
   assigned_agent_name: string | null;
   assigned_agent_email: string | null;
 };
@@ -86,14 +107,86 @@ export default function BorrowersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [aaStatusFilter, setAaStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [leadScoreFilter, setLeadScoreFilter] = useState('');
+  const [performanceBucketFilter, setPerformanceBucketFilter] = useState('');
+  const [assignedFilter, setAssignedFilter] = useState('');
+  const [dateRangeFilter, setDateRangeFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   
   const router = useRouter();
   const { userRole, hasAnyRole } = useUserRole();
   const { userId } = useAuth();
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load borrowers
+  // Enhanced CSV export functionality
+  const generateEmail = (phoneNumber: string): string => {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    const randomDigits = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
+    return `ac${cleanPhone}${randomDigits}@gmail.com`;
+  };
+
+  const formatPhoneForCsv = (phoneNumber: string): string => {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+    return `65${cleanPhone}`;
+  };
+
+  const exportToCSV = async () => {
+    setExportingCsv(true);
+    try {
+      // Fetch all borrowers with current filters using backend filtering
+      const result = await getBorrowers({
+        search: searchQuery,
+        status: statusFilter || undefined,
+        aa_status: aaStatusFilter || undefined,
+        source: sourceFilter || undefined,
+        lead_score_range: leadScoreFilter || undefined,
+        performance_bucket: performanceBucketFilter || undefined,
+        assigned_filter: assignedFilter || undefined,
+        date_range: dateRangeFilter || undefined,
+        offset: 0,
+        limit: 10000 // Large limit to get all filtered results
+      });
+
+      if (result.success && result.data) {
+        const csvData = result.data.map((borrower) => ({
+          leadSource: borrower.source || 'System',
+          fullName: borrower.full_name,
+          email: borrower.email || generateEmail(borrower.phone_number),
+          personalPhone: formatPhoneForCsv(borrower.phone_number),
+          workPhone: '6583992504'
+        }));
+
+        // Convert to CSV
+        const headers = ['leadSource', 'fullName', 'email', 'personalPhone', 'workPhone'];
+        const csvContent = [
+          headers.join(','),
+          ...csvData.map(row => headers.map(header => `"${row[header as keyof typeof row]}"`).join(','))
+        ].join('\n');
+
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `borrowers_export_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        showNotification(`Successfully exported ${csvData.length} borrowers to CSV`, 'success');
+      }
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      showNotification('Failed to export CSV', 'error');
+    } finally {
+      setExportingCsv(false);
+    }
+  };
+
+  // Load borrowers with backend filtering
   const fetchBorrowers = async (pageNum = 1, isLoadMore = false) => {
     if (!userId) return;
 
@@ -105,16 +198,23 @@ export default function BorrowersPage() {
         search: searchQuery,
         status: statusFilter || undefined,
         aa_status: aaStatusFilter || undefined,
+        source: sourceFilter || undefined,
+        lead_score_range: leadScoreFilter || undefined,
+        performance_bucket: performanceBucketFilter || undefined,
+        assigned_filter: assignedFilter || undefined,
+        date_range: dateRangeFilter || undefined,
         offset: (pageNum - 1) * 50,
         limit: 50
       });
 
-             if (result.success && result.data) {
-         if (isLoadMore) {
-           setBorrowers(prev => [...prev, ...result.data as BorrowerRecord[]]);
-         } else {
-           setBorrowers(result.data as BorrowerRecord[]);
-         }
+      if (result.success && result.data) {
+        const borrowersData = result.data as BorrowerRecord[];
+
+        if (isLoadMore) {
+          setBorrowers(prev => [...prev, ...borrowersData]);
+        } else {
+          setBorrowers(borrowersData);
+        }
 
         setHasMore(result.pagination?.hasMore ?? false);
         setPage(pageNum);
@@ -137,7 +237,7 @@ export default function BorrowersPage() {
     }, 300);
 
     return () => clearTimeout(delayedSearch);
-  }, [searchQuery, statusFilter, aaStatusFilter, userId]);
+  }, [searchQuery, statusFilter, aaStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, dateRangeFilter, userId]);
 
   // Handle scroll for infinite loading
   const handleScroll = () => {
@@ -160,6 +260,18 @@ export default function BorrowersPage() {
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 5000);
+  };
+
+  // Clear all filters
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setAaStatusFilter('');
+    setSourceFilter('');
+    setLeadScoreFilter('');
+    setPerformanceBucketFilter('');
+    setAssignedFilter('');
+    setDateRangeFilter('');
   };
 
   // Handle borrower actions
@@ -226,6 +338,19 @@ export default function BorrowersPage() {
             
             <div className="flex items-center space-x-4">
               <button
+                onClick={exportToCSV}
+                disabled={exportingCsv || borrowers.length === 0}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                  exportingCsv || borrowers.length === 0
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                <ArrowDownTrayIcon className="h-5 w-5" />
+                <span>{exportingCsv ? 'Exporting...' : 'Export CSV'}</span>
+              </button>
+              
+              <button
                 onClick={() => router.push('/dashboard/borrowers/new')}
                 className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -237,7 +362,7 @@ export default function BorrowersPage() {
         </div>
       </div>
 
-      {/* Search and Filter Bar */}
+      {/* Enhanced Search and Filter Bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-4">
           {/* Search Bar */}
@@ -267,49 +392,176 @@ export default function BorrowersPage() {
             </button>
           </div>
 
-          {/* Advanced Filters */}
+          {/* Enhanced Advanced Filters */}
           {showAdvancedFilters && (
-            <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">All Statuses</option>
-                  {allStatuses.map(status => (
-                    <option key={status.id} value={status.id}>{status.name}</option>
-                  ))}
-                </select>
+            <div className="border-t pt-4 space-y-4">
+              {/* First Row */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All Statuses</option>
+                    {allStatuses.map(status => (
+                      <option key={status.id} value={status.id}>{status.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">AA Status</label>
+                  <select
+                    value={aaStatusFilter}
+                    onChange={(e) => setAaStatusFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All AA Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                  <select
+                    value={sourceFilter}
+                    onChange={(e) => setSourceFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All Sources</option>
+                    {sourceOptions.map(source => (
+                      <option key={source} value={source}>{source}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Lead Score</label>
+                  <select
+                    value={leadScoreFilter}
+                    onChange={(e) => setLeadScoreFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All Scores</option>
+                    {leadScoreRanges.map(range => (
+                      <option key={range.value} value={range.value}>{range.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">AA Status</label>
-                <select
-                  value={aaStatusFilter}
-                  onChange={(e) => setAaStatusFilter(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">All AA Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
+              {/* Second Row */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Performance Bucket</label>
+                  <select
+                    value={performanceBucketFilter}
+                    onChange={(e) => setPerformanceBucketFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All Buckets</option>
+                    {performanceBuckets.map(bucket => (
+                      <option key={bucket.value} value={bucket.value}>{bucket.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assignment</label>
+                  <select
+                    value={assignedFilter}
+                    onChange={(e) => setAssignedFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All</option>
+                    <option value="assigned">Assigned</option>
+                    <option value="unassigned">Unassigned</option>
+                    <option value="my_borrowers">My Borrowers</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+                  <select
+                    value={dateRangeFilter}
+                    onChange={(e) => setDateRangeFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="this_week">This Week</option>
+                    <option value="last_week">Last Week</option>
+                    <option value="this_month">This Month</option>
+                    <option value="last_month">Last Month</option>
+                    <option value="this_year">This Year</option>
+                  </select>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    onClick={clearAllFilters}
+                    className="w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                  >
+                    Clear All Filters
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-end">
-                <button
-                  onClick={() => {
-                    setSearchQuery('');
-                    setStatusFilter('');
-                    setAaStatusFilter('');
-                  }}
-                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
-                >
-                  Clear Filters
-                </button>
-              </div>
+              {/* Active Filters Display */}
+              {(statusFilter || aaStatusFilter || sourceFilter || leadScoreFilter || performanceBucketFilter || assignedFilter || dateRangeFilter) && (
+                <div className="border-t pt-3">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className="text-sm font-medium text-gray-600">Active Filters:</span>
+                    {statusFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        Status: {allStatuses.find(s => s.id === statusFilter)?.name}
+                        <button onClick={() => setStatusFilter('')} className="ml-2 text-blue-600 hover:text-blue-800">×</button>
+                      </span>
+                    )}
+                    {aaStatusFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                        AA: {aaStatusFilter}
+                        <button onClick={() => setAaStatusFilter('')} className="ml-2 text-purple-600 hover:text-purple-800">×</button>
+                      </span>
+                    )}
+                    {sourceFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        Source: {sourceFilter}
+                        <button onClick={() => setSourceFilter('')} className="ml-2 text-green-600 hover:text-green-800">×</button>
+                      </span>
+                    )}
+                    {leadScoreFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        Score: {leadScoreRanges.find(r => r.value === leadScoreFilter)?.label}
+                        <button onClick={() => setLeadScoreFilter('')} className="ml-2 text-yellow-600 hover:text-yellow-800">×</button>
+                      </span>
+                    )}
+                    {performanceBucketFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                        Bucket: {performanceBuckets.find(b => b.value === performanceBucketFilter)?.label}
+                        <button onClick={() => setPerformanceBucketFilter('')} className="ml-2 text-indigo-600 hover:text-indigo-800">×</button>
+                      </span>
+                    )}
+                    {assignedFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
+                        Assignment: {assignedFilter.replace('_', ' ')}
+                        <button onClick={() => setAssignedFilter('')} className="ml-2 text-pink-600 hover:text-pink-800">×</button>
+                      </span>
+                    )}
+                    {dateRangeFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        Date: {dateRangeFilter.replace('_', ' ')}
+                        <button onClick={() => setDateRangeFilter('')} className="ml-2 text-gray-600 hover:text-gray-800">×</button>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

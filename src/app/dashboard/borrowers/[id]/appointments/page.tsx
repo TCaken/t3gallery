@@ -21,7 +21,7 @@ import { getBorrower } from '~/app/_actions/borrowers';
 import { 
   getBorrowerAppointments,
   createBorrowerAppointment,
-  deleteBorrowerAppointment,
+  updateBorrowerAppointmentStatus,
   type CreateBorrowerAppointmentInput
 } from '~/app/_actions/borrowerAppointments';
 import { fetchAvailableTimeslots, type Timeslot } from '~/app/_actions/appointmentAction';
@@ -37,6 +37,7 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
   const borrowerId = parseInt(params.id);
   const calendarRef = useRef<HTMLDivElement>(null);
   
+  
   const [borrower, setBorrower] = useState<Borrower | null>(null);
   const [loadingBorrower, setLoadingBorrower] = useState(true);
   const [existingAppointment, setExistingAppointment] = useState<BorrowerAppointment | null>(null);
@@ -49,6 +50,7 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
   const [loading, setLoading] = useState(false);
   const [timeslots, setTimeslots] = useState<Timeslot[]>([]);
   const [loadingTimeslots, setLoadingTimeslots] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
@@ -109,6 +111,27 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
     }
   }, [selectedDate, hasUpcomingAppointment]);
 
+  // Set today as the default selected date
+  useEffect(() => {
+    if (!selectedDate) {
+      setSelectedDate(todayStr);
+    }
+  }, [todayStr, selectedDate]);
+
+  // Close calendar when clicking outside of it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+        setShowCalendar(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -159,14 +182,15 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
       setLoading(true);
       
       try {
-        const result = await deleteBorrowerAppointment(existingAppointment.id);
+        const result = await updateBorrowerAppointmentStatus(existingAppointment.id, 'cancelled');
         
         if (result.success) {
           alert('Appointment cancelled successfully!');
           setHasUpcomingAppointment(false);
           setExistingAppointment(null);
+          setRefreshTrigger(prev => prev + 1); // Trigger refresh of appointments list
         } else {
-          alert(`Failed to cancel appointment: ${result.message}`);
+          alert('Failed to cancel appointment');
         }
       } catch (error) {
         console.error('Error cancelling appointment:', error);
@@ -367,7 +391,7 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
               Previous Appointments
             </h2>
             
-            <PreviousAppointments borrowerId={borrowerId} />
+            <PreviousAppointments borrowerId={borrowerId} refreshTrigger={refreshTrigger} />
           </div>
           
           {/* Calendar selection */}
@@ -547,7 +571,7 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
 }
 
 // Previous Appointments Component
-function PreviousAppointments({ borrowerId }: { borrowerId: number }) {
+function PreviousAppointments({ borrowerId, refreshTrigger }: { borrowerId: number; refreshTrigger?: number }) {
   const [appointments, setAppointments] = useState<BorrowerAppointment[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -573,7 +597,7 @@ function PreviousAppointments({ borrowerId }: { borrowerId: number }) {
     };
 
     void loadAppointments();
-  }, [borrowerId]);
+  }, [borrowerId, refreshTrigger]);
 
   if (loading) {
     return (
