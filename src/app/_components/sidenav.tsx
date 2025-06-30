@@ -123,13 +123,13 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       href: "/dashboard/borrowers",
       icon: <UsersIcon className="h-5 w-5" />,
       roles: ["admin"] // Only admin can access borrowers
-    },
-    {
-      title: "Borrower Settings",
-      href: "/dashboard/borrowers/settings",
-      icon: <Cog6ToothIcon className="h-5 w-5" />,
-      roles: ["admin"]
     }
+    // {
+    //   title: "Borrower Settings",
+    //   href: "/dashboard/borrowers/settings",
+    //   icon: <Cog6ToothIcon className="h-5 w-5" />,
+    //   roles: ["admin"]
+    // }
   ];
 
   // Filter nav items based on user roles
