@@ -897,7 +897,7 @@ export default function AppointmentsPage() {
                   <h4 className="text-md font-medium text-gray-800 mb-4">TUR Appointments - Loan Status</h4>
                   <div className="space-y-3">
                     {[
-                      { status: 'P', label: 'Approved', color: 'text-green-600 bg-green-500' },
+                      { status: 'P', label: 'Done', color: 'text-green-600 bg-green-500' },
                       { status: 'PRS', label: 'Customer Rejected', color: 'text-blue-600 bg-blue-500' },
                       { status: 'RS', label: 'Rejected With Special Reason', color: 'text-yellow-600 bg-yellow-500' },
                       { status: 'R', label: 'Rejected', color: 'text-red-600 bg-red-500' }
@@ -1021,9 +1021,9 @@ export default function AppointmentsPage() {
                             <h5 className="text-sm font-medium text-gray-700 mb-2">TUR - Loan Status</h5>
                             <div className="space-y-2">
                               {[
-                                { status: 'P', label: 'Approved', color: 'bg-green-500' },
+                                { status: 'P', label: 'Done', color: 'bg-green-500' },
                                 { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
-                                { status: 'RS', label: 'Rejected w/ Reason', color: 'bg-yellow-500' },
+                                { status: 'RS', label: 'Rejected with Special Reason', color: 'bg-yellow-500' },
                                 { status: 'R', label: 'Rejected', color: 'bg-red-500' }
                               ].map(({ status, label, color }) => {
                                 const count = creator.loanStatuses[status] ?? 0;
@@ -1234,7 +1234,7 @@ export default function AppointmentsPage() {
                     {hoveredAppointment.loan_status}
                   </span>
                   <span className="text-sm text-gray-600">
-                    {hoveredAppointment.loan_status === 'P' ? 'Approved' :
+                    {hoveredAppointment.loan_status === 'P' ? 'Done' :
                      hoveredAppointment.loan_status === 'PRS' ? 'Customer Rejected' :
                      hoveredAppointment.loan_status === 'RS' ? 'Rejected With Special Reason' :
                      hoveredAppointment.loan_status === 'R' ? 'Rejected' :
