@@ -8,17 +8,17 @@ import { revalidatePath } from "next/cache";
 
 // Types for the external API response
 export type ExternalBorrowerData = {
-  borrower_id: string;
+  borrower_id: string | number;
   borrower_name: string;
   phone_number: string;
   id_type: string;
   income_document_type: string;
   current_employer_name: string;
-  average_monthly_income: string;
-  annually_income: string;
+  average_monthly_income: string | number;
+  annually_income: string | number;
   latest_completed_loan_date: string;
   borrower_has_dnc: string;
-  loans: string; // JSON string
+  loans: string | ParsedLoan[]; // Allow both string and array formats
   is_in_closed_loan: string;
   is_in_2nd_reloan: string;
   is_in_attrition: string;
@@ -56,7 +56,7 @@ export async function fetchExternalBorrowers() {
 
   try {
     const apikey = process.env.BORROWER_SYNC_API_KEY;
-    const response = await fetch("https://api.capcfintech.com/api/ac/qs", {
+    const response = await fetch("https://api.capcfintech.com/api/ac/qs?last_two_digit=0", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -128,8 +128,16 @@ function sanitizeJsonString(str: string): string {
     .replace(/[\x00-\x1F\x7F]/g, '');
 }
 
-function parseLoans(loansString: string): ParsedLoan[] {
+function parseLoans(loansData: string | ParsedLoan[]): ParsedLoan[] {
   try {
+    // Handle case where loans is already an array
+    if (Array.isArray(loansData)) {
+      console.log(`✅ Loans data already parsed as array with ${loansData.length} loans`);
+      return loansData;
+    }
+
+    // Handle case where loans is a string (existing logic)
+    const loansString = loansData; // TypeScript now knows this is a string
     if (!loansString || loansString.trim() === '""' || loansString.trim() === '') {
       return [];
     }
@@ -180,7 +188,7 @@ function parseLoans(loansString: string): ParsedLoan[] {
     
     try {
       // Last resort: try to parse without loan_comments
-      let fallbackString = loansString;
+      let fallbackString = loansData as string;
       
       // Remove outer quotes
       if (fallbackString.startsWith('"') && fallbackString.endsWith('"')) {
@@ -202,7 +210,7 @@ function parseLoans(loansString: string): ParsedLoan[] {
       
     } catch (fallbackError) {
       console.error("All parsing attempts failed. Skipping loans for this borrower.");
-      console.error("Sample data:", loansString.substring(0, 300));
+      console.error("Sample data:", typeof loansData === 'string' ? loansData.substring(0, 300) : 'Array format');
       return [];
     }
   }
@@ -283,7 +291,7 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
     const existingBorrower = await db
       .select()
       .from(borrowers)
-      .where(eq(borrowers.atom_borrower_id, externalData.borrower_id))
+      .where(eq(borrowers.atom_borrower_id, externalData.borrower_id.toString()))
       .limit(1);
 
     const parsedLoans = parseLoans(externalData.loans);
@@ -332,9 +340,9 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
        borrowerStatus = "new";
      }
 
-     // Prepare borrower data
+     // Prepare borrower data - convert numeric fields to strings
      const borrowerData = {
-       atom_borrower_id: externalData.borrower_id,
+       atom_borrower_id: externalData.borrower_id.toString(),
        full_name: externalData.borrower_name,
        phone_number: externalData.phone_number,
        phone_number_2: "",
@@ -349,11 +357,11 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
        id_type: convertIdType(externalData.id_type),
        id_number: "",
        
-       // Employment & Income
+       // Employment & Income - convert to strings
        income_document_type: convertIncomeDocumentType(externalData.income_document_type),
        current_employer: externalData.current_employer_name,
-       average_monthly_income: externalData.average_monthly_income,
-       annual_income: externalData.annually_income,
+       average_monthly_income: externalData.average_monthly_income.toString(),
+       annual_income: externalData.annually_income.toString(),
        
        // Loan Information - Using primary loan for main borrower record
        estimated_reloan_amount: primaryLoan?.estimated_reloan_amount?.toString() ?? "",
@@ -499,6 +507,7 @@ export async function syncAllBorrowers() {
     // Process each borrower
     for (const borrowerData of externalBorrowers) {
       try {
+        console.log(borrowerData);
         const result = await syncBorrower(borrowerData);
         
         if (result.action === "created") {
@@ -508,14 +517,14 @@ export async function syncAllBorrowers() {
         }
         
         results.details.push({
-          borrower_id: borrowerData.borrower_id,
+          borrower_id: borrowerData.borrower_id.toString(),
           action: result.action
         });
         
       } catch (error) {
         results.errors++;
         results.details.push({
-          borrower_id: borrowerData.borrower_id,
+          borrower_id: borrowerData.borrower_id.toString(),
           action: "error",
           error: error instanceof Error ? error.message : "Unknown error"
         });

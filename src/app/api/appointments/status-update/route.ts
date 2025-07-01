@@ -12,7 +12,7 @@ import { updateLead } from "~/app/_actions/leadActions";
 // Types for Excel data structure (based on the provided JSON)
 interface ExcelRow {
   row_number: number;
-  col_Timestamp: string;
+  col_Date: string;
   col_UW: string;
   col_RM: string;
   col_Group: string;
@@ -302,7 +302,7 @@ export async function POST(request: NextRequest) {
         // Parse the timestamp from Excel (which is in GMT+8)
         let excelDate: string;
         try {
-          const timestampStr = row.col_Timestamp;
+          const timestampStr = row.col_Date;
           if (!timestampStr) {
             throw new Error('Empty timestamp');
           }
@@ -337,7 +337,7 @@ export async function POST(request: NextRequest) {
           }
         } catch (error) {
           console.error(`❌ Error parsing timestamp for row ${row.row_number}:`, error);
-          console.error(`📝 Raw timestamp value: "${row.col_Timestamp}"`);
+          console.error(`📝 Raw timestamp value: "${row.col_Date}"`);
           continue;
         }
 
