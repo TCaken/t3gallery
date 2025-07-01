@@ -12,6 +12,7 @@ interface CreateTemplateInput {
   workspace_id: string;
   channel_id: string;
   project_id: string;
+  customer_type?: 'reloan' | 'new';
   supported_methods: ('sms' | 'whatsapp' | 'both')[];
   default_method: 'sms' | 'whatsapp' | 'both';
   trigger_on_status?: string[];
@@ -71,6 +72,7 @@ export async function createWhatsAppTemplate(input: CreateTemplateInput) {
       workspace_id: input.workspace_id,
       channel_id: input.channel_id,
       project_id: input.project_id,
+      customer_type: input.customer_type ?? 'reloan', // Default to reloan for existing templates
       supported_methods: input.supported_methods,
       default_method: input.default_method,
       trigger_on_status: input.trigger_on_status ?? [],
@@ -147,6 +149,7 @@ export async function updateWhatsAppTemplate(input: UpdateTemplateInput) {
     if (input.workspace_id) updateData.workspace_id = input.workspace_id;
     if (input.channel_id) updateData.channel_id = input.channel_id;
     if (input.project_id) updateData.project_id = input.project_id;
+    if (input.customer_type) updateData.customer_type = input.customer_type;
     if (input.supported_methods) updateData.supported_methods = input.supported_methods;
     if (input.default_method) updateData.default_method = input.default_method;
     if (input.trigger_on_status !== undefined) updateData.trigger_on_status = input.trigger_on_status;
@@ -301,6 +304,25 @@ export async function getDataSourceSuggestions() {
       'lead.residential_status',
       'lead.source',
       'lead.status',
+    ],
+    borrower: [
+      'borrower.full_name',
+      'borrower.phone_number',
+      'borrower.email',
+      'borrower.status',
+      'borrower.source',
+      'borrower.current_employer',
+      'borrower.average_monthly_income',
+      'borrower.annual_income',
+      'borrower.estimated_reloan_amount',
+      'borrower.loan_id',
+      'borrower.aa_status',
+      'borrower.id_type',
+      'borrower.income_document_type',
+      'borrower.loan_status',
+      'borrower.credit_score',
+      'borrower.contact_preference',
+      'borrower.communication_language',
     ],
     user: [
       'user.first_name',

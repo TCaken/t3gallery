@@ -79,10 +79,16 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       roles: ["admin", "agent"] // Only admin and agent can access duplicate detection
     },
     {
+      title: "Borrowers",
+      href: "/dashboard/borrowers",
+      icon: <UsersIcon className="h-5 w-5" />,
+      roles: ["admin", "agent-reloan"] // Only admin can access borrowers
+    },
+    {
       title: "Appointments",
       href: "/dashboard/appointments",
       icon: <CalendarIcon className="h-5 w-5" />,
-      roles: ["admin", "agent"] // Only admin and agent can access appointments
+      roles: ["admin", "agent", "agent-reloan"] // Only admin and agent can access appointments
     },
     // {
     //   title: "Analytics",
@@ -117,12 +123,6 @@ export default function SideNav({ expanded, setExpanded }: SideNavProps) {
       href: "/dashboard/playbooks",
       icon: <BookOpenIcon className="h-5 w-5" />,
       roles: ["admin"]
-    },
-    {
-      title: "Borrowers",
-      href: "/dashboard/borrowers",
-      icon: <UsersIcon className="h-5 w-5" />,
-      roles: ["admin"] // Only admin can access borrowers
     }
     // {
     //   title: "Borrower Settings",

@@ -562,6 +562,23 @@ export async function updateBorrower(input: UpdateBorrowerInput) {
       );
     }
 
+    // Check if status changed and trigger auto-messages for borrowers
+    if (updateData.status && oldData.status !== updateData.status) {
+      try {
+        // Import here to avoid circular dependency
+        const { sendAutoTriggeredMessage } = await import('./whatsappActions');
+        await sendAutoTriggeredMessage(
+          id,
+          updateData.status,
+          updatedBorrower.phone_number
+        );
+        console.log(`✅ Auto-triggered WhatsApp check for borrower ${id} status change: ${oldData.status} → ${updateData.status}`);
+      } catch (error) {
+        console.error('Error sending auto-triggered WhatsApp message for borrower:', error);
+        // Don't fail the borrower update if WhatsApp fails
+      }
+    }
+
     revalidatePath("/dashboard/borrowers");
     revalidatePath(`/dashboard/borrowers/${id}`);
 

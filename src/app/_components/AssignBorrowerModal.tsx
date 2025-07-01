@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { updateBorrower } from '~/app/_actions/borrowers';
-import { fetchUsers } from '~/app/_actions/userActions';
+import { fetchAgentReloan } from '~/app/_actions/userActions';
 
 interface AssignBorrowerModalProps {
   isOpen: boolean;
@@ -45,16 +45,15 @@ export default function AssignBorrowerModal({
     const loadAgents = async () => {
       try {
         setLoading(true);
-        // Fetch users with role 'agent'
-        const result = await fetchUsers();
-        console.log('fetchUsers inside loadAgents result:', result);
+        // Fetch users with role 'agent' only
+        const result = await fetchAgentReloan();
+        console.log('fetchAgentReloan inside loadAgents result:', result);
         if (result.success) {
           const agentUsers = result.users
-            .filter(user => Array.isArray(user.roles) && user.roles.some((role: UserRole) => role.roleName === 'agent'))
-            .map(user => ({
+            .map((user: User) => ({
               id: user.id,
               name: (`${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()) || (user.email ?? 'Unknown'),
-              role: 'agent'
+              role: 'agent-reloan'
             }));
             
           setAgents(agentUsers);

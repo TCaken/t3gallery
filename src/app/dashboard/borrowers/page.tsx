@@ -15,11 +15,13 @@ import {
   AdjustmentsHorizontalIcon,
   ChevronDownIcon,
   ArrowDownTrayIcon,
-  CalendarIcon
+  CalendarIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { getBorrowers, updateBorrower } from '~/app/_actions/borrowers';
 import { useUserRole } from '../leads/useUserRole';
 import AssignBorrowerModal from '~/app/_components/AssignBorrowerModal';
+import BorrowerWhatsAppModal from '~/app/_components/BorrowerWhatsAppModal';
 
 // Status info for styling
 const allStatuses = [
@@ -37,7 +39,7 @@ const allStatuses = [
 
 // Enhanced filter options
 const sourceOptions = [
-  'System', 'Manual Import', 'API Integration', 'Website', 'Referral', 'Phone Call', 'Walk-in', 'Email'
+  'Closed Loan', 'Attrition Risk', '2nd Reloan', 'Last Payment Due', 'BHV1', 'Not Eligible'
 ];
 
 const leadScoreRanges = [
@@ -110,10 +112,14 @@ export default function BorrowersPage() {
   const [sourceFilter, setSourceFilter] = useState('');
   const [leadScoreFilter, setLeadScoreFilter] = useState('');
   const [performanceBucketFilter, setPerformanceBucketFilter] = useState('');
-  const [assignedFilter, setAssignedFilter] = useState('');
+  const [assignedFilter, setAssignedFilter] = useState('attrition'); // Default to attrition
   const [dateRangeFilter, setDateRangeFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
+  const [selectedBorrowerIds, setSelectedBorrowerIds] = useState<Set<number>>(new Set());
+  const [showBulkWhatsAppModal, setShowBulkWhatsAppModal] = useState(false);
+  const [showIndividualWhatsAppModal, setShowIndividualWhatsAppModal] = useState(false);
+  const [whatsappBorrowers, setWhatsappBorrowers] = useState<{id: number; full_name: string; phone_number: string}[]>([]);
   
   const router = useRouter();
   const { userRole, hasAnyRole } = useUserRole();
@@ -151,9 +157,9 @@ export default function BorrowersPage() {
 
       if (result.success && result.data) {
         const csvData = result.data.map((borrower) => ({
-          leadSource: borrower.source || 'System',
+          leadSource: borrower.source ?? 'System',
           fullName: borrower.full_name,
-          email: borrower.email || generateEmail(borrower.phone_number),
+          email: borrower.email ?? generateEmail(borrower.phone_number),
           personalPhone: formatPhoneForCsv(borrower.phone_number),
           workPhone: '6583992504'
         }));
@@ -193,6 +199,11 @@ export default function BorrowersPage() {
     try {
       setLoading(!isLoadMore);
       if (isLoadMore) setLoadingMore(true);
+      
+      // Clear selections when filters change (not on load more)
+      if (!isLoadMore) {
+        setSelectedBorrowerIds(new Set());
+      }
 
       const result = await getBorrowers({
         search: searchQuery,
@@ -270,7 +281,7 @@ export default function BorrowersPage() {
     setSourceFilter('');
     setLeadScoreFilter('');
     setPerformanceBucketFilter('');
-    setAssignedFilter('');
+    setAssignedFilter('attrition'); // Reset to default attrition filter
     setDateRangeFilter('');
   };
 
@@ -289,8 +300,7 @@ export default function BorrowersPage() {
           showNotification(`Calling ${borrower.full_name}...`, 'info');
           break;
         case 'whatsapp':
-          const whatsappUrl = `https://wa.me/${borrower.phone_number.replace(/[^0-9]/g, '')}`;
-          window.open(whatsappUrl, '_blank');
+          handleIndividualWhatsApp(borrower);
           break;
         default:
           showNotification(`Action ${action} for borrower ${borrower.full_name}`, 'info');
@@ -310,6 +320,72 @@ export default function BorrowersPage() {
     setBorrowers([]);
     void fetchBorrowers(1);
     showNotification('Borrower assigned successfully', 'success');
+  };
+
+  // Handle checkbox selection
+  const handleBorrowerSelect = (borrowerId: number, isSelected: boolean) => {
+    const newSelection = new Set(selectedBorrowerIds);
+    if (isSelected) {
+      newSelection.add(borrowerId);
+    } else {
+      newSelection.delete(borrowerId);
+    }
+    setSelectedBorrowerIds(newSelection);
+  };
+
+  // Handle select all
+  const handleSelectAll = (isSelected: boolean) => {
+    if (isSelected) {
+      const allIds = new Set(borrowers.map(b => b.id));
+      setSelectedBorrowerIds(allIds);
+    } else {
+      setSelectedBorrowerIds(new Set());
+    }
+  };
+
+  // Handle individual WhatsApp
+  const handleIndividualWhatsApp = (borrower: BorrowerRecord) => {
+    setWhatsappBorrowers([{
+      id: borrower.id,
+      full_name: borrower.full_name,
+      phone_number: borrower.phone_number
+    }]);
+    setShowIndividualWhatsAppModal(true);
+  };
+
+  // Handle bulk WhatsApp
+  const handleBulkWhatsApp = () => {
+    const selectedBorrowers = borrowers
+      .filter(b => selectedBorrowerIds.has(b.id))
+      .map(b => ({
+        id: b.id,
+        full_name: b.full_name,
+        phone_number: b.phone_number
+      }));
+    
+    if (selectedBorrowers.length === 0) {
+      showNotification('Please select borrowers first', 'error');
+      return;
+    }
+
+    // Confirmation for bulk actions
+    const confirmed = confirm(
+      `Send WhatsApp messages to ${selectedBorrowers.length} selected borrower${selectedBorrowers.length > 1 ? 's' : ''}?\n\nThis will use reloan customer templates only.`
+    );
+    
+    if (!confirmed) return;
+
+    setWhatsappBorrowers(selectedBorrowers);
+    setShowBulkWhatsAppModal(true);
+  };
+
+  // Handle WhatsApp success
+  const handleWhatsAppSuccess = () => {
+    showNotification('WhatsApp message(s) sent successfully', 'success');
+    // Clear selection after bulk send
+    if (showBulkWhatsAppModal) {
+      setSelectedBorrowerIds(new Set());
+    }
   };
 
   return (
@@ -334,9 +410,33 @@ export default function BorrowersPage() {
               <div className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
                 {borrowers.length} borrowers
               </div>
+              {selectedBorrowerIds.size > 0 && (
+                <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+                  {selectedBorrowerIds.size} selected
+                </div>
+              )}
             </div>
             
             <div className="flex items-center space-x-4">
+              {selectedBorrowerIds.size > 0 && (
+                <>
+                  <button
+                    onClick={handleBulkWhatsApp}
+                    className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <ChatBubbleLeftRightIcon className="h-5 w-5" />
+                    <span>Send WhatsApp ({selectedBorrowerIds.size})</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedBorrowerIds(new Set())}
+                    className="flex items-center space-x-2 bg-gray-200 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                    <span>Clear</span>
+                  </button>
+                </>
+              )}
+              
               <button
                 onClick={exportToCSV}
                 disabled={exportingCsv || borrowers.length === 0}
@@ -419,7 +519,6 @@ export default function BorrowersPage() {
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
                   >
                     <option value="">All AA Status</option>
-                    <option value="pending">Pending</option>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>
                   </select>
@@ -439,7 +538,7 @@ export default function BorrowersPage() {
                   </select>
                 </div>
 
-                <div>
+                {/* <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Lead Score</label>
                   <select
                     value={leadScoreFilter}
@@ -451,12 +550,12 @@ export default function BorrowersPage() {
                       <option key={range.value} value={range.value}>{range.label}</option>
                     ))}
                   </select>
-                </div>
+                </div> */}
               </div>
 
               {/* Second Row */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
+                {/* <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Performance Bucket</label>
                   <select
                     value={performanceBucketFilter}
@@ -468,7 +567,7 @@ export default function BorrowersPage() {
                       <option key={bucket.value} value={bucket.value}>{bucket.label}</option>
                     ))}
                   </select>
-                </div>
+                </div> */}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Assignment</label>
@@ -478,6 +577,7 @@ export default function BorrowersPage() {
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
                   >
                     <option value="">All</option>
+                    <option value="attrition">Attrition Risk</option>
                     <option value="assigned">Assigned</option>
                     <option value="unassigned">Unassigned</option>
                     <option value="my_borrowers">My Borrowers</option>
@@ -513,7 +613,7 @@ export default function BorrowersPage() {
               </div>
 
               {/* Active Filters Display */}
-              {(statusFilter || aaStatusFilter || sourceFilter || leadScoreFilter || performanceBucketFilter || assignedFilter || dateRangeFilter) && (
+              {(statusFilter || aaStatusFilter || sourceFilter || leadScoreFilter || performanceBucketFilter || (assignedFilter && assignedFilter !== 'attrition') || dateRangeFilter) && (
                 <div className="border-t pt-3">
                   <div className="flex flex-wrap gap-2 items-center">
                     <span className="text-sm font-medium text-gray-600">Active Filters:</span>
@@ -547,10 +647,10 @@ export default function BorrowersPage() {
                         <button onClick={() => setPerformanceBucketFilter('')} className="ml-2 text-indigo-600 hover:text-indigo-800">×</button>
                       </span>
                     )}
-                    {assignedFilter && (
+                    {assignedFilter && assignedFilter !== 'attrition' && (
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
-                        Assignment: {assignedFilter.replace('_', ' ')}
-                        <button onClick={() => setAssignedFilter('')} className="ml-2 text-pink-600 hover:text-pink-800">×</button>
+                        Assignment: {assignedFilter === 'my_borrowers' ? 'My Borrowers' : assignedFilter === 'attrition' ? 'Attrition Risk' : assignedFilter.charAt(0).toUpperCase() + assignedFilter.slice(1)}
+                        <button onClick={() => setAssignedFilter('attrition')} className="ml-2 text-pink-600 hover:text-pink-800">×</button>
                       </span>
                     )}
                     {dateRangeFilter && (
@@ -585,6 +685,14 @@ export default function BorrowersPage() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
+                  <th className="px-4 py-3 text-left">
+                    <input
+                      type="checkbox"
+                      checked={borrowers.length > 0 && selectedBorrowerIds.size === borrowers.length}
+                      onChange={(e) => handleSelectAll(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Borrower Info
                   </th>
@@ -611,20 +719,30 @@ export default function BorrowersPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading && borrowers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center">
+                    <td colSpan={8} className="px-6 py-12 text-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                       <p className="mt-2 text-sm text-gray-600">Loading borrowers...</p>
                     </td>
                   </tr>
                 ) : borrowers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                       No borrowers found
                     </td>
                   </tr>
                 ) : (
                   borrowers.map((borrower) => (
                     <tr key={borrower.id} className="hover:bg-gray-50">
+                      {/* Checkbox */}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          checked={selectedBorrowerIds.has(borrower.id)}
+                          onChange={(e) => handleBorrowerSelect(borrower.id, e.target.checked)}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                      </td>
+                      
                       {/* Borrower Info */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
@@ -632,10 +750,10 @@ export default function BorrowersPage() {
                             {borrower.full_name}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {borrower.id_type}: {borrower.id_number || 'N/A'}
+                            {borrower.id_type}: {borrower.id_number ?? 'N/A'}
                           </div>
                           <div className="text-xs text-gray-400">
-                            Score: {borrower.lead_score || 0}
+                            Score: {borrower.lead_score ?? 0}
                           </div>
                         </div>
                       </td>
@@ -647,7 +765,7 @@ export default function BorrowersPage() {
                             {borrower.phone_number}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {borrower.email || 'No email'}
+                            {borrower.email ?? 'No email'}
                           </div>
                         </div>
                       </td>
@@ -670,7 +788,7 @@ export default function BorrowersPage() {
                       {/* Source */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {borrower.source || 'N/A'}
+                          {borrower.source ?? 'N/A'}
                         </div>
                       </td>
 
@@ -684,7 +802,7 @@ export default function BorrowersPage() {
                       {/* Assigned To */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {borrower.assigned_agent_name || 'Unassigned'}
+                          {borrower.assigned_agent_name ?? 'Unassigned'}
                         </div>
                       </td>
 
@@ -708,7 +826,7 @@ export default function BorrowersPage() {
                           <button
                             onClick={() => handleBorrowerAction('whatsapp', borrower)}
                             className="text-green-600 hover:text-green-900"
-                            title="WhatsApp"
+                            title="Send WhatsApp (Reloan Templates)"
                           >
                             <ChatBubbleLeftRightIcon className="h-4 w-4" />
                           </button>
@@ -766,6 +884,24 @@ export default function BorrowersPage() {
         borrowerId={selectedBorrower?.id ?? 0}
         borrowerName={selectedBorrower?.full_name ?? ''}
         onAssignComplete={handleAssignComplete}
+      />
+
+      {/* Individual WhatsApp Modal */}
+      <BorrowerWhatsAppModal
+        isOpen={showIndividualWhatsAppModal}
+        onClose={() => setShowIndividualWhatsAppModal(false)}
+        borrowers={whatsappBorrowers}
+        isBulkMode={false}
+        onSuccess={handleWhatsAppSuccess}
+      />
+
+      {/* Bulk WhatsApp Modal */}
+      <BorrowerWhatsAppModal
+        isOpen={showBulkWhatsAppModal}
+        onClose={() => setShowBulkWhatsAppModal(false)}
+        borrowers={whatsappBorrowers}
+        isBulkMode={true}
+        onSuccess={handleWhatsAppSuccess}
       />
     </div>
   );

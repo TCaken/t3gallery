@@ -28,6 +28,7 @@ interface Template {
   workspace_id: string;
   channel_id: string;
   project_id: string;
+  customer_type: string;
   is_active: boolean;
   supported_methods: string[];
   default_method: string;
@@ -51,6 +52,7 @@ interface TemplateFormData {
   workspace_id: string;
   channel_id: string;
   project_id: string;
+  customer_type: 'reloan' | 'new';
   supported_methods: ('sms' | 'whatsapp' | 'both')[];
   default_method: 'sms' | 'whatsapp' | 'both';
   trigger_on_status: string[];
@@ -67,6 +69,7 @@ interface TemplateFormData {
 
 interface DataSources {
   lead: string[];
+  borrower: string[];
   user: string[];
   system: string[];
   appointment: string[];
@@ -78,6 +81,7 @@ const initialFormData: TemplateFormData = {
   workspace_id: '976e3394-ae10-4b32-9a23-8ecf78da9fe7',
   channel_id: '36f8cbb8-4397-48b5-a9d7-0036ba9c2c77',
   project_id: '',
+  customer_type: 'new',
   supported_methods: ['whatsapp'],
   default_method: 'whatsapp',
   auto_send: false,
@@ -102,7 +106,7 @@ const leadStatuses = [
 export default function WhatsAppTemplatesPage() {
   const { userId } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [dataSources, setDataSources] = useState<DataSources>({ lead: [], user: [], system: [], appointment: [] });
+  const [dataSources, setDataSources] = useState<DataSources>({ lead: [], borrower: [], user: [], system: [], appointment: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -225,6 +229,7 @@ export default function WhatsAppTemplatesPage() {
       workspace_id: template.workspace_id,
       channel_id: template.channel_id,
       project_id: template.project_id,
+      customer_type: (template.customer_type as 'reloan' | 'new') ?? 'reloan',
       supported_methods: template.supported_methods as ('sms' | 'whatsapp' | 'both')[],
       default_method: template.default_method as 'sms' | 'whatsapp' | 'both',
       auto_send: template.auto_send,
@@ -289,7 +294,7 @@ export default function WhatsAppTemplatesPage() {
       'appointment.latest_datetime': '(most recent appointment date & time)',
       'appointment.latest_status': '(most recent appointment status)',
     };
-    return descriptions[source] || '';
+    return descriptions[source] ?? '';
   };
 
   if (loading) {
@@ -363,6 +368,13 @@ export default function WhatsAppTemplatesPage() {
                   <td className="px-6 py-4 w-1/4">
                     <div className="text-sm text-gray-900">
                       <div className="truncate">Project: {template.project_id}</div>
+                      <div>Type: <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        template.customer_type === 'reloan' 
+                          ? 'bg-blue-100 text-blue-800' 
+                          : 'bg-green-100 text-green-800'
+                      }`}>
+                        {template.customer_type === 'reloan' ? 'Reloan Customer' : 'New Customer'}
+                      </span></div>
                       <div>Methods: {template.supported_methods.join(', ')}</div>
                       <div>Default: {template.default_method}</div>
                       <div>Variables: {template.variables?.length ?? 0}</div>
@@ -475,6 +487,23 @@ export default function WhatsAppTemplatesPage() {
                     />
                     <p className="text-xs text-gray-500 mt-1">This identifies your WhatsApp template in the API</p>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Customer Type *
+                    </label>
+                    <select
+                      value={formData.customer_type}
+                      onChange={(e) => setFormData({ ...formData, customer_type: e.target.value as 'reloan' | 'new' })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="reloan">Reloan Customer</option>
+                      <option value="new">New Customer</option>
+                    </select>
+                    <div className="text-xs text-gray-500 mt-1 space-y-1">
+                      <p>• <strong>New Customer:</strong> For leads who haven't borrowed before (use lead.* data sources)</p>
+                      <p>• <strong>Reloan Customer:</strong> For existing borrowers (use borrower.* data sources with more loan details)</p>
+                    </div>
+                  </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Description
@@ -520,7 +549,13 @@ export default function WhatsAppTemplatesPage() {
                 {/* Variables */}
                 <div>
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-medium">Template Variables</h3>
+                    <div>
+                      <h3 className="text-lg font-medium">Template Variables</h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Available data sources change based on customer type selected above
+                        {formData.customer_type === 'reloan' ? ' (Lead + Borrower data available)' : ' (Lead data only)'}
+                      </p>
+                    </div>
                     <button
                       onClick={addVariable}
                       className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
@@ -569,11 +604,27 @@ export default function WhatsAppTemplatesPage() {
                               className="w-full border border-gray-300 rounded-md px-3 py-1 text-sm"
                             >
                               <option value="">Select source...</option>
-                              <optgroup label="Lead Data">
-                                {dataSources.lead.map(source => (
-                                  <option key={source} value={source}>{source}</option>
-                                ))}
-                              </optgroup>
+                              {formData.customer_type === 'new' && (
+                                <optgroup label="Lead Data (New Customers)">
+                                  {dataSources.lead.map(source => (
+                                    <option key={source} value={source}>{source}</option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {formData.customer_type === 'reloan' && (
+                                <>
+                                  <optgroup label="Lead Data">
+                                    {dataSources.lead.map(source => (
+                                      <option key={source} value={source}>{source}</option>
+                                    ))}
+                                  </optgroup>
+                                  <optgroup label="Borrower Data (Existing Customers)">
+                                    {dataSources.borrower.map(source => (
+                                      <option key={source} value={source}>{source}</option>
+                                    ))}
+                                  </optgroup>
+                                </>
+                              )}
                               <optgroup label="User Data">
                                 {dataSources.user.map(source => (
                                   <option key={source} value={source}>{source}</option>

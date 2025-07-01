@@ -3,7 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "~/server/db";
 import { users, userRoles, roles } from "~/server/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { getUserPermissions, getUserRoles } from '~/server/rbac/queries';
 
 export async function getCurrentUserId() {
@@ -63,23 +63,62 @@ export async function fetchUserData() {
   }
 }
 
-// Add fetchUsers function to retrieve user list
-export async function fetchUsers() {
+// Enhanced fetchUsers function with optional role filtering
+export async function fetchUsers(roleNames?: string[]) {
   try {
-    const users = await db.query.users.findMany({
-      with: {
-        roles: {
-          with: {
-            role: true
+    let query;
+    
+    if (roleNames && roleNames.length > 0) {
+      // Fetch users with specific roles
+      query = db.query.users.findMany({
+        with: {
+          roles: {
+            with: {
+              role: true
+            },
+            where: (userRole, { exists }) => 
+              exists(
+                db.select()
+                  .from(roles)
+                  .where(
+                    and(
+                      eq(roles.id, userRole.roleId),
+                      inArray(roles.name, roleNames)
+                    )
+                  )
+              )
           }
         }
-      }
-    });
-    // console.log('fetchUsers users:', users);
+      });
+    } else {
+      // Fetch all users (original behavior)
+      query = db.query.users.findMany({
+        with: {
+          roles: {
+            with: {
+              role: true
+            }
+          }
+        }
+      });
+    }
+
+    const usersResult = await query;
+    
+    // Filter users to only include those with the requested roles
+    const filteredUsers = roleNames && roleNames.length > 0
+      ? usersResult.filter(user => 
+          user.roles.some(userRole => 
+            roleNames.includes(userRole.role.name)
+          )
+        )
+      : usersResult;
+
+    console.log(`✅ Fetched ${filteredUsers.length} users${roleNames ? ` with roles: ${roleNames.join(', ')}` : ''}`);
     
     return { 
       success: true, 
-      users: users.map(user => ({
+      users: filteredUsers.map(user => ({
         id: user.id,
         firstName: user.first_name,
         lastName: user.last_name,
@@ -94,4 +133,18 @@ export async function fetchUsers() {
     console.error("Error fetching users:", error);
     return { success: false, users: [] };
   }
+}
+
+// Convenience function to fetch only agents
+export async function fetchAgents() {
+  return fetchUsers(['agent']);
+}
+
+export async function fetchAgentReloan() {
+  return fetchUsers(['agent-reloan']);
+}
+
+// Convenience function to fetch only admins  
+export async function fetchAdmins() {
+  return fetchUsers(['admin']);
 }

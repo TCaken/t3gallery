@@ -256,6 +256,10 @@ function determineBorrowerSource(bucketData: {
 }): string {
   // Priority order: Closed Loan (High) → 2nd Reloan (Medium) → Attrition (High) → Last Payment Due (Medium) → BHV1 (Low) → Standard
   
+  if (bucketData.is_in_attrition === "Yes") {
+    return "Attrition Risk";
+  }
+  
   if (bucketData.is_in_closed_loan === "Yes") {
     return "Closed Loan";
   }
@@ -345,8 +349,8 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
        atom_borrower_id: externalData.borrower_id.toString(),
        full_name: externalData.borrower_name,
        phone_number: externalData.phone_number,
-       phone_number_2: "",
-       phone_number_3: "",
+       phone_number_2: externalData.phone_number,
+       phone_number_3: externalData.phone_number,
        email: "",
        residential_status: "",
        status: borrowerStatus,
@@ -366,9 +370,26 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
        // Loan Information - Using primary loan for main borrower record
        estimated_reloan_amount: primaryLoan?.estimated_reloan_amount?.toString() ?? "",
        loan_id: primaryLoan?.loan_id?.toString() ?? "",
-       latest_completed_loan_date: externalData.latest_completed_loan_date && externalData.latest_completed_loan_date.trim() !== "" 
-         ? externalData.latest_completed_loan_date 
-         : null,
+       latest_completed_loan_date: (() => {
+         // Find latest completed loan date from parsed loans
+         if (parsedLoans.length === 0) {
+           return null;
+         }
+         
+         const completedLoans = parsedLoans.filter(loan => loan.loan_completed_date && loan.loan_completed_date.trim() !== "");
+         if (completedLoans.length === 0) {
+           return null;
+         }
+         
+         // Sort by completion date and get the latest one
+         const latestLoan = completedLoans.sort((a, b) => {
+           const dateA = new Date(a.loan_completed_date ?? 0);
+           const dateB = new Date(b.loan_completed_date ?? 0);
+           return dateB.getTime() - dateA.getTime();
+         })[0];
+         
+         return latestLoan?.loan_completed_date ?? null;
+       })(),
        
        // Customer Performance Buckets (from external API)
        is_in_closed_loan: externalData.is_in_closed_loan ?? "",
@@ -448,17 +469,25 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
     
          // Sync loan plans
      if (parsedLoans.length > 0) {
-       // Delete existing loan plans for this borrower
-       await db
-         .delete(loan_plans)
-         .where(eq(loan_plans.borrower_id, borrower.id));
-
-       // Insert new loan plans
+       // Don't delete existing loan plans - instead update or create as needed
+       
        for (const loan of parsedLoans) {
+         // Check if loan plan already exists for this loan_id and borrower
+         const existingLoanPlan = await db
+           .select()
+           .from(loan_plans)
+           .where(
+             and(
+               eq(loan_plans.borrower_id, borrower.id),
+               eq(loan_plans.loan_id, loan.loan_id.toString())
+             )
+           )
+           .limit(1);
+
          // Mark the loan plan as selected if it matches the borrower's primary loan
          const isPrimaryLoan = primaryLoan && loan.loan_id === primaryLoan.loan_id;
          
-         await db.insert(loan_plans).values({
+         const loanPlanData = {
            loan_id: loan.loan_id.toString(),
            borrower_id: borrower.id,
            product_name: loan.product_name,
@@ -472,9 +501,29 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
            loan_comments: Array.isArray(loan.loan_comments) ? loan.loan_comments.join("; ") : null,
            plan_details: loan,
            is_selected: isPrimaryLoan ?? false,
-           created_by: userId,
-           created_at: new Date(),
-         });
+         };
+
+         if (existingLoanPlan.length > 0) {
+           // Update existing loan plan
+           await db
+             .update(loan_plans)
+             .set({
+               ...loanPlanData,
+               updated_at: new Date(),
+             })
+             .where(eq(loan_plans.id, existingLoanPlan[0]!.id));
+           
+           console.log(`✅ Updated existing loan plan for loan_id: ${loan.loan_id}`);
+         } else {
+           // Create new loan plan
+           await db.insert(loan_plans).values({
+             ...loanPlanData,
+             created_by: userId,
+             created_at: new Date(),
+           });
+           
+           console.log(`✅ Created new loan plan for loan_id: ${loan.loan_id}`);
+         }
        }
      }
 
