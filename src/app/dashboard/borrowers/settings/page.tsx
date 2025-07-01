@@ -272,10 +272,10 @@ export default function BorrowersSettingsPage() {
                         <hr className="my-6" />
                         
                         <h4 className="text-lg font-medium mb-4">
-                          Loans ({parseLoansForDisplay(selectedBorrower.loans).length})
+                          Loans ({selectedBorrower.loans.length})
                         </h4>
                         <div className="space-y-4 h-96 overflow-auto">
-                          {parseLoansForDisplay(selectedBorrower.loans).map((loan, idx) => (
+                          {selectedBorrower.loans.map((loan, idx) => (
                             <div key={idx} className="border border-gray-200 rounded-lg p-4">
                               <div className="grid grid-cols-2 gap-4 text-sm">
                                 <div><span className="font-medium">Loan ID:</span> {loan.loan_id}</div>
@@ -304,7 +304,7 @@ export default function BorrowersSettingsPage() {
                               
                               {/* Show primary loan indicator */}
                               {(() => {
-                                const loans = parseLoansForDisplay(selectedBorrower.loans);
+                                const loans = selectedBorrower.loans;
                                 const overdueLoan = loans.find(l => !l.loan_completed_date && l.is_overdue === "Yes");
                                 const activeLoan = loans.find(l => !l.loan_completed_date);
                                 const latestCompletedLoan = loans
@@ -366,7 +366,7 @@ export default function BorrowersSettingsPage() {
                         <h3 className="text-lg font-semibold mb-4">Borrowers Preview</h3>
                         <div className="h-96 overflow-auto space-y-4">
                           {externalData.map((borrower, idx) => {
-                            const loans = parseLoansForDisplay(borrower.loans);
+                            const loans = borrower.loans;
                             const hasActiveLoan = loans.some(loan => !loan.loan_completed_date);
                             const hasOverdueLoan = loans.some(loan => loan.is_overdue === "Yes");
 
@@ -400,7 +400,7 @@ export default function BorrowersSettingsPage() {
                                 <div className="grid grid-cols-3 gap-4 text-sm text-gray-600">
                                   <div><span className="font-medium">ID:</span> {borrower.borrower_id}</div>
                                   <div><span className="font-medium">Employer:</span> {borrower.current_employer_name}</div>
-                                  <div><span className="font-medium">Loans:</span> {loans.length}</div>
+                                  <div><span className="font-medium">Loans:</span> {borrower.loans.length}</div>
                                 </div>
                               </div>
                             );
