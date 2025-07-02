@@ -51,6 +51,12 @@ export type CreateBorrowerInput = {
   is_in_attrition?: string | null;
   is_in_last_payment_due?: string | null;
   is_in_bhv1?: string | null;
+  // Questionnaire fields
+  employment_status_changed?: boolean;
+  employment_change_details?: string;
+  work_pass_expiry_status?: string;
+  customer_experience_feedback?: string;
+  last_questionnaire_date?: Date;
 };
 
 export type UpdateBorrowerInput = Partial<CreateBorrowerInput> & {

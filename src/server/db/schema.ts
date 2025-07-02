@@ -806,6 +806,13 @@ export const borrowers = createTable(
     communication_language: d.varchar({ length: 50 }).default('No Preferences'),
     follow_up_date: d.timestamp({ withTimezone: true }).default(sql`NULL`),
     
+    // Questionnaire-specific fields
+    employment_status_changed: d.boolean().default(false),
+    employment_change_details: d.text(),
+    work_pass_expiry_status: d.varchar({ length: 50 }).default('not_applicable'), // 'within_3_months', 'more_than_3_months', 'not_applicable'
+    customer_experience_feedback: d.text(),
+    last_questionnaire_date: d.timestamp({ withTimezone: true }),
+    
     // System Fields
     assigned_to: d.varchar({ length: 256 }),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),

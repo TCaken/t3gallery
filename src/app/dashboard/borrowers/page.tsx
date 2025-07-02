@@ -16,13 +16,16 @@ import {
   ChevronDownIcon,
   ArrowDownTrayIcon,
   CalendarIcon,
-  XMarkIcon
+  XMarkIcon,
+  PencilSquareIcon
 } from '@heroicons/react/24/outline';
 import { getBorrowers, updateBorrower } from '~/app/_actions/borrowers';
 import { fetchAgentReloan } from '~/app/_actions/userActions';
 import { useUserRole } from '../leads/useUserRole';
 import AssignBorrowerModal from '~/app/_components/AssignBorrowerModal';
 import BorrowerWhatsAppModal from '~/app/_components/BorrowerWhatsAppModal';
+import BorrowerCallModal from '~/app/_components/BorrowerCallModal';
+import BorrowerQuestionnaireModal from '~/app/_components/BorrowerQuestionnaireModal';
 
 // Status info for styling
 const allStatuses = [
@@ -129,6 +132,10 @@ export default function BorrowersPage() {
   const [showIndividualWhatsAppModal, setShowIndividualWhatsAppModal] = useState(false);
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [whatsappBorrowers, setWhatsappBorrowers] = useState<{id: number; full_name: string; phone_number: string}[]>([]);
+  const [showCallModal, setShowCallModal] = useState(false);
+  const [callBorrower, setCallBorrower] = useState<{ id: number; full_name: string; phone_number: string } | null>(null);
+  const [showQuestionnaireModal, setShowQuestionnaireModal] = useState(false);
+  const [questionnaireBorrower, setQuestionnaireBorrower] = useState<BorrowerRecord | null>(null);
   
   const router = useRouter();
   const { userRole, hasAnyRole } = useUserRole();
@@ -362,9 +369,17 @@ export default function BorrowersPage() {
           setSelectedBorrower(borrower);
           setIsAssignModalOpen(true);
           break;
-
         case 'call':
-          showNotification(`Calling ${borrower.full_name}...`, 'info');
+          setCallBorrower({
+            id: borrower.id,
+            full_name: borrower.full_name,
+            phone_number: borrower.phone_number
+          });
+          setShowCallModal(true);
+          break;
+        case 'questionnaire':
+          setQuestionnaireBorrower(borrower);
+          setShowQuestionnaireModal(true);
           break;
         case 'whatsapp':
           handleIndividualWhatsApp(borrower);
@@ -463,6 +478,15 @@ export default function BorrowersPage() {
     if (showBulkWhatsAppModal) {
       setSelectedBorrowerIds(new Set());
     }
+  };
+
+  // Handle questionnaire update
+  const handleQuestionnaireUpdate = () => {
+    showNotification('Borrower information updated successfully', 'success');
+    // Refresh data
+    setPage(1);
+    setBorrowers([]);
+    void fetchBorrowers(1);
   };
 
   return (
@@ -937,6 +961,13 @@ export default function BorrowersPage() {
                           >
                             <ChatBubbleLeftRightIcon className="h-4 w-4" />
                           </button>
+                          <button
+                            onClick={() => handleBorrowerAction('questionnaire', borrower)}
+                            className="text-orange-600 hover:text-orange-900"
+                            title="Update Questionnaire & Profile"
+                          >
+                            <PencilSquareIcon className="h-4 w-4" />
+                          </button>
                           {hasAnyRole(['admin']) && (
                             <button
                               onClick={() => handleBorrowerAction('assign', borrower)}
@@ -1024,6 +1055,21 @@ export default function BorrowersPage() {
           onAssignComplete={handleAssignComplete}
         />
       )}
+
+      {/* Call Modal */}
+      <BorrowerCallModal
+        isOpen={showCallModal}
+        onClose={() => setShowCallModal(false)}
+        borrower={callBorrower}
+      />
+
+      {/* Questionnaire Modal */}
+      <BorrowerQuestionnaireModal
+        isOpen={showQuestionnaireModal}
+        onClose={() => setShowQuestionnaireModal(false)}
+        borrower={questionnaireBorrower}
+        onUpdate={handleQuestionnaireUpdate}
+      />
     </div>
   );
 } 

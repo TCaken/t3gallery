@@ -16,7 +16,7 @@ import { revalidatePath } from "next/cache";
 export type CreateBorrowerNoteInput = {
   borrower_id: number;
   content: string;
-  note_type?: string;
+  note_type: 'note' | 'questionnaire' | 'call' | 'whatsapp' | 'assignment' | 'others';
 };
 
 export type UpdateBorrowerNoteInput = {
@@ -73,51 +73,22 @@ export async function createBorrowerNote(input: CreateBorrowerNoteInput) {
   }
 
   try {
-    // Validate that borrower exists
-    const borrower = await db
-      .select()
-      .from(borrowers)
-      .where(eq(borrowers.id, input.borrower_id))
-      .limit(1);
+    const result = await db.insert(borrower_actions).values({
+      borrower_id: input.borrower_id,
+      user_id: userId,
+      action_type: input.note_type,
+      content: input.content,
+      timestamp: new Date(),
+      created_by: userId,
+    });
 
-    if (borrower.length === 0) {
-      throw new Error("Borrower not found");
-    }
-
-    // Create the note
-    const result = await db
-      .insert(borrower_notes)
-      .values({
-        borrower_id: input.borrower_id,
-        content: input.content,
-        note_type: input.note_type || "general",
-        created_by: userId,
-        created_at: new Date(),
-      })
-      .returning();
-
-    const newNote = result[0];
-    if (!newNote) {
-      throw new Error("Failed to create note");
-    }
-
-    // Log the action
-    await logBorrowerNoteAction(
-      newNote.id,
-      input.borrower_id,
-      "create",
-      `Added note for ${borrower[0].full_name}: ${input.content.substring(0, 100)}${input.content.length > 100 ? "..." : ""}`,
-      userId
-    );
-
-    revalidatePath("/dashboard/borrowers");
     revalidatePath(`/dashboard/borrowers/${input.borrower_id}`);
+    revalidatePath('/dashboard/borrowers');
 
-    return { success: true, data: newNote };
-
+    return { success: true, message: "Note created successfully" };
   } catch (error) {
     console.error("Error creating borrower note:", error);
-    throw new Error(error instanceof Error ? error.message : "Failed to create borrower note");
+    throw new Error("Failed to create borrower note");
   }
 }
 
