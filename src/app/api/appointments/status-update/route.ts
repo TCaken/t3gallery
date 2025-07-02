@@ -798,7 +798,7 @@ export async function POST(request: NextRequest) {
             loan_status: newAppointmentLoanStatus,
             loan_notes: newAppointmentLoanNotes,
             updated_at: new Date(),
-            updated_by: fallbackUserId
+            // updated_by: fallbackUserId
           })
           .where(eq(borrower_appointments.id, borrowerAppointment.id));
         console.log(`✅ Updated borrower appointment ${borrowerAppointment.id} to ${newAppointmentStatus}`);
@@ -812,7 +812,7 @@ export async function POST(request: NextRequest) {
             loan_status: newBorrowerLoanStatus,
             loan_notes: newBorrowerLoanNotes,
             updated_at: new Date(),
-            updated_by: fallbackUserId
+            // updated_by: fallbackUserId
           })
           .where(eq(borrowers.id, borrower.id));
         console.log(`✅ Updated borrower ${borrower.id} to ${newBorrowerStatus}`);
@@ -939,7 +939,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Then, check remaining borrower appointments for time threshold
-    console.log(`🕐 Starting time threshold check for ${upcomingBorrowerAppointments.length} total borrower appointments (${processedBorrowerAppointmentIds.size} already processed by Excel)`);
+    // console.log(`🕐 Starting time threshold check for ${upcomingBorrowerAppointments.length} total borrower appointments (${processedBorrowerAppointmentIds.size} already processed by Excel)`);
     
     for (const record of upcomingBorrowerAppointments) {
       const borrowerAppointment = record.appointment;
@@ -952,13 +952,13 @@ export async function POST(request: NextRequest) {
 
       // Skip if this borrower appointment was already processed by Excel data
       if (processedBorrowerAppointmentIds.has(borrowerAppointment.id)) {
-        console.log(`⏭️ Skipping borrower appointment ${borrowerAppointment.id} - already processed by Excel data`);
+        // console.log(`⏭️ Skipping borrower appointment ${borrowerAppointment.id} - already processed by Excel data`);
         continue;
       }
 
       // Skip if borrower appointment status is no longer 'upcoming' (safety check)
       if (borrowerAppointment.status !== 'upcoming') {
-        console.log(`⏭️ Skipping borrower appointment ${borrowerAppointment.id} - status is ${borrowerAppointment.status}, not upcoming`);
+        // console.log(`⏭️ Skipping borrower appointment ${borrowerAppointment.id} - status is ${borrowerAppointment.status}, not upcoming`);
         continue;
       }
 
@@ -982,7 +982,7 @@ export async function POST(request: NextRequest) {
             .set({
               status: 'missed',
               updated_at: new Date(),
-              updated_by: fallbackUserId
+              // updated_by: fallbackUserId
             })
             .where(eq(borrower_appointments.id, borrowerAppointment.id));
 
@@ -990,9 +990,9 @@ export async function POST(request: NextRequest) {
           await db
             .update(borrowers)
             .set({
-              status: 'follow_up',
+              status: 'missed/RS',
               updated_at: new Date(),
-              updated_by: fallbackUserId
+              // updated_by: fallbackUserId
             })
             .where(eq(borrowers.id, borrower.id));
 
@@ -1011,9 +1011,9 @@ export async function POST(request: NextRequest) {
           });
 
           updatedCount++;
-          console.log(`✅ Marked borrower appointment ${borrowerAppointment.id} as missed (${timeDiffHours.toFixed(2)}h late)`);
+          // console.log(`✅ Marked borrower appointment ${borrowerAppointment.id} as missed (${timeDiffHours.toFixed(2)}h late)`);
         } catch (error) {
-          console.error(`❌ Error updating borrower appointment ${borrowerAppointment.id}:`, error);
+          // console.error(`❌ Error updating borrower appointment ${borrowerAppointment.id}:`, error);
           
           // Add error to results array
           results.push({
@@ -1031,7 +1031,7 @@ export async function POST(request: NextRequest) {
           });
         }
       } else {
-        console.log(`ℹ️ No update needed for borrower appointment ${borrowerAppointment.id}: Time diff ${timeDiffHours.toFixed(2)}h < ${thresholdHours}h`);
+        // console.log(`ℹ️ No update needed for borrower appointment ${borrowerAppointment.id}: Time diff ${timeDiffHours.toFixed(2)}h < ${thresholdHours}h`);
       }
     }
 

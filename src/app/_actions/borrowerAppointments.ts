@@ -623,7 +623,7 @@ export async function updateBorrowerAppointmentStatus(id: number, status: string
     if (status === 'done') {
       borrowerStatus = 'done'; // Mark borrower as done when appointment is completed
     } else if (status === 'missed' || status === 'cancelled') {
-      borrowerStatus = 'follow_up'; // Set to follow-up for missed/cancelled appointments
+      borrowerStatus = 'assigned'; // Set to follow-up for missed/cancelled appointments
     }
     
     // Update borrower status if it should change
