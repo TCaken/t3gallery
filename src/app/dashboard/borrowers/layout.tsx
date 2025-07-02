@@ -34,7 +34,7 @@ function UserRoleProvider({ children }: { children: React.ReactNode }) {
           const roleName = roles[0]?.roleName ?? 'user';
           
           // Check if user has required permissions for borrowers section
-          const allowedRoles: UserRole[] = ['admin', 'agent'];
+          const allowedRoles: UserRole[] = ['admin','agent-reloan'];
           if (!allowedRoles.includes(roleName as UserRole)) {
             router.push('/dashboard'); // Redirect to main dashboard
             return;

@@ -531,35 +531,19 @@ export default function BorrowerDetailPage() {
                 <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                   Lead Source
                 </h4>
-                {(() => {
-                  const leadSourceInfo = getLeadSource(borrower);
-                  return (
-                    <div style={{ textAlign: "center" }}>
-                      <span style={{ 
-                        color: leadSourceInfo.color,
-                        fontWeight: "600",
-                        padding: "6px 12px",
-                        backgroundColor: `${leadSourceInfo.color}20`,
-                        borderRadius: "8px",
-                        fontSize: "13px",
-                        display: "inline-block"
-                      }}>
-                        {leadSourceInfo.source}
-                        <span style={{ 
-                          marginLeft: "8px", 
-                          fontSize: "10px",
-                          opacity: 0.8,
-                          textTransform: "uppercase",
-                          backgroundColor: `${leadSourceInfo.color}40`,
-                          padding: "2px 6px",
-                          borderRadius: "4px"
-                        }}>
-                          {leadSourceInfo.priority}
-                        </span>
-                      </span>
-                    </div>
-                  );
-                })()}
+                <div style={{ textAlign: "center" }}>
+                  <span style={{ 
+                    color: "#007bff",
+                    fontWeight: "600",
+                    padding: "6px 12px",
+                    backgroundColor: "#007bff20",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    display: "inline-block"
+                  }}>
+                    {borrower.source}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

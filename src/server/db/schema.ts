@@ -563,6 +563,7 @@ export const whatsappTemplates = createTable(
     workspace_id: d.varchar({ length: 255 }).notNull(),
     channel_id: d.varchar({ length: 255 }).notNull(),
     project_id: d.varchar({ length: 255 }).notNull(),
+    customer_type: d.varchar({ length: 20 }).default('new').notNull(), // 'reloan' or 'new'
     is_active: d.boolean().default(true),
     trigger_on_status: d.json(), // Array of lead statuses that trigger this template
     auto_send: d.boolean().default(false), // Whether to auto-send when status changes
@@ -575,6 +576,7 @@ export const whatsappTemplates = createTable(
   }),
   (t) => [
     index("whatsapp_template_id_idx").on(t.template_id),
+    index("whatsapp_template_customer_type_idx").on(t.customer_type),
   ]
 );
 

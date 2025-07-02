@@ -2,7 +2,7 @@
 
 import { auth } from '@clerk/nextjs/server';
 import { db } from "~/server/db";
-import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments } from "~/server/db/schema";
+import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments, borrowers } from "~/server/db/schema";
 import { eq, and, desc, or } from 'drizzle-orm';
 
 interface WhatsAppRequest {
@@ -76,12 +76,26 @@ export async function sendWhatsAppMessage(
       };
     }
 
-    // Get lead data if leadId provided
-    console.log('Lead ID:', leadId);
+    // Get lead or borrower data if leadId provided
+    console.log('Entity ID:', leadId);
     let leadData = null;
+    let borrowerData = null;
+    
     if (leadId) {
+      // First try to find as a lead
       const leadResult = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
-      leadData = leadResult[0] ?? null;
+      
+      if (leadResult.length > 0) {
+        leadData = leadResult[0];
+        console.log('📋 Found lead data for ID:', leadId);
+      } else {
+        // If not found as lead, try as borrower
+        const borrowerResult = await db.select().from(borrowers).where(eq(borrowers.id, leadId)).limit(1);
+        if (borrowerResult.length > 0) {
+          borrowerData = borrowerResult[0];
+          console.log('👤 Found borrower data for ID:', leadId);
+        }
+      }
     }
 
     // Get user data
@@ -89,16 +103,18 @@ export async function sendWhatsAppMessage(
     const user = userData[0] ?? null;
 
     // Build parameters from template configuration
-    // console.log('Template data:', templateData);
-    // console.log('Lead data:', leadData);
-    // console.log('User data:', user);
-    // console.log('Custom parameters:', customParameters);
+    console.log('Template data:', templateData);
+    console.log('Lead data:', leadData);
+    console.log('Borrower data:', borrowerData);
+    console.log('User data:', user);
+    console.log('Custom parameters:', customParameters);
   
     const parameters = await buildTemplateParameters(
       templateData.variables, 
       leadData, 
       user, 
-      customParameters
+      customParameters,
+      borrowerData
     );
 
     // console.log('Built parameters:', parameters);
@@ -201,7 +217,35 @@ export async function sendAutoTriggeredMessage(
     const { userId } = await auth();
     if (!userId) return { success: false, error: 'Not authenticated' };
 
-    // Find templates that auto-trigger on this status
+    // Determine customer type by checking if this is a lead or borrower
+    let customerType: 'new' | 'reloan' = 'new'; // Default to new
+    
+    // First check if it's a lead
+    const leadResult = await db.select({ lead_type: leads.lead_type })
+      .from(leads)
+      .where(eq(leads.id, leadId))
+      .limit(1);
+
+    if (leadResult.length > 0) {
+      // It's a lead - use lead_type to determine customer type
+      customerType = leadResult[0]!.lead_type === 'reloan' ? 'reloan' : 'new';
+      console.log(`📋 Lead ${leadId}: lead_type="${leadResult[0]!.lead_type}" → customer_type="${customerType}"`);
+    } else {
+      // Check if it's a borrower (existing customers are always reloan type)
+      const borrowerResult = await db.select({ id: borrowers.id })
+        .from(borrowers)
+        .where(eq(borrowers.id, leadId))
+        .limit(1);
+      
+      if (borrowerResult.length > 0) {
+        customerType = 'reloan'; // Borrowers are always reloan customers
+        console.log(`👥 Borrower ${leadId}: customer_type="${customerType}"`);
+      }
+    }
+
+    console.log(`🎯 Auto-trigger search: status="${newStatus}", customer_type="${customerType}"`);
+
+    // Find templates that auto-trigger on this status AND match customer type
     const templates = await db.select({
       id: whatsappTemplates.id,
       template_id: whatsappTemplates.template_id,
@@ -209,6 +253,7 @@ export async function sendAutoTriggeredMessage(
       workspace_id: whatsappTemplates.workspace_id,
       channel_id: whatsappTemplates.channel_id,
       project_id: whatsappTemplates.project_id,
+      customer_type: whatsappTemplates.customer_type,
       supported_methods: whatsappTemplates.supported_methods,
       default_method: whatsappTemplates.default_method,
       trigger_on_status: whatsappTemplates.trigger_on_status,
@@ -217,7 +262,8 @@ export async function sendAutoTriggeredMessage(
     .where(
       and(
         eq(whatsappTemplates.is_active, true),
-        eq(whatsappTemplates.auto_send, true)
+        eq(whatsappTemplates.auto_send, true),
+        eq(whatsappTemplates.customer_type, customerType) // Filter by customer type
       )
     );
 
@@ -365,15 +411,27 @@ async function buildTemplateParameters(
   variables: TemplateData['variables'],
   leadData: any,
   userData: any,
-  customParameters: Record<string, string>
+  customParameters: Record<string, string>,
+  borrowerData?: any // Add borrower data support
 ): Promise<Record<string, string>> {
   const parameters: Record<string, string> = {};
 
-  // Get appointment data if we have lead data
+  // Get appointment data if we have lead or borrower data
   let appointmentData = null;
+  const entityId = leadData?.id ?? borrowerData?.id;
+  const entityType = leadData ? 'lead' : borrowerData ? 'borrower' : null;
+  
+  console.log(`🔄 Building template parameters for ${entityType} ${entityId}`);
   console.log('Lead data:', leadData);
-  if (leadData?.id) {
-    appointmentData = await getAppointmentDataForLead(leadData?.id);
+  console.log('Borrower data:', borrowerData);
+  
+  if (entityId) {
+    if (entityType === 'lead') {
+      appointmentData = await getAppointmentDataForLead(entityId);
+    } else if (entityType === 'borrower') {
+      // Get borrower appointment data
+      appointmentData = await getBorrowerAppointmentData(entityId);
+    }
   }
 
   console.log('Appointment data:', appointmentData);
@@ -382,7 +440,7 @@ async function buildTemplateParameters(
     let value = customParameters[variable.variable_key];
 
     if (!value) {
-      value = extractValueFromDataSource(variable.data_source, leadData, userData, appointmentData);
+      value = extractValueFromDataSource(variable.data_source, leadData, userData, appointmentData, borrowerData);
     }
 
     if (!value && variable.default_value) {
@@ -406,12 +464,13 @@ async function buildTemplateParameters(
   return parameters;
 }
 
-// Extract value from data source string (e.g., "lead.full_name", "user.email", "system.date", "appointment.booked_date")
+// Extract value from data source string (e.g., "lead.full_name", "borrower.full_name", "user.email", "system.date", "appointment.booked_date")
 function extractValueFromDataSource(
   dataSource: string, 
   leadData: any, 
   userData: any,
-  appointmentData?: { booked: any; missed: any; latest: any } | null
+  appointmentData?: { booked: any; missed: any; latest: any } | null,
+  borrowerData?: any
 ): string | null {
   const parts = dataSource.split('.');
   if (parts.length !== 2) return null;
@@ -423,6 +482,8 @@ function extractValueFromDataSource(
   switch (source) {
     case 'lead':
       return leadData?.[field] ?? null;
+    case 'borrower':
+      return borrowerData?.[field] ?? null;
     case 'user':
       return userData?.[field] ?? null;
     case 'appointment':
@@ -621,24 +682,83 @@ async function getAppointmentDataForLead(leadId: number) {
   }
 }
 
-// Get all available templates for UI
-export async function getAvailableTemplates() {
+// Get appointment data for a borrower
+async function getBorrowerAppointmentData(borrowerId: number) {
+  try {
+    // Import borrower_appointments here to avoid circular dependency
+    const { borrower_appointments } = await import('~/server/db/schema');
+    
+    // Get the latest booked appointment (upcoming or done)
+    const bookedAppointment = await db.query.borrower_appointments.findFirst({
+      where: and(
+        eq(borrower_appointments.borrower_id, borrowerId),
+        or(
+          eq(borrower_appointments.status, 'upcoming'),
+          eq(borrower_appointments.status, 'done')
+        )
+      ),
+      orderBy: [desc(borrower_appointments.created_at)]
+    });
+
+    // Get the latest missed appointment (cancelled or missed)
+    const missedAppointment = await db.query.borrower_appointments.findFirst({
+      where: and(
+        eq(borrower_appointments.borrower_id, borrowerId),
+        or(
+          eq(borrower_appointments.status, 'cancelled'),
+          eq(borrower_appointments.status, 'missed')
+        )
+      ),
+      orderBy: [desc(borrower_appointments.created_at)]
+    });
+
+    // Get the latest appointment regardless of status
+    const latestAppointment = await db.query.borrower_appointments.findFirst({
+      where: eq(borrower_appointments.borrower_id, borrowerId),
+      orderBy: [desc(borrower_appointments.created_at)]
+    });
+
+    return {
+      booked: bookedAppointment,
+      missed: missedAppointment,
+      latest: latestAppointment
+    };
+  } catch (error) {
+    console.error('Error fetching appointment data for borrower:', error);
+    return {
+      booked: null,
+      missed: null,
+      latest: null
+    };
+  }
+}
+
+// Get all available templates for UI (optionally filtered by customer type)
+export async function getAvailableTemplates(customerType?: 'reloan' | 'new') {
   try {
     const { userId } = await auth();
     if (!userId) return { success: false, error: 'Not authenticated' };
 
-    const templates = await db.select({
+    let query = db.select({
       id: whatsappTemplates.id,
       template_id: whatsappTemplates.template_id,
       name: whatsappTemplates.name,
       description: whatsappTemplates.description,
+      customer_type: whatsappTemplates.customer_type,
       supported_methods: whatsappTemplates.supported_methods,
       default_method: whatsappTemplates.default_method,
       trigger_on_status: whatsappTemplates.trigger_on_status,
       auto_send: whatsappTemplates.auto_send,
     })
-    .from(whatsappTemplates)
-    .where(eq(whatsappTemplates.is_active, true));
+    .from(whatsappTemplates);
+
+    // Apply filters
+    const conditions = [eq(whatsappTemplates.is_active, true)];
+    if (customerType) {
+      conditions.push(eq(whatsappTemplates.customer_type, customerType));
+    }
+
+    const templates = await query.where(and(...conditions));
 
     return { success: true, templates };
   } catch (error) {
