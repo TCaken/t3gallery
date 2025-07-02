@@ -665,7 +665,7 @@ export const playbook_contacts = createTable(
   (d) => ({
     id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
     playbook_id: d.integer().references(() => playbooks.id, { onDelete: "cascade" }).notNull(),
-    lead_id: d.integer().references(() => leads.id, { onDelete: "cascade" }).notNull(),
+    lead_id: d.integer().notNull(), // Removed foreign key constraint - can store lead or borrower IDs
     samespace_contact_id: d.varchar({ length: 255 }), // ID from Samespace
     phone_number: d.varchar({ length: 20 }).notNull(),
     first_name: d.varchar({ length: 255 }).default(''),

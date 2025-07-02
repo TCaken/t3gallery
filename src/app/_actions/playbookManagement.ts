@@ -996,21 +996,90 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
       };
     }
 
-    // Get contacts that should be removed (leads no longer in follow-up status)
-    const contactsToRemove = await db
-      .select({
-        contact_id: playbook_contacts.id,
-        lead_id: playbook_contacts.lead_id,
-        phone_number: playbook_contacts.phone_number,
-        lead_status: leads.status,
-      })
+    // First, determine if this is a borrower or lead playbook by checking if the first contact's lead_id exists in leads or borrowers table
+    const [sampleContact] = await db
+      .select({ lead_id: playbook_contacts.lead_id })
       .from(playbook_contacts)
-      .innerJoin(leads, eq(playbook_contacts.lead_id, leads.id))
-      .where(
-        and(
-          eq(playbook_contacts.playbook_id, playbookId)
-        )
-      );
+      .where(eq(playbook_contacts.playbook_id, playbookId))
+      .limit(1);
+
+    if (!sampleContact) {
+      return {
+        success: true,
+        message: 'No contacts found in playbook',
+        data: { contactsRemoved: 0 },
+      };
+    }
+
+    // Check if it's a lead or borrower playbook
+    const [leadExists] = await db
+      .select({ id: leads.id })
+      .from(leads)
+      .where(eq(leads.id, sampleContact.lead_id))
+      .limit(1);
+
+    const [borrowerExists] = await db
+      .select({ id: borrowers.id })
+      .from(borrowers)
+      .where(eq(borrowers.id, sampleContact.lead_id))
+      .limit(1);
+
+    interface ContactToRemove {
+      contact_id: number;
+      lead_id: number;
+      phone_number: string;
+      status: string;
+    }
+    
+    let contactsToRemove: ContactToRemove[] = [];
+
+    if (leadExists) {
+      console.log('Detected lead playbook, checking lead statuses');
+      // This is a lead playbook - check lead statuses
+      contactsToRemove = await db
+        .select({
+          contact_id: playbook_contacts.id,
+          lead_id: playbook_contacts.lead_id,
+          phone_number: playbook_contacts.phone_number,
+          status: leads.status,
+        })
+        .from(playbook_contacts)
+        .innerJoin(leads, eq(playbook_contacts.lead_id, leads.id))
+        .where(
+          and(
+            eq(playbook_contacts.playbook_id, playbookId),
+            // Remove contacts for leads that are no longer in follow-up statuses
+            not(inArray(leads.status, ['assigned', 'no_answer', 'follow_up']))
+          )
+        );
+    } else if (borrowerExists) {
+      console.log('Detected borrower playbook, checking borrower statuses');
+      // This is a borrower playbook - check borrower statuses  
+      contactsToRemove = await db
+        .select({
+          contact_id: playbook_contacts.id,
+          lead_id: playbook_contacts.lead_id,
+          phone_number: playbook_contacts.phone_number,
+          status: borrowers.status,
+        })
+        .from(playbook_contacts)
+        .innerJoin(borrowers, eq(playbook_contacts.lead_id, borrowers.id))
+        .where(
+          and(
+            eq(playbook_contacts.playbook_id, playbookId),
+            // Remove contacts for borrowers that are no longer in active statuses
+            not(inArray(borrowers.status, ['assigned', 'no_answer', 'follow_up'])),
+            eq(borrowers.is_deleted, false)
+          )
+        );
+    } else {
+      console.log('Could not determine playbook type - no matching lead or borrower found');
+      return {
+        success: true,
+        message: 'Could not determine playbook type for cleanup',
+        data: { contactsRemoved: 0 },
+      };
+    }
 
     if (contactsToRemove.length === 0) {
       return {

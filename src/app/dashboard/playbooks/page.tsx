@@ -172,7 +172,7 @@ export default function PlaybooksPage() {
         }),
       });
 
-      const data = await response.json() as ApiResponse;
+      const data = await response.json() as ApiResponse<ResultData>;
       setResult(data);
 
       if (data.success) {
@@ -202,13 +202,19 @@ export default function PlaybooksPage() {
     }
   };
 
-  const handleSyncPlaybook = async (playbookId: number) => {
+  const handleSyncPlaybook = async (playbookId: number, type?: "lead" | "borrower") => {
     setIsLoading(true);
     setResult(null);
 
     try {
+      const requestBody = type ? { type } : {};
+      
       const response = await fetch(`/api/playbooks/${playbookId}/sync`, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json() as ApiResponse<ResultData>;
@@ -379,7 +385,7 @@ export default function PlaybooksPage() {
   };
 
   // Render playbook table for both lead and borrower playbooks
-  const renderPlaybookTable = (playbooksToRender: Playbook[]) => {
+  const renderPlaybookTable = (playbooksToRender: Playbook[], type: "lead" | "borrower") => {
     if (playbooksToRender.length === 0) {
   return (
           <div className="p-4 text-center text-gray-500">
@@ -468,7 +474,7 @@ export default function PlaybooksPage() {
                         
                         {/* Sync button */}
                         <button
-                          onClick={() => handleSyncPlaybook(playbook.id)}
+                          onClick={() => handleSyncPlaybook(playbook.id, type)}
                           disabled={isLoading}
                           className="bg-blue-500 text-white px-3 py-1.5 rounded-md text-xs font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors"
                         >
@@ -566,7 +572,7 @@ export default function PlaybooksPage() {
                 </button>
               </div>
 
-              {renderPlaybookTable(leadPlaybooks)}
+              {renderPlaybookTable(leadPlaybooks, "lead")}
             </div>
           )}
 
@@ -586,7 +592,7 @@ export default function PlaybooksPage() {
                 </button>
               </div>
 
-              {renderPlaybookTable(borrowerPlaybooks)}
+              {renderPlaybookTable(borrowerPlaybooks, "borrower")}
             </div>
           )}
         </div>
