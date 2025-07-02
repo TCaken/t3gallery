@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
-import { appointments, leads } from "~/server/db/schema";
+import { appointments, leads, borrower_appointments, borrowers } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { format, addHours } from 'date-fns';
@@ -216,6 +216,7 @@ export async function POST(request: NextRequest) {
     const startOfDayUTC = new Date(startOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
     const endOfDayUTC = new Date(endOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
 
+    // Fetch lead appointments
     const upcomingAppointments = await db
       .select({
         appointment: appointments,
@@ -231,17 +232,40 @@ export async function POST(request: NextRequest) {
         )
       );
 
-    console.log(`📋 Found ${upcomingAppointments.length} upcoming appointments for today`);
+    // Fetch borrower appointments
+    const upcomingBorrowerAppointments = await db
+      .select({
+        appointment: borrower_appointments,
+        borrower: borrowers
+      })
+      .from(borrower_appointments)
+      .leftJoin(borrowers, eq(borrower_appointments.borrower_id, borrowers.id))
+      .where(
+        and(
+          eq(borrower_appointments.status, 'upcoming'),
+          gte(borrower_appointments.start_datetime, startOfDayUTC),
+          lte(borrower_appointments.start_datetime, endOfDayUTC)
+        )
+      );
+
+    console.log(`📋 Found ${upcomingAppointments.length} upcoming lead appointments and ${upcomingBorrowerAppointments.length} upcoming borrower appointments for today`);
     
     // Debug: List all found appointments
     upcomingAppointments.forEach(record => {
       const appt = record.appointment;
       const leadData = record.lead;
       const apptTimeSGT = new Date(appt.start_datetime.getTime() + (8 * 60 * 60 * 1000));
-      console.log(`📅 Found appointment ${appt.id}: Lead "${leadData?.full_name}" (${leadData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
+      console.log(`📅 Found lead appointment ${appt.id}: Lead "${leadData?.full_name}" (${leadData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
     });
 
-    if (upcomingAppointments.length === 0) {
+    upcomingBorrowerAppointments.forEach(record => {
+      const appt = record.appointment;
+      const borrowerData = record.borrower;
+      const apptTimeSGT = new Date(appt.start_datetime.getTime() + (8 * 60 * 60 * 1000));
+      console.log(`📅 Found borrower appointment ${appt.id}: Borrower "${borrowerData?.full_name}" (${borrowerData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
+    });
+
+    if (upcomingAppointments.length === 0 && upcomingBorrowerAppointments.length === 0) {
       console.log(`📊 No appointments found - Final Summary:`);
       console.log(`   Today (Singapore): ${todaySingapore}`);
       console.log(`   Threshold hours: ${thresholdHours}`);
@@ -258,8 +282,10 @@ export async function POST(request: NextRequest) {
         summary: {
           excelDataProvided: !!excelData,
           excelRowsProcessed: excelData?.rows?.length ?? 0,
-          upcomingAppointmentsFound: 0,
-          appointmentStatusUpdates: 0,
+          upcomingLeadAppointmentsFound: 0,
+          upcomingBorrowerAppointmentsFound: 0,
+          leadAppointmentStatusUpdates: 0,
+          borrowerAppointmentStatusUpdates: 0,
           timeBasedMissedUpdates: 0,
           errorCount: 0
         }
@@ -269,6 +295,7 @@ export async function POST(request: NextRequest) {
     let processedCount = 0;
     let updatedCount = 0;
     const processedAppointmentIds = new Set<number>(); // Track appointments already updated by Excel data
+    const processedBorrowerAppointmentIds = new Set<number>(); // Track borrower appointments already updated by Excel data
     const results: Array<{
       appointmentId: string;
       leadId: string;
@@ -553,7 +580,268 @@ export async function POST(request: NextRequest) {
         console.log(`✅ Updated appointment ${appointment.id} to ${newAppointmentStatus} (Code: ${code}) - ${updateReason}`);
       }
       
-      console.log(`📊 Excel processing completed: ${processedAppointmentIds.size} appointments updated from Excel data`);
+      console.log(`📊 Excel processing for lead appointments completed: ${processedAppointmentIds.size} appointments updated from Excel data`);
+    }
+
+    // Process Excel rows for borrower appointments (Re Loan - 再贷款)
+    if (excelData?.rows) {
+      console.log(`📊 Processing ${excelData.rows.length} Excel rows for borrower appointments...`);
+      
+      for (const row of excelData.rows) {
+        processedCount++;
+        
+        // Check if this is a reloan case for borrower appointments
+        if (row["col_New or Reloan? "]?.trim() !== "Re Loan - 再贷款") {
+          // console.log(`⏭️ Skipping non-reloan case: ${row["col_New or Reloan? "]}`);
+          continue;
+        }
+
+        // Parse the timestamp from Excel (which is in GMT+8)
+        let excelDate: string;
+        try {
+          const timestampStr = row.col_Date;
+          if (!timestampStr) {
+            throw new Error('Empty timestamp');
+          }
+
+          // Handle DD/MM/YY or DD/MM/YYYY format
+          if (timestampStr.includes('/') || timestampStr.includes('-')) {
+            // Split by either / or -
+            const parts = timestampStr.split(/[\/-]/);
+            if (parts.length !== 3) {
+              throw new Error('Invalid date format: expected DD/MM/YY or DD/MM/YYYY');
+            }
+
+            const [day, month, yearTime] = parts;
+            if (!day || !month || !yearTime) {
+              throw new Error('Invalid date format: missing day, month, or year');
+            }
+
+            // Split year and time if present
+            const [yearPart] = yearTime.split(' ');
+            if (!yearPart) {
+              throw new Error('Invalid date format: missing year');
+            }
+
+            // Handle both 2-digit and 4-digit years
+            const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
+
+            // Create YYYY-MM-DD format for comparison
+            excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            console.log(`📅 Parsed borrower appointment date: ${timestampStr} → ${excelDate}`);
+          } else {
+            throw new Error('Unsupported date format');
+          }
+        } catch (error) {
+          console.error(`❌ Error parsing timestamp for borrower row ${row.row_number}:`, error);
+          console.error(`📝 Raw timestamp value: "${row.col_Date}"`);
+          continue;
+        }
+
+        // Only process if the Excel row is from today
+        if (excelDate !== todaySingapore) {
+          console.log(`⏭️ Skipping borrower row ${row.row_number} - not from today (${excelDate} vs ${todaySingapore})`);
+          continue;
+        }
+
+        // Clean and format the phone number from Excel
+        const cleanExcelPhone = row["col_Mobile Number"]?.toString().replace(/\D/g, '');
+        if (!cleanExcelPhone) {
+          console.log(`⚠️ No phone number found in borrower row ${row.row_number}`);
+          continue;
+        }
+
+        // Find matching borrower appointment
+        console.log(`🔍 Finding matching borrower appointment for phone "${cleanExcelPhone}"`);
+        const matchingBorrowerAppointment = upcomingBorrowerAppointments.find(record => {
+          const borrowerPhone = record.borrower?.phone_number?.replace(/^\+65/, '').replace(/\D/g, '');
+          console.log(`🔍 Found borrower phone "${borrowerPhone}"`);
+          return borrowerPhone === cleanExcelPhone;
+        });
+
+        if (!matchingBorrowerAppointment) {
+          console.log(`❌ No matching borrower appointment found for phone "${cleanExcelPhone}"`);
+          continue;
+        }
+
+        const { appointment: borrowerAppointment, borrower } = matchingBorrowerAppointment;
+        
+        if (!borrower) {
+          console.warn(`⚠️ No borrower found for appointment ${borrowerAppointment.id}`);
+          continue;
+        }
+
+        // Update borrower appointment status based on code
+        const code = row.col_Code?.trim().toUpperCase();
+        let newAppointmentStatus = 'upcoming';
+        let newBorrowerStatus = borrower.status;
+        let newBorrowerLoanStatus = borrower.loan_status;
+        let newBorrowerLoanNotes = borrower.loan_notes;
+        let newAppointmentLoanStatus = borrowerAppointment.loan_status;
+        let newAppointmentLoanNotes = borrowerAppointment.loan_notes;
+        let updateReason = '';
+
+        // Format eligibility notes based on code (for borrower)
+        let eligibilityNotes = '';
+        let additionalBorrowerNotes = '';
+        
+        if (code === 'RS') {
+          const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
+          const rsReason = row.col_RS?.trim() ?? '';
+          eligibilityNotes = `RS - ${rsReason}`;
+          
+          // Add detailed reason to borrower notes if it has content
+          if (rsDetailed) {
+            additionalBorrowerNotes = `RS Details: ${rsDetailed}`;
+          }
+        } else if (code === 'R') {
+          eligibilityNotes = 'R - Rejected';
+        } else if (code === 'PRS') {
+          eligibilityNotes = 'PRS - Customer Rejected';
+        } else if (code === 'P') {
+          eligibilityNotes = 'P - Done';
+        }
+
+        switch (code) {
+          case 'P':
+            newAppointmentStatus = 'done';
+            newBorrowerStatus = 'done';
+            newBorrowerLoanStatus = 'P';
+            newBorrowerLoanNotes = 'P - Done';
+            newAppointmentLoanStatus = 'P';
+            newAppointmentLoanNotes = 'P - Done';
+            updateReason = 'Completed (P)';
+            break;
+          case 'PRS':
+            newAppointmentStatus = 'done';
+            newBorrowerStatus = 'done';
+            newBorrowerLoanStatus = 'PRS';
+            newBorrowerLoanNotes = 'PRS - Customer Rejected';
+            newAppointmentLoanStatus = 'PRS';
+            newAppointmentLoanNotes = 'PRS - Customer Rejected';
+            updateReason = 'Customer Rejected (PRS)';
+            break;
+          case 'RS':
+            newAppointmentStatus = 'done';
+            newBorrowerStatus = 'missed/RS';
+            newBorrowerLoanStatus = 'RS';
+            newBorrowerLoanNotes = additionalBorrowerNotes ? `RS - Rejected. ${additionalBorrowerNotes}` : 'RS - Rejected';
+            newAppointmentLoanStatus = 'RS';
+            newAppointmentLoanNotes = additionalBorrowerNotes ? `RS - Rejected. ${additionalBorrowerNotes}` : 'RS - Rejected';
+            updateReason = 'Rejected by System (RS)';
+            break;
+          case 'R':
+            newAppointmentStatus = 'done';
+            newBorrowerStatus = 'done';
+            newBorrowerLoanStatus = 'R';
+            newBorrowerLoanNotes = 'R - Rejected';
+            newAppointmentLoanStatus = 'R';
+            newAppointmentLoanNotes = 'R - Rejected';
+            updateReason = 'Rejected (R)';
+            
+            // Call rejection webhook for R codes for borrowers too
+            try {
+              const cleanPhoneNumber = borrower.phone_number?.replace(/^\+65/, '').replace(/[^\d]/g, '') ?? '';
+              if (cleanPhoneNumber) {
+                console.log(`📞 Calling borrower rejection webhook for ${cleanPhoneNumber}`);
+                
+                const rejectionWebhookUrl = process.env.WORKATO_SEND_REJECTION_WEBHOOK_URL;
+
+                if(!rejectionWebhookUrl) {
+                  console.error('❌ WORKATO_SEND_REJECTION_WEBHOOK_URL is not set');
+                  break;
+                }
+
+                const webhookResponse = await fetch(rejectionWebhookUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    phone_number: cleanPhoneNumber,
+                    borrower_id: borrower.id,
+                    borrower_name: borrower.full_name,
+                    appointment_id: borrowerAppointment.id,
+                    code: code,
+                    appointment_type: 'borrower',
+                    timestamp: new Date().toISOString()
+                  })
+                });
+                
+                if (webhookResponse.ok) {
+                  const webhookResult = await webhookResponse.json();
+                  console.log(`✅ Borrower rejection webhook called successfully for ${cleanPhoneNumber}:`, webhookResult);
+                  updateReason += ` + Webhook called`;
+                } else {
+                  console.error(`❌ Borrower rejection webhook failed for ${cleanPhoneNumber}:`, webhookResponse.status, webhookResponse.statusText);
+                  updateReason += ` + Webhook failed`;
+                }
+              } else {
+                console.warn(`⚠️ No valid phone number found for borrower rejection webhook (Borrower ID: ${borrower.id})`);
+              }
+            } catch (webhookError) {
+              console.error(`❌ Error calling borrower rejection webhook:`, webhookError);
+              updateReason += ` + Webhook error`;
+            }
+            break;
+          default:
+            console.log(`⚠️ Unknown code "${code}" for borrower appointment ${borrowerAppointment.id}`);
+            continue;
+        }
+
+        // Update borrower appointment status
+        console.log(`🔍 Updating borrower appointment ${borrowerAppointment.id} to ${newAppointmentStatus}`);
+        await db
+          .update(borrower_appointments)
+          .set({ 
+            status: newAppointmentStatus,
+            loan_status: newAppointmentLoanStatus,
+            loan_notes: newAppointmentLoanNotes,
+            updated_at: new Date(),
+            updated_by: fallbackUserId
+          })
+          .where(eq(borrower_appointments.id, borrowerAppointment.id));
+        console.log(`✅ Updated borrower appointment ${borrowerAppointment.id} to ${newAppointmentStatus}`);
+
+        // Update borrower status if it changed
+        console.log(`🔍 Updating borrower ${borrower.id} to ${newBorrowerStatus}`);
+        await db
+          .update(borrowers)
+          .set({
+            status: newBorrowerStatus,
+            loan_status: newBorrowerLoanStatus,
+            loan_notes: newBorrowerLoanNotes,
+            updated_at: new Date(),
+            updated_by: fallbackUserId
+          })
+          .where(eq(borrowers.id, borrower.id));
+        console.log(`✅ Updated borrower ${borrower.id} to ${newBorrowerStatus}`);
+
+        // Add to results array
+        const appointmentTimeUTC = new Date(borrowerAppointment.start_datetime);
+        const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
+        
+        results.push({
+          appointmentId: `B${borrowerAppointment.id}`, // Prefix with 'B' for borrower appointments
+          leadId: `B${borrower.id}`, // Use borrower ID with 'B' prefix
+          leadName: borrower.full_name ?? 'Unknown',
+          oldAppointmentStatus: borrowerAppointment.status,
+          newAppointmentStatus: newAppointmentStatus,
+          oldLeadStatus: borrower.status,
+          newLeadStatus: newBorrowerStatus,
+          reason: `Excel Code: ${code} - ${eligibilityNotes} (Borrower)${updateReason ? ' - ' + updateReason : ''}`,
+          appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
+          timeDiffHours: 'N/A (Excel Update)'
+        });
+
+        // Mark this borrower appointment as processed to avoid duplicate updates
+        processedBorrowerAppointmentIds.add(borrowerAppointment.id);
+
+        updatedCount++;
+        console.log(`✅ Updated borrower appointment ${borrowerAppointment.id} to ${newAppointmentStatus} (Code: ${code}) - ${updateReason}`);
+      }
+      
+      console.log(`📊 Excel processing for borrower appointments completed: ${processedBorrowerAppointmentIds.size} borrower appointments updated from Excel data`);
     }
 
     // Then, check remaining appointments for time threshold
@@ -650,10 +938,108 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Then, check remaining borrower appointments for time threshold
+    console.log(`🕐 Starting time threshold check for ${upcomingBorrowerAppointments.length} total borrower appointments (${processedBorrowerAppointmentIds.size} already processed by Excel)`);
+    
+    for (const record of upcomingBorrowerAppointments) {
+      const borrowerAppointment = record.appointment;
+      const borrower = record.borrower;
+      
+      if (!borrower) {
+        console.warn(`⚠️ No borrower found for appointment ${borrowerAppointment.id}`);
+        continue;
+      }
+
+      // Skip if this borrower appointment was already processed by Excel data
+      if (processedBorrowerAppointmentIds.has(borrowerAppointment.id)) {
+        console.log(`⏭️ Skipping borrower appointment ${borrowerAppointment.id} - already processed by Excel data`);
+        continue;
+      }
+
+      // Skip if borrower appointment status is no longer 'upcoming' (safety check)
+      if (borrowerAppointment.status !== 'upcoming') {
+        console.log(`⏭️ Skipping borrower appointment ${borrowerAppointment.id} - status is ${borrowerAppointment.status}, not upcoming`);
+        continue;
+      }
+
+      // Convert borrower appointment time to Singapore timezone for comparison
+      const appointmentTimeUTC = new Date(borrowerAppointment.start_datetime);
+      const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
+      const currentTimeSGT = singaporeTime;
+
+      // Calculate time difference in hours
+      const timeDiffMs = currentTimeSGT.getTime() - appointmentTimeSGT.getTime();
+      const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
+
+      console.log(`🕐 Borrower Appointment ${borrowerAppointment.id}: ${format(appointmentTimeSGT, 'HH:mm')} | Current: ${format(currentTimeSGT, 'HH:mm')} | Diff: ${timeDiffHours.toFixed(2)}h`);
+
+      // If borrower appointment is late by threshold hours, mark as missed
+      if (timeDiffHours >= thresholdHours) {
+        try {
+          // Update borrower appointment status
+          await db
+            .update(borrower_appointments)
+            .set({
+              status: 'missed',
+              updated_at: new Date(),
+              updated_by: fallbackUserId
+            })
+            .where(eq(borrower_appointments.id, borrowerAppointment.id));
+
+          // Update borrower status
+          await db
+            .update(borrowers)
+            .set({
+              status: 'follow_up',
+              updated_at: new Date(),
+              updated_by: fallbackUserId
+            })
+            .where(eq(borrowers.id, borrower.id));
+
+          // Add to results array
+          results.push({
+            appointmentId: `B${borrowerAppointment.id}`, // Prefix with 'B' for borrower appointments
+            leadId: `B${borrower.id}`, // Use borrower ID with 'B' prefix
+            leadName: borrower.full_name ?? 'Unknown',
+            oldAppointmentStatus: borrowerAppointment.status,
+            newAppointmentStatus: 'missed',
+            oldLeadStatus: borrower.status,
+            newLeadStatus: 'follow_up',
+            reason: `Time threshold exceeded (${timeDiffHours.toFixed(2)}h late, threshold: ${thresholdHours}h) - Borrower`,
+            appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
+            timeDiffHours: timeDiffHours.toFixed(2)
+          });
+
+          updatedCount++;
+          console.log(`✅ Marked borrower appointment ${borrowerAppointment.id} as missed (${timeDiffHours.toFixed(2)}h late)`);
+        } catch (error) {
+          console.error(`❌ Error updating borrower appointment ${borrowerAppointment.id}:`, error);
+          
+          // Add error to results array
+          results.push({
+            appointmentId: `B${borrowerAppointment.id}`,
+            leadId: `B${borrower.id}`,
+            leadName: borrower.full_name ?? 'Unknown',
+            oldAppointmentStatus: borrowerAppointment.status,
+            newAppointmentStatus: borrowerAppointment.status,
+            oldLeadStatus: borrower.status,
+            newLeadStatus: borrower.status,
+            reason: `Failed to update: ${(error as Error).message} - Borrower`,
+            appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
+            timeDiffHours: timeDiffHours.toFixed(2),
+            error: (error as Error).message
+          });
+        }
+      } else {
+        console.log(`ℹ️ No update needed for borrower appointment ${borrowerAppointment.id}: Time diff ${timeDiffHours.toFixed(2)}h < ${thresholdHours}h`);
+      }
+    }
+
     console.log(`📊 Final Summary:`);
     console.log(`   Total Excel rows processed: ${processedCount}`);
     console.log(`   Total appointments updated: ${updatedCount}`);
-    console.log(`   Appointments processed by Excel: ${processedAppointmentIds.size}`);
+    console.log(`   Lead appointments processed by Excel: ${processedAppointmentIds.size}`);
+    console.log(`   Borrower appointments processed by Excel: ${processedBorrowerAppointmentIds.size}`);
     console.log(`   Results entries: ${results.length}`);
     console.log(`   Today (Singapore): ${todaySingapore}`);
     console.log(`   Threshold hours: ${thresholdHours}`);
@@ -669,8 +1055,10 @@ export async function POST(request: NextRequest) {
       summary: {
         excelDataProvided: !!excelData,
         excelRowsProcessed: excelData?.rows?.length ?? 0,
-        upcomingAppointmentsFound: upcomingAppointments.length,
-        appointmentStatusUpdates: results.filter(r => r.reason.includes('Excel Code')).length,
+        upcomingLeadAppointmentsFound: upcomingAppointments.length,
+        upcomingBorrowerAppointmentsFound: upcomingBorrowerAppointments.length,
+        leadAppointmentStatusUpdates: results.filter(r => r.reason.includes('Excel Code') && !r.reason.includes('Borrower')).length,
+        borrowerAppointmentStatusUpdates: results.filter(r => r.reason.includes('Excel Code') && r.reason.includes('Borrower')).length,
         timeBasedMissedUpdates: results.filter(r => r.reason.includes('Time threshold')).length,
         errorCount: results.filter(r => r.error).length
       }
