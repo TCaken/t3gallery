@@ -19,6 +19,7 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { getBorrowers, updateBorrower } from '~/app/_actions/borrowers';
+import { fetchAgentReloan } from '~/app/_actions/userActions';
 import { useUserRole } from '../leads/useUserRole';
 import AssignBorrowerModal from '~/app/_components/AssignBorrowerModal';
 import BorrowerWhatsAppModal from '~/app/_components/BorrowerWhatsAppModal';
@@ -63,6 +64,7 @@ const getStatusColor = (status: string) => {
 };
 
 type BorrowerRecord = {
+  latest_completed_loan_date: string | null;
   id: number;
   full_name: string;
   phone_number: string;
@@ -109,16 +111,23 @@ export default function BorrowersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [aaStatusFilter, setAaStatusFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState(''); // Will be set based on role
   const [leadScoreFilter, setLeadScoreFilter] = useState('');
   const [performanceBucketFilter, setPerformanceBucketFilter] = useState('');
-  const [assignedFilter, setAssignedFilter] = useState('attrition'); // Default to attrition
-  const [dateRangeFilter, setDateRangeFilter] = useState('');
+  const [assignedFilter, setAssignedFilter] = useState(''); // Will be set based on role
+  const [createdDateStart, setCreatedDateStart] = useState('');
+  const [createdDateEnd, setCreatedDateEnd] = useState('');
+  const [followUpDateStart, setFollowUpDateStart] = useState('');
+  const [followUpDateEnd, setFollowUpDateEnd] = useState('');
+  const [lastLoanDateStart, setLastLoanDateStart] = useState('');
+  const [lastLoanDateEnd, setLastLoanDateEnd] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<{id: string; name: string}[]>([]);
   const [selectedBorrowerIds, setSelectedBorrowerIds] = useState<Set<number>>(new Set());
   const [showBulkWhatsAppModal, setShowBulkWhatsAppModal] = useState(false);
   const [showIndividualWhatsAppModal, setShowIndividualWhatsAppModal] = useState(false);
+  const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [whatsappBorrowers, setWhatsappBorrowers] = useState<{id: number; full_name: string; phone_number: string}[]>([]);
   
   const router = useRouter();
@@ -150,7 +159,12 @@ export default function BorrowersPage() {
         lead_score_range: leadScoreFilter || undefined,
         performance_bucket: performanceBucketFilter || undefined,
         assigned_filter: assignedFilter || undefined,
-        date_range: dateRangeFilter || undefined,
+        created_date_start: createdDateStart || undefined,
+        created_date_end: createdDateEnd || undefined,
+        follow_up_date_start: followUpDateStart || undefined,
+        follow_up_date_end: followUpDateEnd || undefined,
+        last_loan_date_start: lastLoanDateStart || undefined,
+        last_loan_date_end: lastLoanDateEnd || undefined,
         offset: 0,
         limit: 10000 // Large limit to get all filtered results
       });
@@ -213,7 +227,12 @@ export default function BorrowersPage() {
         lead_score_range: leadScoreFilter || undefined,
         performance_bucket: performanceBucketFilter || undefined,
         assigned_filter: assignedFilter || undefined,
-        date_range: dateRangeFilter || undefined,
+        created_date_start: createdDateStart || undefined,
+        created_date_end: createdDateEnd || undefined,
+        follow_up_date_start: followUpDateStart || undefined,
+        follow_up_date_end: followUpDateEnd || undefined,
+        last_loan_date_start: lastLoanDateStart || undefined,
+        last_loan_date_end: lastLoanDateEnd || undefined,
         offset: (pageNum - 1) * 50,
         limit: 50
       });
@@ -239,6 +258,41 @@ export default function BorrowersPage() {
     }
   };
 
+  // Set role-based default filters
+  useEffect(() => {
+    if (userRole) {
+      if (userRole.includes('agent-reloan')) {
+        // For agent-reloan: Default to Attrition Risk source and My Assignment
+        setSourceFilter('Attrition Risk');
+        setAssignedFilter('my_borrowers');
+      } else {
+        // For admin: Default to Attrition Risk source, no assignment filter
+        setSourceFilter('Attrition Risk');
+        setAssignedFilter('');
+      }
+    }
+  }, [userRole]);
+
+  // Load available agents
+  useEffect(() => {
+    const loadAgents = async () => {
+      try {
+        const result = await fetchAgentReloan();
+        if (result.success) {
+          const agentOptions = result.users.map((user: { id: string; firstName: string | null; lastName: string | null; email: string | null }) => ({
+            id: user.id,
+            name: ((user.firstName ?? '') + ' ' + (user.lastName ?? '')).trim() || (user.email ?? 'Unknown')
+          }));
+          setAvailableAgents(agentOptions);
+        }
+      } catch (error) {
+        console.error('Error loading agents:', error);
+      }
+    };
+
+    void loadAgents();
+  }, []);
+
   // Initial load and filter changes
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
@@ -248,7 +302,7 @@ export default function BorrowersPage() {
     }, 300);
 
     return () => clearTimeout(delayedSearch);
-  }, [searchQuery, statusFilter, aaStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, dateRangeFilter, userId]);
+  }, [searchQuery, statusFilter, aaStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, createdDateStart, createdDateEnd, followUpDateStart, followUpDateEnd, lastLoanDateStart, lastLoanDateEnd, userId]);
 
   // Handle scroll for infinite loading
   const handleScroll = () => {
@@ -278,11 +332,23 @@ export default function BorrowersPage() {
     setSearchQuery('');
     setStatusFilter('');
     setAaStatusFilter('');
-    setSourceFilter('');
     setLeadScoreFilter('');
     setPerformanceBucketFilter('');
-    setAssignedFilter('attrition'); // Reset to default attrition filter
-    setDateRangeFilter('');
+    setCreatedDateStart('');
+    setCreatedDateEnd('');
+    setFollowUpDateStart('');
+    setFollowUpDateEnd('');
+    setLastLoanDateStart('');
+    setLastLoanDateEnd('');
+    
+    // Reset to role-based defaults
+    if (userRole?.includes('agent-reloan')) {
+      setSourceFilter('Attrition Risk');
+      setAssignedFilter('my_borrowers');
+    } else {
+      setSourceFilter('Attrition Risk');
+      setAssignedFilter('');
+    }
   };
 
   // Handle borrower actions
@@ -296,6 +362,7 @@ export default function BorrowersPage() {
           setSelectedBorrower(borrower);
           setIsAssignModalOpen(true);
           break;
+
         case 'call':
           showNotification(`Calling ${borrower.full_name}...`, 'info');
           break;
@@ -313,13 +380,20 @@ export default function BorrowersPage() {
 
   // Handle assign complete
   const handleAssignComplete = () => {
+    console.log('=== ASSIGNMENT COMPLETE ===');
+    console.log('Refreshing borrowers list to show updated status...');
+    
     setSelectedBorrower(null);
     setIsAssignModalOpen(false);
+    setShowBulkAssignModal(false);
+    setSelectedBorrowerIds(new Set()); // Clear selections after bulk operation
     // Refresh data
     setPage(1);
     setBorrowers([]);
     void fetchBorrowers(1);
-    showNotification('Borrower assigned successfully', 'success');
+    showNotification('Borrower(s) assigned successfully', 'success');
+    
+    console.log('Borrowers list refresh initiated');
   };
 
   // Handle checkbox selection
@@ -368,15 +442,18 @@ export default function BorrowersPage() {
       return;
     }
 
-    // Confirmation for bulk actions
-    const confirmed = confirm(
-      `Send WhatsApp messages to ${selectedBorrowers.length} selected borrower${selectedBorrowers.length > 1 ? 's' : ''}?\n\nThis will use reloan customer templates only.`
-    );
-    
-    if (!confirmed) return;
-
     setWhatsappBorrowers(selectedBorrowers);
     setShowBulkWhatsAppModal(true);
+  };
+
+  // Handle bulk assign
+  const handleBulkAssign = () => {
+    if (selectedBorrowerIds.size === 0) {
+      showNotification('Please select borrowers first', 'error');
+      return;
+    }
+
+    setShowBulkAssignModal(true);
   };
 
   // Handle WhatsApp success
@@ -427,6 +504,15 @@ export default function BorrowersPage() {
                     <ChatBubbleLeftRightIcon className="h-5 w-5" />
                     <span>Send WhatsApp ({selectedBorrowerIds.size})</span>
                   </button>
+                  {hasAnyRole(['admin']) && (
+                    <button
+                      onClick={handleBulkAssign}
+                      className="flex items-center space-x-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      <UserGroupIcon className="h-5 w-5" />
+                      <span>Manage Assignments ({selectedBorrowerIds.size})</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => setSelectedBorrowerIds(new Set())}
                     className="flex items-center space-x-2 bg-gray-200 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-300 transition-colors"
@@ -437,26 +523,30 @@ export default function BorrowersPage() {
                 </>
               )}
               
-              <button
-                onClick={exportToCSV}
-                disabled={exportingCsv || borrowers.length === 0}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-                  exportingCsv || borrowers.length === 0
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                <ArrowDownTrayIcon className="h-5 w-5" />
-                <span>{exportingCsv ? 'Exporting...' : 'Export CSV'}</span>
-              </button>
+              {hasAnyRole(['admin']) && (
+                <button
+                  onClick={exportToCSV}
+                  disabled={exportingCsv || borrowers.length === 0}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                    exportingCsv || borrowers.length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                  }`}
+                >
+                  <ArrowDownTrayIcon className="h-5 w-5" />
+                  <span>{exportingCsv ? 'Exporting...' : 'Export CSV'}</span>
+                </button>
+              )}
               
-              <button
-                onClick={() => router.push('/dashboard/borrowers/new')}
-                className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <PlusIcon className="h-5 w-5" />
-                <span>Add Borrower</span>
-              </button>
+              {hasAnyRole(['admin']) && (
+                <button
+                  onClick={() => router.push('/dashboard/borrowers/new')}
+                  className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <PlusIcon className="h-5 w-5" />
+                  <span>Add Borrower</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -495,8 +585,8 @@ export default function BorrowersPage() {
           {/* Enhanced Advanced Filters */}
           {showAdvancedFilters && (
             <div className="border-t pt-4 space-y-4">
-              {/* First Row */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Main Filters Row */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                   <select
@@ -504,9 +594,38 @@ export default function BorrowersPage() {
                     onChange={(e) => setStatusFilter(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
                   >
-                    <option value="">All Statuses</option>
+                    <option value="">All</option>
                     {allStatuses.map(status => (
                       <option key={status.id} value={status.id}>{status.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                  <select
+                    value={sourceFilter}
+                    onChange={(e) => setSourceFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All</option>
+                    {sourceOptions.map(source => (
+                      <option key={source} value={source}>{source}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assignment</label>
+                  <select
+                    value={assignedFilter}
+                    onChange={(e) => setAssignedFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All</option>
+                    <option value="my_borrowers">My Assignment</option>
+                    {availableAgents.map(agent => (
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
                     ))}
                   </select>
                 </div>
@@ -518,87 +637,9 @@ export default function BorrowersPage() {
                     onChange={(e) => setAaStatusFilter(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
                   >
-                    <option value="">All AA Status</option>
+                    <option value="">All</option>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
-                  <select
-                    value={sourceFilter}
-                    onChange={(e) => setSourceFilter(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">All Sources</option>
-                    {sourceOptions.map(source => (
-                      <option key={source} value={source}>{source}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Lead Score</label>
-                  <select
-                    value={leadScoreFilter}
-                    onChange={(e) => setLeadScoreFilter(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">All Scores</option>
-                    {leadScoreRanges.map(range => (
-                      <option key={range.value} value={range.value}>{range.label}</option>
-                    ))}
-                  </select>
-                </div> */}
-              </div>
-
-              {/* Second Row */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {/* <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Performance Bucket</label>
-                  <select
-                    value={performanceBucketFilter}
-                    onChange={(e) => setPerformanceBucketFilter(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">All Buckets</option>
-                    {performanceBuckets.map(bucket => (
-                      <option key={bucket.value} value={bucket.value}>{bucket.label}</option>
-                    ))}
-                  </select>
-                </div> */}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Assignment</label>
-                  <select
-                    value={assignedFilter}
-                    onChange={(e) => setAssignedFilter(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">All</option>
-                    <option value="attrition">Attrition Risk</option>
-                    <option value="assigned">Assigned</option>
-                    <option value="unassigned">Unassigned</option>
-                    <option value="my_borrowers">My Borrowers</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
-                  <select
-                    value={dateRangeFilter}
-                    onChange={(e) => setDateRangeFilter(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">All Time</option>
-                    <option value="today">Today</option>
-                    <option value="yesterday">Yesterday</option>
-                    <option value="this_week">This Week</option>
-                    <option value="last_week">Last Week</option>
-                    <option value="this_month">This Month</option>
-                    <option value="last_month">Last Month</option>
-                    <option value="this_year">This Year</option>
                   </select>
                 </div>
 
@@ -612,8 +653,71 @@ export default function BorrowersPage() {
                 </div>
               </div>
 
+              {/* Date Range Filters Row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Created Date Range</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={createdDateStart}
+                      onChange={(e) => setCreatedDateStart(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                      placeholder="Start date"
+                    />
+                    <input
+                      type="date"
+                      value={createdDateEnd}
+                      onChange={(e) => setCreatedDateEnd(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                      placeholder="End date"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Follow-up Date Range</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={followUpDateStart}
+                      onChange={(e) => setFollowUpDateStart(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                      placeholder="Start date"
+                    />
+                    <input
+                      type="date"
+                      value={followUpDateEnd}
+                      onChange={(e) => setFollowUpDateEnd(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                      placeholder="End date"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Loan Date Range</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={lastLoanDateStart}
+                      onChange={(e) => setLastLoanDateStart(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                      placeholder="Start date"
+                    />
+                    <input
+                      type="date"
+                      value={lastLoanDateEnd}
+                      onChange={(e) => setLastLoanDateEnd(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                      placeholder="End date"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Active Filters Display */}
-              {(statusFilter || aaStatusFilter || sourceFilter || leadScoreFilter || performanceBucketFilter || (assignedFilter && assignedFilter !== 'attrition') || dateRangeFilter) && (
+              {(statusFilter || aaStatusFilter || (sourceFilter && sourceFilter !== 'Attrition Risk') || leadScoreFilter || performanceBucketFilter || assignedFilter || createdDateStart || createdDateEnd || followUpDateStart || followUpDateEnd || lastLoanDateStart || lastLoanDateEnd) && (
                 <div className="border-t pt-3">
                   <div className="flex flex-wrap gap-2 items-center">
                     <span className="text-sm font-medium text-gray-600">Active Filters:</span>
@@ -629,10 +733,10 @@ export default function BorrowersPage() {
                         <button onClick={() => setAaStatusFilter('')} className="ml-2 text-purple-600 hover:text-purple-800">×</button>
                       </span>
                     )}
-                    {sourceFilter && (
+                    {sourceFilter && sourceFilter !== 'Attrition Risk' && (
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                         Source: {sourceFilter}
-                        <button onClick={() => setSourceFilter('')} className="ml-2 text-green-600 hover:text-green-800">×</button>
+                        <button onClick={() => setSourceFilter('Attrition Risk')} className="ml-2 text-green-600 hover:text-green-800">×</button>
                       </span>
                     )}
                     {leadScoreFilter && (
@@ -647,16 +751,28 @@ export default function BorrowersPage() {
                         <button onClick={() => setPerformanceBucketFilter('')} className="ml-2 text-indigo-600 hover:text-indigo-800">×</button>
                       </span>
                     )}
-                    {assignedFilter && assignedFilter !== 'attrition' && (
+                    {assignedFilter && (
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
-                        Assignment: {assignedFilter === 'my_borrowers' ? 'My Borrowers' : assignedFilter === 'attrition' ? 'Attrition Risk' : assignedFilter.charAt(0).toUpperCase() + assignedFilter.slice(1)}
-                        <button onClick={() => setAssignedFilter('attrition')} className="ml-2 text-pink-600 hover:text-pink-800">×</button>
+                        Assignment: {assignedFilter === 'my_borrowers' ? 'My Borrowers' : availableAgents.find(a => a.id === assignedFilter)?.name ?? assignedFilter}
+                        <button onClick={() => setAssignedFilter('')} className="ml-2 text-pink-600 hover:text-pink-800">×</button>
                       </span>
                     )}
-                    {dateRangeFilter && (
+                    {(createdDateStart || createdDateEnd) && (
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                        Date: {dateRangeFilter.replace('_', ' ')}
-                        <button onClick={() => setDateRangeFilter('')} className="ml-2 text-gray-600 hover:text-gray-800">×</button>
+                        Created: {createdDateStart ?? 'Any'} - {createdDateEnd ?? 'Any'}
+                        <button onClick={() => { setCreatedDateStart(''); setCreatedDateEnd(''); }} className="ml-2 text-gray-600 hover:text-gray-800">×</button>
+                      </span>
+                    )}
+                    {(followUpDateStart || followUpDateEnd) && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        Follow-up: {followUpDateStart ?? 'Any'} - {followUpDateEnd ?? 'Any'}
+                        <button onClick={() => { setFollowUpDateStart(''); setFollowUpDateEnd(''); }} className="ml-2 text-gray-600 hover:text-gray-800">×</button>
+                      </span>
+                    )}
+                    {(lastLoanDateStart || lastLoanDateEnd) && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                        Last Loan: {lastLoanDateStart ?? 'Any'} - {lastLoanDateEnd ?? 'Any'}
+                        <button onClick={() => { setLastLoanDateStart(''); setLastLoanDateEnd(''); }} className="ml-2 text-orange-600 hover:text-orange-800">×</button>
                       </span>
                     )}
                   </div>
@@ -694,13 +810,10 @@ export default function BorrowersPage() {
                     />
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Borrower Info
+                    Lead Contact
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Contact
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Loan Details
+                    Date Information
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Source
@@ -719,14 +832,14 @@ export default function BorrowersPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading && borrowers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center">
+                    <td colSpan={7} className="px-6 py-12 text-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                       <p className="mt-2 text-sm text-gray-600">Loading borrowers...</p>
                     </td>
                   </tr>
                 ) : borrowers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                       No borrowers found
                     </td>
                   </tr>
@@ -743,44 +856,35 @@ export default function BorrowersPage() {
                         />
                       </td>
                       
-                      {/* Borrower Info */}
+                      {/* Lead Contact */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
                           <div className="text-sm font-medium text-gray-900">
                             {borrower.full_name}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {borrower.id_type}: {borrower.id_number ?? 'N/A'}
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            Score: {borrower.lead_score ?? 0}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Contact */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm text-gray-900">
                             {borrower.phone_number}
                           </div>
-                          <div className="text-sm text-gray-500">
+                          <div className="text-xs text-gray-400">
                             {borrower.email ?? 'No email'}
                           </div>
                         </div>
                       </td>
 
-                      {/* Loan Details */}
+                      {/* Date Information */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm text-gray-900">
-                            Amount: N/A
+                          <div className="text-xs text-gray-500 mb-1">
+                            Created: {new Date(borrower.created_at).toLocaleDateString()}
                           </div>
-                          <div className="text-sm text-gray-500">
-                            ID: {borrower.loan_id ?? 'N/A'}
+                          <div className="text-xs text-gray-500 mb-1">
+                            Updated: {borrower.updated_at ? new Date(borrower.updated_at).toLocaleDateString() : 'N/A'}
                           </div>
-                          <div className="text-xs text-gray-400">
-                            AA: {borrower.aa_status ?? 'Pending'}
+                          <div className="text-xs text-gray-500 mb-1">
+                            Last Loan Completed: {borrower.latest_completed_loan_date ? new Date(borrower.latest_completed_loan_date).toLocaleDateString() : 'N/A'}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Follow-up: {borrower.follow_up_date ? new Date(borrower.follow_up_date).toLocaleDateString() : 'N/A'}
                           </div>
                         </div>
                       </td>
@@ -789,6 +893,9 @@ export default function BorrowersPage() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
                           {borrower.source ?? 'N/A'}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          AA: {borrower.aa_status ?? 'Pending'}
                         </div>
                       </td>
 
@@ -830,11 +937,11 @@ export default function BorrowersPage() {
                           >
                             <ChatBubbleLeftRightIcon className="h-4 w-4" />
                           </button>
-                          {hasAnyRole(['admin', 'agent']) && (
+                          {hasAnyRole(['admin']) && (
                             <button
                               onClick={() => handleBorrowerAction('assign', borrower)}
                               className="text-purple-600 hover:text-purple-900"
-                              title="Assign"
+                              title="Manage Assignment"
                             >
                               <UserPlusIcon className="h-4 w-4" />
                             </button>
@@ -877,14 +984,16 @@ export default function BorrowersPage() {
         </div>
       </div>
 
-      {/* Assign Borrower Modal */}
-      <AssignBorrowerModal
-        isOpen={isAssignModalOpen}
-        onClose={() => setIsAssignModalOpen(false)}
-        borrowerId={selectedBorrower?.id ?? 0}
-        borrowerName={selectedBorrower?.full_name ?? ''}
-        onAssignComplete={handleAssignComplete}
-      />
+      {/* Assign Borrower Modal - Only for admins */}
+      {hasAnyRole(['admin']) && (
+        <AssignBorrowerModal
+          isOpen={isAssignModalOpen}
+          onClose={() => setIsAssignModalOpen(false)}
+          borrowerId={selectedBorrower?.id ?? 0}
+          borrowerName={selectedBorrower?.full_name ?? ''}
+          onAssignComplete={handleAssignComplete}
+        />
+      )}
 
       {/* Individual WhatsApp Modal */}
       <BorrowerWhatsAppModal
@@ -903,6 +1012,18 @@ export default function BorrowersPage() {
         isBulkMode={true}
         onSuccess={handleWhatsAppSuccess}
       />
+
+      {/* Bulk Assign Modal - Only for admins */}
+      {hasAnyRole(['admin']) && (
+        <AssignBorrowerModal
+          isOpen={showBulkAssignModal}
+          onClose={() => setShowBulkAssignModal(false)}
+          borrowerIds={Array.from(selectedBorrowerIds)}
+          borrowerNames={borrowers.filter(b => selectedBorrowerIds.has(b.id)).map(b => b.full_name)}
+          isBulkMode={true}
+          onAssignComplete={handleAssignComplete}
+        />
+      )}
     </div>
   );
 } 

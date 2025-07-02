@@ -8,8 +8,11 @@ import { fetchAgentReloan } from '~/app/_actions/userActions';
 interface AssignBorrowerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  borrowerId: number;
-  borrowerName: string;
+  borrowerId?: number;
+  borrowerName?: string;
+  borrowerIds?: number[];
+  borrowerNames?: string[];
+  isBulkMode?: boolean;
   onAssignComplete: () => void;
 }
 
@@ -24,7 +27,7 @@ interface User {
   firstName: string | null;
   lastName: string | null;
   email: string | null;
-  imageUrl: string | null;
+  imageUrl?: string | null;
   roles: UserRole[];
 }
 
@@ -33,13 +36,22 @@ export default function AssignBorrowerModal({
   onClose,
   borrowerId,
   borrowerName,
+  borrowerIds = [],
+  borrowerNames = [],
+  isBulkMode = false,
   onAssignComplete
 }: AssignBorrowerModalProps) {
   const [agents, setAgents] = useState<{ id: string; name: string; role: string }[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>('');
+  const [operationType, setOperationType] = useState<'assign' | 'unassign'>('assign');
   const [loading, setLoading] = useState(true);
-  const [assigning, setAssigning] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<{
+    success: number;
+    failed: number;
+    details: Array<{ borrower: string; success: boolean; error?: string }>
+  } | null>(null);
 
   useEffect(() => {
     const loadAgents = async () => {
@@ -80,38 +92,107 @@ export default function AssignBorrowerModal({
   }, [isOpen]);
 
   const handleAssign = async () => {
-    if (!selectedAgent) {
+    // Only require agent selection for assign operation
+    if (operationType === 'assign' && !selectedAgent) {
       setError('Please select an agent');
       return;
     }
     
-    if (!borrowerId) {
+    if (!isBulkMode && !borrowerId) {
       setError('No borrower selected');
       return;
     }
 
     try {
-      setAssigning(true);
+      setProcessing(true);
       setError(null);
+      setResults(null);
 
-      const result = await updateBorrower({
-        id: borrowerId,
-        assigned_to: selectedAgent
-      });
-      
-      console.log('updateBorrower result:', JSON.stringify(result));
-      
-      if (result.success) {
-        onAssignComplete();
-        onClose();
+      if (isBulkMode) {
+        // Bulk operation
+        const targetIds = borrowerIds;
+        const targetNames = borrowerNames;
+        
+        console.log('=== BULK OPERATION DEBUG ===');
+        console.log('Operation Type:', operationType);
+        console.log('Borrower IDs:', targetIds);
+        console.log('Selected Agent:', selectedAgent);
+        
+        const results: Array<{ borrower: string; success: boolean; error?: string }> = [];
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (let i = 0; i < targetIds.length; i++) {
+          const id = targetIds[i];
+          const name = targetNames[i] ?? `Borrower ${id}`;
+          
+          if (!id) continue; // Skip undefined IDs
+          
+          try {
+            const updateData = operationType === 'assign' 
+              ? { id, status: 'assigned', assigned_to: selectedAgent }
+              : { id, status: 'new', assigned_to: null };
+              
+            const result = await updateBorrower(updateData);
+            
+            if (result.success) {
+              results.push({ borrower: name, success: true });
+              successCount++;
+            } else {
+              results.push({ borrower: name, success: false, error: 'Update failed' });
+              failedCount++;
+            }
+          } catch (error) {
+            results.push({ borrower: name, success: false, error: 'Network error' });
+            failedCount++;
+          }
+        }
+
+        setResults({ success: successCount, failed: failedCount, details: results });
+        
+        if (successCount > 0) {
+          onAssignComplete();
+        }
       } else {
-        setError('Failed to assign borrower');
+        // Single operation
+        const targetId = borrowerId;
+        const targetName = borrowerName;
+        
+        console.log('=== SINGLE OPERATION DEBUG ===');
+        console.log('Operation Type:', operationType);
+        console.log('Borrower ID:', targetId);
+        console.log('Selected Agent:', selectedAgent);
+        
+        if (!targetId) {
+          setError('No borrower selected');
+          return;
+        }
+        
+        const updateData = operationType === 'assign' 
+          ? { id: targetId, status: 'assigned', assigned_to: selectedAgent }
+          : { id: targetId, status: 'new', assigned_to: null };
+        
+        console.log('Update data being sent:', JSON.stringify(updateData));
+
+        const result = await updateBorrower(updateData);
+        
+        console.log('updateBorrower result:', JSON.stringify(result, null, 2));
+        
+        if (result.success) {
+          console.log(`✅ ${operationType === 'assign' ? 'Assignment' : 'Unassignment'} successful!`);
+          console.log('Updated borrower data:', JSON.stringify(result.data, null, 2));
+          onAssignComplete();
+          onClose();
+        } else {
+          console.error(`❌ ${operationType === 'assign' ? 'Assignment' : 'Unassignment'} failed:`, result);
+          setError(`Failed to ${operationType} borrower`);
+        }
       }
     } catch (error) {
-      console.error('Error assigning borrower:', error);
-      setError('An error occurred while assigning the borrower');
+      console.error(`❌ Error ${operationType === 'assign' ? 'assigning' : 'unassigning'} borrower:`, error);
+      setError(`An error occurred while ${operationType === 'assign' ? 'assigning' : 'unassigning'} the borrower`);
     } finally {
-      setAssigning(false);
+      setProcessing(false);
     }
   };
 
@@ -121,7 +202,9 @@ export default function AssignBorrowerModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Assign Borrower</h2>
+          <h2 className="text-xl font-semibold">
+            {isBulkMode ? 'Bulk Manage Borrowers' : 'Manage Borrower'}
+          </h2>
           <button 
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700"
@@ -131,13 +214,46 @@ export default function AssignBorrowerModal({
         </div>
         
         <div className="mb-4">
-          {borrowerId ? (
+          {isBulkMode ? (
             <p className="text-gray-700">
-              Assigning <span className="font-medium">{borrowerName}</span> to an agent
+              Managing <span className="font-medium">{borrowerIds.length} borrowers</span>
+            </p>
+          ) : borrowerId ? (
+            <p className="text-gray-700">
+              Managing <span className="font-medium">{borrowerName}</span>
             </p>
           ) : (
             <p className="text-red-500">No borrower selected</p>
           )}
+        </div>
+
+        {/* Operation Type Selection */}
+        <div className="mb-4">
+          <label className="block text-gray-700 mb-2">Action</label>
+          <div className="flex space-x-4">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                value="assign"
+                checked={operationType === 'assign'}
+                onChange={(e) => setOperationType(e.target.value as 'assign' | 'unassign')}
+                className="mr-2"
+                disabled={processing}
+              />
+              Assign to Agent
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                value="unassign"
+                checked={operationType === 'unassign'}
+                onChange={(e) => setOperationType(e.target.value as 'assign' | 'unassign')}
+                className="mr-2"
+                disabled={processing}
+              />
+              Unassign (Set to New)
+            </label>
+          </div>
         </div>
 
         {loading ? (
@@ -161,37 +277,70 @@ export default function AssignBorrowerModal({
           </div>
         ) : (
           <>
-            <div className="mb-6">
-              <label className="block text-gray-700 mb-2">Select Agent</label>
-              <select
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-                className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={assigning}
-              >
-                <option value="" disabled>Select an agent</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Agent Selection - Only show for assign operation */}
+            {operationType === 'assign' && (
+              <div className="mb-6">
+                <label className="block text-gray-700 mb-2">Select Agent</label>
+                <select
+                  value={selectedAgent}
+                  onChange={(e) => setSelectedAgent(e.target.value)}
+                  className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={processing}
+                >
+                  <option value="" disabled>Select an agent</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Results Display for Bulk Operations */}
+            {results && (
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h3 className="font-medium mb-2">Operation Results</h3>
+                <div className="flex space-x-4 mb-3">
+                  <span className="text-green-600">Success: {results.success}</span>
+                  <span className="text-red-600">Failed: {results.failed}</span>
+                </div>
+                
+                {results.details.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {results.details.map((detail, index) => (
+                      <div key={index} className={`text-sm ${detail.success ? 'text-green-600' : 'text-red-600'}`}>
+                        <span className="font-medium">{detail.borrower}</span>: {detail.success ? '✓' : `✗ ${detail.error}`}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex justify-end space-x-3">
               <button
                 onClick={onClose}
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
-                disabled={assigning}
+                disabled={processing}
               >
                 Cancel
               </button>
               <button
                 onClick={handleAssign}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-blue-300"
-                disabled={assigning || !selectedAgent}
+                className={`px-4 py-2 text-white rounded disabled:opacity-50 ${
+                  operationType === 'assign' 
+                    ? 'bg-blue-500 hover:bg-blue-600' 
+                    : 'bg-red-500 hover:bg-red-600'
+                }`}
+                disabled={processing || (operationType === 'assign' && !selectedAgent)}
               >
-                {assigning ? 'Assigning...' : 'Assign Borrower'}
+                {processing 
+                  ? 'Processing...' 
+                  : operationType === 'assign' 
+                    ? (isBulkMode ? 'Assign Borrowers' : 'Assign Borrower')
+                    : (isBulkMode ? 'Unassign Borrowers' : 'Unassign Borrower')
+                }
               </button>
             </div>
           </>
