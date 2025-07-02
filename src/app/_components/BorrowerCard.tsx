@@ -14,12 +14,16 @@ import {
   DocumentDuplicateIcon,
   CreditCardIcon,
   BanknotesIcon,
-  IdentificationIcon
+  IdentificationIcon,
+  Cog6ToothIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { type Borrower } from '~/app/types/borrower';
 import { getBorrowerNotes } from '~/app/_actions/borrowerNotes';
-// import BorrowerActionButtons from './BorrowerActionButtons';
-import { formatDistanceToNow } from 'date-fns';
+import BorrowerStatusUpdateModal from './BorrowerStatusUpdateModal';
+import { formatDistanceToNow, format, parseISO } from 'date-fns';
 import { Portal } from '@headlessui/react';
 
 // Simple type for status colors
@@ -51,6 +55,9 @@ export default function BorrowerCard({
   const [isHovered, setIsHovered] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [preSelectedStatus, setPreSelectedStatus] = useState<'follow_up' | 'no_answer' | 'give_up' | 'blacklisted' | undefined>(undefined);
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
   const notesRef = useRef<HTMLDivElement>(null);
 
   const handleAction = (action: string) => {
@@ -153,6 +160,52 @@ export default function BorrowerCard({
         return 'FIN';
       default:
         return idType.toUpperCase();
+    }
+  };
+
+  // Notification handler
+  const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Status update handlers
+  const handleStatusUpdate = (status?: 'follow_up' | 'no_answer' | 'give_up' | 'blacklisted') => {
+    setPreSelectedStatus(status);
+    setShowStatusModal(true);
+  };
+
+  const handleModalClose = () => {
+    setShowStatusModal(false);
+    setPreSelectedStatus(undefined);
+  };
+
+  const handleModalUpdate = () => {
+    // Trigger refresh of parent component
+    if (onAction) {
+      onAction('refresh', borrower.id);
+    }
+  };
+
+  // Format follow-up date with time awareness
+  const formatFollowUpDate = (followUpDate: Date | string | null) => {
+    if (!followUpDate) return null;
+    
+    try {
+      const date = typeof followUpDate === 'string' ? parseISO(followUpDate) : followUpDate;
+      const hours = date.getHours();
+      const minutes = date.getMinutes();
+      
+      // Check if time is not default (16:00:00+00 which would be 00:00:00 Singapore time)
+      const hasSpecificTime = !(hours === 0 && minutes === 0);
+      
+      if (hasSpecificTime) {
+        return format(date, 'MMM d, yyyy \'at\' h:mm a');
+      } else {
+        return format(date, 'MMM d, yyyy');
+      }
+    } catch {
+      return 'Invalid date';
     }
   };
 
@@ -269,8 +322,8 @@ export default function BorrowerCard({
         {borrower.assigned_to && (
           <div className="flex items-center space-x-1 col-span-2">
             <UserCircleIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
-            <span className="text-blue-600 truncate" title={`Agent: ${borrower.assigned_agent_name || borrower.assigned_to}`}>
-              {borrower.assigned_agent_name || borrower.assigned_to}
+            <span className="text-blue-600 truncate" title={`Agent: ${borrower.assigned_agent_name ?? borrower.assigned_to}`}>
+              {borrower.assigned_agent_name ?? borrower.assigned_to}
             </span>
           </div>
         )}
@@ -287,15 +340,15 @@ export default function BorrowerCard({
         {borrower.follow_up_date && (
           <div className="flex items-center space-x-1 col-span-2">  
             <CalendarIcon className="h-3 w-3 flex-shrink-0 text-blue-500" />
-            <span className="text-blue-600 truncate" title={`Follow Up: ${formatDate(borrower.follow_up_date)}`}>
-              Follow up {formatDate(borrower.follow_up_date)}
+            <span className="text-blue-600 truncate" title={`Follow Up: ${formatFollowUpDate(borrower.follow_up_date)}`}>
+              Follow up {formatFollowUpDate(borrower.follow_up_date)}
             </span>
           </div>
         )}
       </div>
 
       {/* Loan Information Section */}
-      {(borrower.loan_amount || borrower.estimated_reloan_amount || borrower.credit_score) && (
+      {(borrower.loan_amount ?? borrower.estimated_reloan_amount ?? borrower.credit_score) && (
         <div className="mb-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-lg">
           <div className="grid grid-cols-2 gap-2 text-xs">
             {borrower.loan_amount && (
@@ -319,22 +372,73 @@ export default function BorrowerCard({
         </div>
       )}
 
-      {/* Action Buttons - Temporary placeholder */}
+      {/* Action Buttons - Status Updates */}
       <div className="mb-3">
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-1">
+            {/* Call Button */}
+            <button
+              onClick={() => handleAction('call')}
+              className="p-2 rounded-full text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+              title="Make Call"
+            >
+              <PhoneIcon className="h-4 w-4" />
+            </button>
+            
+            {/* Edit Button */}
+            <button
+              onClick={() => handleAction('edit')}
+              className="p-2 rounded-full text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+              title="Edit Borrower"
+            >
+              <PencilSquareIcon className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Status Update Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => handleStatusUpdate()}
+              className="p-2 rounded-full text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+              title="Update Status"
+            >
+              <Cog6ToothIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Status Actions */}
+        <div className="flex items-center space-x-1 mt-2">
           <button
-            onClick={() => handleAction('call')}
-            className="p-2 rounded-full text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-            title="Make Call"
+            onClick={() => handleStatusUpdate('follow_up')}
+            className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors"
+            title="Set Follow-up"
           >
-            <PhoneIcon className="h-4 w-4" />
+            Follow-up
           </button>
+          
           <button
-            onClick={() => handleAction('edit')}
-            className="p-2 rounded-full text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-            title="Edit Borrower"
+            onClick={() => handleStatusUpdate('no_answer')}
+            className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+            title="Mark No Answer"
           >
-            <PencilSquareIcon className="h-4 w-4" />
+            No Answer
+          </button>
+          
+          <button
+            onClick={() => handleStatusUpdate('give_up')}
+            className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
+            title="Give Up"
+          >
+            Give Up
+          </button>
+          
+          <button
+            onClick={() => handleStatusUpdate('blacklisted')}
+            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+            title="Blacklist"
+          >
+            Blacklist
           </button>
         </div>
       </div>
@@ -350,7 +454,7 @@ export default function BorrowerCard({
                   Next Appointment
                 </span>
                 <span className="text-xs text-blue-600">
-                  {formatDate((borrower.latest_appointment as any)?.start_datetime)}
+                  {formatDate(borrower.latest_appointment && typeof borrower.latest_appointment === 'object' && 'start_datetime' in borrower.latest_appointment ? borrower.latest_appointment.start_datetime as string | Date : null)}
                 </span>
               </div>
             </div>
@@ -425,6 +529,54 @@ export default function BorrowerCard({
           </Portal>
         )}
       </div>
+      
+      {/* Status Update Modal */}
+      <BorrowerStatusUpdateModal
+        isOpen={showStatusModal}
+        onClose={handleModalClose}
+        borrower={borrower}
+        preSelectedStatus={preSelectedStatus}
+        onUpdate={handleModalUpdate}
+        showNotification={showNotification}
+      />
+
+      {/* Notification Toast */}
+      {notification && (
+        <Portal>
+          <div className="fixed top-4 right-4 z-[300] max-w-sm">
+            <div className={`rounded-lg shadow-lg p-4 ${
+              notification.type === 'success' ? 'bg-green-50 border border-green-200' :
+              notification.type === 'error' ? 'bg-red-50 border border-red-200' :
+              'bg-blue-50 border border-blue-200'
+            }`}>
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  {notification.type === 'success' && <CheckCircleIcon className="h-5 w-5 text-green-400" />}
+                  {notification.type === 'error' && <XCircleIcon className="h-5 w-5 text-red-400" />}
+                  {notification.type === 'info' && <ExclamationTriangleIcon className="h-5 w-5 text-blue-400" />}
+                </div>
+                <div className="ml-3">
+                  <p className={`text-sm font-medium ${
+                    notification.type === 'success' ? 'text-green-800' :
+                    notification.type === 'error' ? 'text-red-800' :
+                    'text-blue-800'
+                  }`}>
+                    {notification.message}
+                  </p>
+                </div>
+                <div className="ml-auto pl-3">
+                  <button
+                    onClick={() => setNotification(null)}
+                    className="inline-flex rounded-md p-1.5 hover:bg-gray-100"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
     </div>
   );
 } 

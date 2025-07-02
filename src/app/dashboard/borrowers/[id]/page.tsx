@@ -6,6 +6,7 @@ import { getBorrower } from "~/app/_actions/borrowers";
 import { getBorrowerLoanPlans } from "~/app/_actions/borrowerSync";
 import { getBorrowerActions } from "~/app/_actions/borrowers";
 import { getBorrowerAppointments } from "~/app/_actions/borrowerAppointments";
+import { format, parseISO } from 'date-fns';
 import {
   UserIcon,
   IdentificationIcon,
@@ -19,11 +20,13 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
   XCircleIcon,
-  ChatBubbleLeftRightIcon
+  ChatBubbleLeftRightIcon,
+  Cog6ToothIcon
 } from '@heroicons/react/24/outline';
 
 import BorrowerActionButtons from "~/app/_components/BorrowerActionButtons";
 import BorrowerCommunicationPreferences from "~/app/_components/BorrowerCommunicationPreferences";
+import BorrowerStatusUpdateModal from "~/app/_components/BorrowerStatusUpdateModal";
 
 // Import types directly from schema - this is the proper way!
 import type { 
@@ -73,10 +76,61 @@ export default function BorrowerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [error, setError] = useState<string>("");
+  
+  // Status update modal state
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [preSelectedStatus, setPreSelectedStatus] = useState<'follow_up' | 'no_answer' | 'give_up' | 'blacklisted' | undefined>(undefined);
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
 
   // Helper function to safely access loan plan properties
   const safeLoanPlanAccess = (plan: any, property: string): any => {
     return plan && typeof plan === 'object' ? plan[property] : null;
+  };
+
+  // Notification handler
+  const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Status update handlers
+  const handleStatusUpdate = (status?: 'follow_up' | 'no_answer' | 'give_up' | 'blacklisted') => {
+    setPreSelectedStatus(status);
+    setShowStatusModal(true);
+  };
+
+  const handleModalClose = () => {
+    setShowStatusModal(false);
+    setPreSelectedStatus(undefined);
+  };
+
+  const handleModalUpdate = () => {
+    // Trigger refresh of borrower data
+    if (borrowerId) {
+      window.location.reload();
+    }
+  };
+
+  // Format follow-up date with time awareness
+  const formatFollowUpDate = (followUpDate: Date | string | null) => {
+    if (!followUpDate) return null;
+    
+    try {
+      const date = typeof followUpDate === 'string' ? parseISO(followUpDate) : followUpDate;
+      const hours = date.getHours();
+      const minutes = date.getMinutes();
+      
+      // Check if time is not default (16:00:00+00 which would be 00:00:00 Singapore time)
+      const hasSpecificTime = !(hours === 0 && minutes === 0);
+      
+      if (hasSpecificTime) {
+        return format(date, 'MMM d, yyyy \'at\' h:mm a');
+      } else {
+        return format(date, 'MMM d, yyyy');
+      }
+    } catch {
+      return 'Invalid date';
+    }
   };
 
   useEffect(() => {
@@ -354,7 +408,7 @@ export default function BorrowerDetailPage() {
                   color: new Date(borrower.follow_up_date) < new Date() ? "#f44336" : "#ff9800",
                   marginBottom: "5px"
                 }}>
-                  {formatDate(borrower.follow_up_date)}
+                  {formatFollowUpDate(borrower.follow_up_date)}
                 </div>
                 <div style={{ fontSize: "14px", color: "#666" }}>
                   {new Date(borrower.follow_up_date) < new Date() ? (
@@ -374,6 +428,137 @@ export default function BorrowerDetailPage() {
                 </div>
               </div>
             )}
+            
+            {/* Quick Status Update Buttons */}
+            <div style={{ marginTop: "12px" }}>
+              <div style={{ fontSize: "12px", color: "#666", marginBottom: "8px", fontWeight: "600" }}>
+                QUICK STATUS UPDATE
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                <button
+                  onClick={() => handleStatusUpdate('follow_up')}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    backgroundColor: "#f3e5f5",
+                    color: "#7b1fa2",
+                    border: "1px solid #ce93d8",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "500",
+                    transition: "all 0.2s",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px"
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = "#e1bee7";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = "#f3e5f5";
+                  }}
+                >
+                  <CalendarIcon className="h-3 w-3" />
+                  Follow-up
+                </button>
+                
+                <button
+                  onClick={() => handleStatusUpdate('no_answer')}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    backgroundColor: "#f5f5f5",
+                    color: "#616161",
+                    border: "1px solid #bdbdbd",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "500",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = "#eeeeee";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = "#f5f5f5";
+                  }}
+                >
+                  No Answer
+                </button>
+                
+                {/* <button
+                  onClick={() => handleStatusUpdate('give_up')}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    backgroundColor: "#fff3e0",
+                    color: "#ef6c00",
+                    border: "1px solid #ffcc02",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "500",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = "#ffe0b2";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = "#fff3e0";
+                  }}
+                >
+                  Give Up
+                </button>
+                
+                <button
+                  onClick={() => handleStatusUpdate('blacklisted')}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    backgroundColor: "#ffebee",
+                    color: "#c62828",
+                    border: "1px solid #ef5350",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "500",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = "#ffcdd2";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = "#ffebee";
+                  }}
+                >
+                  Blacklist
+                </button> */}
+                
+                <button
+                  onClick={() => handleStatusUpdate()}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    backgroundColor: "#e3f2fd",
+                    color: "#1976d2",
+                    border: "1px solid #2196f3",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "500",
+                    transition: "all 0.2s",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px"
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.backgroundColor = "#bbdefb";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.backgroundColor = "#e3f2fd";
+                  }}
+                >
+                  <Cog6ToothIcon className="h-3 w-3" />
+                  More
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -695,7 +880,7 @@ export default function BorrowerDetailPage() {
           </div>
 
           {/* Action Buttons */}
-          <div>
+          {/* <div>
             <BorrowerActionButtons
               borrowerId={borrowerId}
               onAction={(action, id) => {
@@ -710,7 +895,7 @@ export default function BorrowerDetailPage() {
                 window.location.reload();
               }}
             />
-          </div>
+          </div> */}
         </div>
       )}
       {activeTab === "loan_plans" && (
@@ -968,7 +1153,7 @@ export default function BorrowerDetailPage() {
                   borderRadius: "8px", 
                   border: "1px solid #dee2e6",
                   fontSize: "14px",
-                  lineHeight: "1.5",
+                  lineHeight: "1.4",
                   color: "#333"
                 }}>
                   {borrower.loan_notes}
@@ -1274,7 +1459,69 @@ export default function BorrowerDetailPage() {
         </div>
       )}
 
+      {/* Status Update Modal */}
+      {borrower && (
+        <BorrowerStatusUpdateModal
+          isOpen={showStatusModal}
+          onClose={handleModalClose}
+          borrower={{
+            id: borrower.id,
+            full_name: borrower.full_name,
+            phone_number: borrower.phone_number,
+            status: borrower.status
+          }}
+          preSelectedStatus={preSelectedStatus}
+          onUpdate={handleModalUpdate}
+          showNotification={showNotification}
+        />
+      )}
 
+      {/* Notification Toast */}
+      {notification && (
+        <div style={{ 
+          position: "fixed", 
+          top: "20px", 
+          right: "20px", 
+          zIndex: 1000, 
+          maxWidth: "400px",
+          backgroundColor: notification.type === 'success' ? "#d4edda" : 
+                           notification.type === 'error' ? "#f8d7da" : "#d1ecf1",
+          color: notification.type === 'success' ? "#155724" : 
+                 notification.type === 'error' ? "#721c24" : "#0c5460",
+          padding: "12px 16px",
+          borderRadius: "8px",
+          border: `1px solid ${notification.type === 'success' ? "#c3e6cb" : 
+                                 notification.type === 'error' ? "#f5c6cb" : "#bee5eb"}`,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {notification.type === 'success' && <CheckCircleIcon className="h-5 w-5" />}
+            {notification.type === 'error' && <XCircleIcon className="h-5 w-5" />}
+            {notification.type === 'info' && <ExclamationTriangleIcon className="h-5 w-5" />}
+            <span style={{ fontSize: "14px", fontWeight: "500" }}>
+              {notification.message}
+            </span>
+          </div>
+          <button
+            onClick={() => setNotification(null)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "inherit",
+              cursor: "pointer",
+              padding: "4px",
+              borderRadius: "4px",
+              display: "flex",
+              alignItems: "center"
+            }}
+          >
+            <XCircleIcon className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

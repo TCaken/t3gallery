@@ -56,8 +56,11 @@ export default function BorrowerStatusUpdateModal({
     { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted', customReason: true },
     { value: 'give_up_trouble_maker', label: 'Give Up - Trouble Maker', finalStatus: 'give_up' },
     { value: 'give_up_already_got_loan', label: 'Give Up - Already Got Loan', finalStatus: 'give_up' },
-    { value: 'give_up_income_too_low', label: 'Give Up - Income Too Low', finalStatus: 'give_up' },
-    { value: 'give_up_underage', label: 'Give Up - Underage', finalStatus: 'give_up' },
+    { value: 'give_up_cash_flow_ok', label: 'Give Up - Cash Flow Ok', finalStatus: 'give_up' },
+    { value: 'give_up_loan_plan_dispute_on_charges', label: 'Give Up - Loan Plan & Dispute on Charges', finalStatus: 'give_up' },
+    { value: 'give_up_feedback_retail_payment_refund_policy', label: 'Give Up - Feedback (Retail, Payment, Refund Policy)', finalStatus: 'give_up' },
+    { value: 'give_up_unsatisfied_service_location_waiting_time_income_etc', label: 'Give Up - Unsatisfied Service (Location, Waiting Time, Income etc)', finalStatus: 'give_up' },
+    { value: 'give_up_prs_r', label: 'Give Up - PRS/R', finalStatus: 'give_up' },
     { value: 'give_up_not_interested', label: 'Give Up - Not Interested', finalStatus: 'give_up' },
     { value: 'give_up_no_income_proof', label: 'Give Up - No Income Proof', finalStatus: 'give_up' },
     { value: 'give_up_unemployed', label: 'Give Up - Unemployed', finalStatus: 'give_up' },
@@ -448,7 +451,7 @@ export default function BorrowerStatusUpdateModal({
                     )}
 
                     {/* Additional Notes */}
-                    <div>
+                    {/* <div>
                       <label htmlFor="additional-notes" className="block text-sm font-medium text-gray-700 mb-1">
                         Additional Notes (optional)
                       </label>
@@ -460,7 +463,7 @@ export default function BorrowerStatusUpdateModal({
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
                         placeholder="Add any additional notes about this borrower..."
                       />
-                    </div>
+                    </div> */}
                   </div>
                 )}
 

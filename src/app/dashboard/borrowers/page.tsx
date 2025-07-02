@@ -358,15 +358,27 @@ export default function BorrowersPage() {
       setAssignedFilter('my_borrowers');
     } else {
       setSourceFilter('Attrition Risk');
-      setAssignedFilter('');
+    setAssignedFilter('');
     }
   };
 
   // Handle borrower actions
-  const handleBorrowerAction = async (action: string, borrower: BorrowerRecord) => {
+  const handleBorrowerAction = async (action: string, borrower: BorrowerRecord | number) => {
     try {
+      // Handle the case where borrower is just an ID (for refresh action)
+      if (typeof borrower === 'number') {
+        const borrowerId = borrower;
+        const borrowerRecord = borrowers.find(b => b.id === borrowerId);
+        if (!borrowerRecord) {
+          console.error('Borrower not found for refresh');
+          return;
+        }
+        borrower = borrowerRecord;
+      }
+
       switch (action) {
         case 'view':
+        case 'edit':
           router.push(`/dashboard/borrowers/${borrower.id}`);
           break;
         case 'assign':
@@ -397,6 +409,12 @@ export default function BorrowersPage() {
           break;
         case 'whatsapp':
           handleIndividualWhatsApp(borrower);
+          break;
+        case 'refresh':
+          // Refresh the borrowers list
+          setPage(1);
+          setBorrowers([]);
+          void fetchBorrowers(1);
           break;
         default:
           showNotification(`Action ${action} for borrower ${borrower.full_name}`, 'info');
@@ -583,28 +601,28 @@ export default function BorrowersPage() {
               )}
               
               {hasAnyRole(['admin']) && (
-                <button
-                  onClick={exportToCSV}
-                  disabled={exportingCsv || borrowers.length === 0}
-                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-                    exportingCsv || borrowers.length === 0
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-green-600 text-white hover:bg-green-700'
-                  }`}
-                >
-                  <ArrowDownTrayIcon className="h-5 w-5" />
-                  <span>{exportingCsv ? 'Exporting...' : 'Export CSV'}</span>
-                </button>
+              <button
+                onClick={exportToCSV}
+                disabled={exportingCsv || borrowers.length === 0}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                  exportingCsv || borrowers.length === 0
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                <ArrowDownTrayIcon className="h-5 w-5" />
+                <span>{exportingCsv ? 'Exporting...' : 'Export CSV'}</span>
+              </button>
               )}
               
               {hasAnyRole(['admin']) && (
-                <button
-                  onClick={() => router.push('/dashboard/borrowers/new')}
-                  className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <PlusIcon className="h-5 w-5" />
-                  <span>Add Borrower</span>
-                </button>
+              <button
+                onClick={() => router.push('/dashboard/borrowers/new')}
+                className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <PlusIcon className="h-5 w-5" />
+                <span>Add Borrower</span>
+              </button>
               )}
             </div>
           </div>
@@ -950,11 +968,11 @@ export default function BorrowersPage() {
 
                       {/* Source */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                          <div className="text-sm text-gray-900">
                           {borrower.source ?? 'N/A'}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          AA: {borrower.aa_status ?? 'Pending'}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            AA: {borrower.aa_status ?? 'Pending'}
                         </div>
                       </td>
 
@@ -1059,12 +1077,12 @@ export default function BorrowersPage() {
 
       {/* Assign Borrower Modal - Only for admins */}
       {hasAnyRole(['admin']) && (
-        <AssignBorrowerModal
-          isOpen={isAssignModalOpen}
-          onClose={() => setIsAssignModalOpen(false)}
-          borrowerId={selectedBorrower?.id ?? 0}
-          borrowerName={selectedBorrower?.full_name ?? ''}
-          onAssignComplete={handleAssignComplete}
+      <AssignBorrowerModal
+        isOpen={isAssignModalOpen}
+        onClose={() => setIsAssignModalOpen(false)}
+        borrowerId={selectedBorrower?.id ?? 0}
+        borrowerName={selectedBorrower?.full_name ?? ''}
+        onAssignComplete={handleAssignComplete}
         />
       )}
 
