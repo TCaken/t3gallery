@@ -26,6 +26,7 @@ import AssignBorrowerModal from '~/app/_components/AssignBorrowerModal';
 import BorrowerWhatsAppModal from '~/app/_components/BorrowerWhatsAppModal';
 import BorrowerCallModal from '~/app/_components/BorrowerCallModal';
 import BorrowerQuestionnaireModal from '~/app/_components/BorrowerQuestionnaireModal';
+import BorrowerStatusUpdateModal from '~/app/_components/BorrowerStatusUpdateModal';
 
 // Status info for styling
 const allStatuses = [
@@ -136,6 +137,9 @@ export default function BorrowersPage() {
   const [callBorrower, setCallBorrower] = useState<{ id: number; full_name: string; phone_number: string } | null>(null);
   const [showQuestionnaireModal, setShowQuestionnaireModal] = useState(false);
   const [questionnaireBorrower, setQuestionnaireBorrower] = useState<BorrowerRecord | null>(null);
+  const [showStatusUpdateModal, setShowStatusUpdateModal] = useState(false);
+  const [statusUpdateBorrower, setStatusUpdateBorrower] = useState<{id: number; full_name: string; phone_number: string; status: string} | null>(null);
+  const [preSelectedStatus, setPreSelectedStatus] = useState<'follow_up' | 'no_answer' | 'give_up' | 'blacklisted' | undefined>(undefined);
   
   const router = useRouter();
   const { userRole, hasAnyRole } = useUserRole();
@@ -381,6 +385,16 @@ export default function BorrowersPage() {
           setQuestionnaireBorrower(borrower);
           setShowQuestionnaireModal(true);
           break;
+        case 'status_update':
+          setStatusUpdateBorrower({
+            id: borrower.id,
+            full_name: borrower.full_name,
+            phone_number: borrower.phone_number,
+            status: borrower.status
+          });
+          setPreSelectedStatus(undefined);
+          setShowStatusUpdateModal(true);
+          break;
         case 'whatsapp':
           handleIndividualWhatsApp(borrower);
           break;
@@ -487,6 +501,27 @@ export default function BorrowersPage() {
     setPage(1);
     setBorrowers([]);
     void fetchBorrowers(1);
+  };
+
+  // Handle status update success
+  const handleStatusUpdate = () => {
+    showNotification('Borrower status updated successfully', 'success');
+    // Refresh data
+    setPage(1);
+    setBorrowers([]);
+    void fetchBorrowers(1);
+  };
+
+  // Utility function for quick status updates with pre-selected status
+  const handleQuickStatusUpdate = (borrower: BorrowerRecord, status: 'follow_up' | 'no_answer' | 'give_up' | 'blacklisted') => {
+    setStatusUpdateBorrower({
+      id: borrower.id,
+      full_name: borrower.full_name,
+      phone_number: borrower.phone_number,
+      status: borrower.status
+    });
+    setPreSelectedStatus(status);
+    setShowStatusUpdateModal(true);
   };
 
   return (
@@ -968,6 +1003,13 @@ export default function BorrowersPage() {
                           >
                             <PencilSquareIcon className="h-4 w-4" />
                           </button>
+                          <button
+                            onClick={() => handleBorrowerAction('status_update', borrower)}
+                            className="text-indigo-600 hover:text-indigo-900"
+                            title="Update Status"
+                          >
+                            <AdjustmentsHorizontalIcon className="h-4 w-4" />
+                          </button>
                           {hasAnyRole(['admin']) && (
                             <button
                               onClick={() => handleBorrowerAction('assign', borrower)}
@@ -1067,8 +1109,18 @@ export default function BorrowersPage() {
       <BorrowerQuestionnaireModal
         isOpen={showQuestionnaireModal}
         onClose={() => setShowQuestionnaireModal(false)}
-        borrower={questionnaireBorrower}
+        borrower={questionnaireBorrower as any}
         onUpdate={handleQuestionnaireUpdate}
+      />
+
+      {/* Status Update Modal */}
+      <BorrowerStatusUpdateModal
+        isOpen={showStatusUpdateModal}
+        onClose={() => setShowStatusUpdateModal(false)}
+        borrower={statusUpdateBorrower}
+        preSelectedStatus={preSelectedStatus}
+        onUpdate={handleStatusUpdate}
+        showNotification={showNotification}
       />
     </div>
   );

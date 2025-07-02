@@ -12,33 +12,28 @@ interface BorrowerQuestionnaireModalProps {
     id: number;
     full_name: string;
     phone_number: string;
+    phone_number_2?: string | null;
+    phone_number_3?: string | null;
     email?: string | null;
     current_employer?: string | null;
-    annual_income?: string | null;
-    estimated_reloan_amount?: string | null;
-    financial_commitment_change?: string | null;
+    average_monthly_income?: string | null;  // Fixed: was annual_income
     id_type: string;
     residential_status?: string | null;
     status?: string;
-    source?: string;
-    aa_status?: string;
+    source?: string | null;
+    aa_status?: string | null;
     id_number?: string | null;
     credit_score?: string | null;
-    loan_amount?: string | null;
     loan_status?: string | null;
     lead_score?: number | null;
     latest_completed_loan_date?: string | null;
     loan_id?: string | null;
     assigned_agent_name?: string | null;
+    assigned_agent_email?: string | null;
+    contact_preference?: string | null;
     created_at?: Date;
-    updated_at?: Date;
+    updated_at?: Date | null;
     follow_up_date?: Date | null;
-    // Performance buckets
-    is_in_closed_loan?: string | null;
-    is_in_2nd_reloan?: string | null;
-    is_in_attrition?: string | null;
-    is_in_last_payment_due?: string | null;
-    is_in_bhv1?: string | null;
     // Questionnaire fields
     employment_status_changed?: boolean;
     employment_change_details?: string;
@@ -84,7 +79,7 @@ export default function BorrowerQuestionnaireModal({
   useEffect(() => {
     if (borrower) {
       const data: QuestionnaireData = {
-        financing_amount: borrower.estimated_reloan_amount || '',
+        financing_amount: '', // User will fill this in questionnaire
         employment_status: 'same',
         employment_details: '',
         work_pass_expiry: borrower.id_type === 'singapore_nric' ? 'not_applicable' : 'more_than_3_months',
@@ -102,7 +97,7 @@ export default function BorrowerQuestionnaireModal({
     setHasUnsavedChanges(hasChanges);
   }, [formData, originalData]);
 
-  const handleInputChange = (field: keyof QuestionnaireData, value: any) => {
+  const handleInputChange = (field: keyof QuestionnaireData, value: string) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -118,9 +113,9 @@ export default function BorrowerQuestionnaireModal({
       // 1. Update borrower fields with questionnaire responses
       const updateResult = await updateBorrower({
         id: borrower.id,
-        estimated_reloan_amount: formData.financing_amount,
+        // Do NOT update estimated_reloan_amount - leave it untouched
         employment_status_changed: formData.employment_status === 'changed',
-        employment_change_details: formData.employment_details || undefined,
+        current_employer: formData.employment_status === 'changed' ? formData.employment_details : undefined,
         work_pass_expiry_status: formData.work_pass_expiry,
         customer_experience_feedback: formData.customer_experience,
         last_questionnaire_date: new Date()
@@ -135,7 +130,7 @@ export default function BorrowerQuestionnaireModal({
 CUSTOMER QUESTIONNAIRE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 Financing Amount: ${formData.financing_amount}
-💼 Employment Status: ${formData.employment_status}${formData.employment_details ? ` - ${formData.employment_details}` : ''}
+💼 Employment Status: ${formData.employment_status}${formData.employment_details ? ` - Current Employer: ${formData.employment_details}` : ''}
 📅 Work Pass Expiry: ${formData.work_pass_expiry}
 ⭐ Customer Experience: ${formData.customer_experience}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -195,16 +190,7 @@ CUSTOMER QUESTIONNAIRE:
     return d.toLocaleDateString('en-SG');
   };
 
-  const getPerformanceBuckets = () => {
-    if (!borrower) return [];
-    const buckets = [];
-    if (borrower.is_in_closed_loan === 'yes') buckets.push('Closed Loan');
-    if (borrower.is_in_2nd_reloan === 'yes') buckets.push('2nd Reloan');
-    if (borrower.is_in_attrition === 'yes') buckets.push('Attrition Risk');
-    if (borrower.is_in_last_payment_due === 'yes') buckets.push('Last Payment Due');
-    if (borrower.is_in_bhv1 === 'yes') buckets.push('BHV1');
-    return buckets.length > 0 ? buckets : ['None'];
-  };
+
 
   const getLeadScoreColor = (score: number | null | undefined) => {
     if (!score) return 'text-gray-500';
@@ -258,7 +244,7 @@ CUSTOMER QUESTIONNAIRE:
                   <div className="space-y-2 text-sm">
                     <div><span className="font-medium">Name:</span> {borrower.full_name}</div>
                     <div><span className="font-medium">Phone:</span> {borrower.phone_number}</div>
-                    <div><span className="font-medium">Email:</span> {borrower.email || 'Not provided'}</div>
+                    <div><span className="font-medium">Email:</span> {borrower.email ?? 'Not provided'}</div>
                     <div><span className="font-medium">Status:</span> 
                       <span className={`ml-1 px-2 py-1 rounded text-xs ${
                         borrower.status === 'assigned' ? 'bg-blue-100 text-blue-800' :
@@ -266,7 +252,7 @@ CUSTOMER QUESTIONNAIRE:
                         borrower.status === 'new' ? 'bg-yellow-100 text-yellow-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {borrower.status || 'Unknown'}
+                        {borrower.status ?? 'Unknown'}
                       </span>
                     </div>
                     <div><span className="font-medium">Source:</span> {borrower.source || 'Not specified'}</div>
@@ -279,56 +265,35 @@ CUSTOMER QUESTIONNAIRE:
                   <h4 className="font-medium text-gray-800 border-b border-gray-300 pb-1">Identity & Financial</h4>
                   <div className="space-y-2 text-sm">
                     <div><span className="font-medium">ID Type:</span> {borrower.id_type}</div>
-                    <div><span className="font-medium">ID Number:</span> {borrower.id_number || 'Not provided'}</div>
+                    <div><span className="font-medium">ID Number:</span> {borrower.id_number ?? 'Not provided'}</div>
                     <div><span className="font-medium">AA Status:</span> 
                       <span className={`ml-1 px-2 py-1 rounded text-xs ${
                         borrower.aa_status === 'yes' ? 'bg-green-100 text-green-800' :
                         borrower.aa_status === 'no' ? 'bg-red-100 text-red-800' :
                         'bg-yellow-100 text-yellow-800'
                       }`}>
-                        {borrower.aa_status || 'Pending'}
+                        {borrower.aa_status ?? 'Pending'}
                       </span>
                     </div>
-                    <div><span className="font-medium">Residential Status:</span> {borrower.residential_status || 'Not specified'}</div>
-                    <div><span className="font-medium">Current Employer:</span> {borrower.current_employer || 'Not provided'}</div>
-                    <div><span className="font-medium">Annual Income:</span> {borrower.annual_income || 'Not provided'}</div>
+                    <div><span className="font-medium">Residential Status:</span> {borrower.residential_status ?? 'Not specified'}</div>
+                    <div><span className="font-medium">Current Employer:</span> {borrower.current_employer ?? 'Not provided'}</div>
+                    <div><span className="font-medium">Monthly Income:</span> {borrower.average_monthly_income ?? 'Not provided'}</div>
+                    <div><span className="font-medium">Contact Preference:</span> {borrower.contact_preference ?? 'No Preferences'}</div>
                   </div>
                 </div>
 
-                {/* Loan & Performance */}
+                {/* Loan Information */}
                 <div className="space-y-3">
-                  <h4 className="font-medium text-gray-800 border-b border-gray-300 pb-1">Loan & Performance</h4>
+                  <h4 className="font-medium text-gray-800 border-b border-gray-300 pb-1">Loan Information</h4>
                   <div className="space-y-2 text-sm">
-                    <div><span className="font-medium">Loan ID:</span> {borrower.loan_id || 'Not assigned'}</div>
-                    <div><span className="font-medium">Estimated Reloan:</span> {borrower.estimated_reloan_amount || 'Not specified'}</div>
-                    <div><span className="font-medium">Loan Amount:</span> {borrower.loan_amount || 'Not specified'}</div>
-                    <div><span className="font-medium">Loan Status:</span> {borrower.loan_status || 'Not specified'}</div>
-                    <div><span className="font-medium">Credit Score:</span> {borrower.credit_score || 'Not available'}</div>
+                    <div><span className="font-medium">Loan ID:</span> {borrower.loan_id ?? 'Not assigned'}</div>
+                    <div><span className="font-medium">Loan Status:</span> {borrower.loan_status ?? 'Not specified'}</div>
+                    <div><span className="font-medium">Credit Score:</span> {borrower.credit_score ?? 'Not available'}</div>
                     <div><span className="font-medium">Lead Score:</span> 
                       <span className={`ml-1 font-semibold ${getLeadScoreColor(borrower.lead_score)}`}>
-                        {borrower.lead_score || 0}/100
+                        {borrower.lead_score ?? 0}/100
                       </span>
                     </div>
-                  </div>
-                </div>
-
-                {/* Performance Buckets */}
-                <div className="space-y-3">
-                  <h4 className="font-medium text-gray-800 border-b border-gray-300 pb-1">Performance Buckets</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {getPerformanceBuckets().map((bucket, index) => (
-                      <span 
-                        key={index}
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          bucket === 'None' ? 'bg-gray-100 text-gray-600' :
-                          bucket === 'Attrition Risk' ? 'bg-red-100 text-red-800' :
-                          bucket === 'Closed Loan' ? 'bg-green-100 text-green-800' :
-                          'bg-blue-100 text-blue-800'
-                        }`}
-                      >
-                        {bucket}
-                      </span>
-                    ))}
                   </div>
                 </div>
 
@@ -343,22 +308,7 @@ CUSTOMER QUESTIONNAIRE:
                   </div>
                 </div>
 
-                {/* Financial Commitment */}
-                <div className="space-y-3">
-                  <h4 className="font-medium text-gray-800 border-b border-gray-300 pb-1">Financial Commitment</h4>
-                  <div className="space-y-2 text-sm">
-                    <div><span className="font-medium">Status:</span> 
-                      <span className={`ml-1 px-2 py-1 rounded text-xs ${
-                        borrower.financial_commitment_change === 'increased' ? 'bg-red-100 text-red-800' :
-                        borrower.financial_commitment_change === 'decreased' ? 'bg-green-100 text-green-800' :
-                        borrower.financial_commitment_change === 'same' ? 'bg-blue-100 text-blue-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {borrower.financial_commitment_change || 'Not applicable'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+
 
                 {/* Questionnaire History */}
                 <div className="space-y-3">
@@ -448,7 +398,7 @@ CUSTOMER QUESTIONNAIRE:
                         value={formData.employment_details}
                         onChange={(e) => handleInputChange('employment_details', e.target.value)}
                         className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Please provide details about the employment change"
+                        placeholder="Enter current employer name"
                       />
                     </div>
                   )}
