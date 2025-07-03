@@ -48,7 +48,7 @@ export type ParsedLoan = {
 };
 
 // Fetch borrowers from external API
-export async function fetchExternalBorrowers() {
+export async function fetchExternalBorrowers(lastTwoDigit = "2") {
   const { userId } = await auth();
   if (!userId) {
     throw new Error("Unauthorized");
@@ -56,7 +56,7 @@ export async function fetchExternalBorrowers() {
 
   try {
     const apikey = process.env.BORROWER_SYNC_API_KEY;
-    const response = await fetch("https://api.capcfintech.com/api/ac/qs?last_two_digit=2", {
+    const response = await fetch(`https://api.capcfintech.com/api/ac/qs?last_two_digit=${lastTwoDigit}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
