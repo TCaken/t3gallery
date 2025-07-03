@@ -665,7 +665,7 @@ export const playbook_contacts = createTable(
   (d) => ({
     id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
     playbook_id: d.integer().references(() => playbooks.id, { onDelete: "cascade" }).notNull(),
-    lead_id: d.integer().references(() => leads.id, { onDelete: "cascade" }).notNull(),
+    lead_id: d.integer().notNull(), // Removed foreign key constraint - can store lead or borrower IDs
     samespace_contact_id: d.varchar({ length: 255 }), // ID from Samespace
     phone_number: d.varchar({ length: 20 }).notNull(),
     first_name: d.varchar({ length: 255 }).default(''),
@@ -805,6 +805,13 @@ export const borrowers = createTable(
     contact_preference: d.varchar({ length: 50 }).default('No Preferences'),
     communication_language: d.varchar({ length: 50 }).default('No Preferences'),
     follow_up_date: d.timestamp({ withTimezone: true }).default(sql`NULL`),
+    
+    // Questionnaire-specific fields
+    employment_status_changed: d.boolean().default(false),
+    employment_change_details: d.text(),
+    work_pass_expiry_status: d.varchar({ length: 50 }).default('not_applicable'), // 'within_3_months', 'more_than_3_months', 'not_applicable'
+    customer_experience_feedback: d.text(),
+    last_questionnaire_date: d.timestamp({ withTimezone: true }),
     
     // System Fields
     assigned_to: d.varchar({ length: 256 }),

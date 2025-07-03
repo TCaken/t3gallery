@@ -48,7 +48,7 @@ async function logBorrowerAppointmentAction(
   action: string,
   description: string,
   userId: string,
-  actionType: string = "appointment"
+  actionType = "appointment"
 ) {
   try {
     // Log to borrower_actions table
@@ -127,9 +127,9 @@ export async function createBorrowerAppointment(input: CreateBorrowerAppointment
         borrower_id: input.borrower_id,
         agent_id: input.agent_id,
         status: "upcoming",
-        appointment_type: input.appointment_type || "reloan_consultation",
+        appointment_type: input.appointment_type ?? "reloan_consultation",
         notes: input.notes,
-        lead_source: input.lead_source || "",
+        lead_source: input.lead_source ?? "", // Set the correct source for borrower appointments
         start_datetime: input.start_datetime,
         end_datetime: input.end_datetime,
         created_by: userId,
@@ -141,6 +141,16 @@ export async function createBorrowerAppointment(input: CreateBorrowerAppointment
     if (!newAppointment) {
       throw new Error("Failed to create appointment");
     }
+
+    // Update borrower status to "booked" when appointment is created
+    await db
+      .update(borrowers)
+      .set({
+        status: "booked",
+        updated_by: userId,
+        updated_at: new Date()
+      })
+      .where(eq(borrowers.id, input.borrower_id));
 
     // Link appointment to timeslots if provided
     if (input.timeslot_ids && input.timeslot_ids.length > 0) {
@@ -169,10 +179,53 @@ export async function createBorrowerAppointment(input: CreateBorrowerAppointment
       newAppointment.id,
       input.borrower_id,
       "create",
-      `Created appointment for ${borrower[0].full_name} with ${agent[0].first_name} ${agent[0].last_name}`,
+      `Created appointment for ${borrower[0]?.full_name ?? 'Unknown Borrower'} with ${agent[0]?.first_name ?? ''} ${agent[0]?.last_name ?? ''}`.trim(),
       userId,
       "appointment"
     );
+
+    // Send appointment data to webhook ONLY if appointment is for today (Singapore time)
+    try {
+      // Get today's date in Singapore timezone (UTC+8)
+      const now = new Date();
+      const singaporeOffset = 8 * 60; // 8 hours in minutes
+      const singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
+      const todaySingapore = singaporeTime.toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      // Get appointment date
+      const appointmentDate = input.start_datetime.toISOString().split('T')[0];
+      
+      console.log('🕐 Borrower appointment webhook date check:');
+      console.log('Today (Singapore):', todaySingapore);
+      console.log('Appointment date:', appointmentDate);
+      
+      // Only send webhook if appointment is for today
+      if (appointmentDate === todaySingapore) {
+        console.log('✅ Borrower appointment is for today, sending webhook...');
+        
+        const timeComponents = input.start_datetime.toTimeString().split(' ');
+        const appointmentTime = timeComponents[0] ?? "00:00:00"; // HH:MM:SS
+        
+        const webhookResult = await sendBorrowerAppointmentToWebhook(input.borrower_id, {
+          appointmentDate: appointmentDate,
+          appointmentTime: appointmentTime,
+          appointmentType: input.appointment_type ?? "reloan_consultation",
+          notes: input.notes ?? ""
+        });
+        
+        if (webhookResult.success) {
+          console.log('✅ Borrower appointment data sent to webhook successfully');
+        } else {
+          console.error('❌ Failed to send borrower appointment data to webhook:', webhookResult.error);
+          // Don't fail the appointment creation if webhook fails
+        }
+      } else {
+        console.log('ℹ️ Borrower appointment is NOT for today, skipping webhook');
+      }
+    } catch (webhookError) {
+      console.error('❌ Error calling borrower appointment webhook:', webhookError);
+      // Don't fail the appointment creation if webhook fails
+    }
 
     revalidatePath("/dashboard/borrowers");
     revalidatePath(`/dashboard/borrowers/${input.borrower_id}`);
@@ -341,6 +394,9 @@ export async function updateBorrowerAppointment(input: UpdateBorrowerAppointment
     }
 
     const oldAppointment = existingAppointment[0];
+    if (!oldAppointment) {
+      throw new Error("Appointment not found");
+    }
 
     // Build update object with only provided fields
     const fieldsToUpdate: Partial<typeof borrower_appointments.$inferInsert> = {
@@ -470,6 +526,9 @@ export async function deleteBorrowerAppointment(id: number) {
     }
 
     const appointment = existingAppointment[0];
+    if (!appointment) {
+      throw new Error("Appointment not found");
+    }
 
     // Get associated timeslots before deletion
     const timeslots_to_free = await db
@@ -533,6 +592,11 @@ export async function updateBorrowerAppointmentStatus(id: number, status: string
       throw new Error("Appointment not found");
     }
 
+    const appointment = existingAppointment[0];
+    if (!appointment) {
+      throw new Error("Appointment not found");
+    }
+
     const updateData: Partial<typeof borrower_appointments.$inferInsert> = {
       status,
       updated_by: userId,
@@ -553,10 +617,31 @@ export async function updateBorrowerAppointmentStatus(id: number, status: string
       throw new Error("Failed to update appointment status");
     }
 
+    // Update borrower status based on appointment status change
+    let borrowerStatus = appointment.status; // Keep existing status by default
+    
+    if (status === 'done') {
+      borrowerStatus = 'done'; // Mark borrower as done when appointment is completed
+    } else if (status === 'missed' || status === 'cancelled') {
+      borrowerStatus = 'assigned'; // Set to follow-up for missed/cancelled appointments
+    }
+    
+    // Update borrower status if it should change
+    if (borrowerStatus !== appointment.status) {
+      await db
+        .update(borrowers)
+        .set({
+          status: borrowerStatus,
+          updated_by: userId,
+          updated_at: new Date()
+        })
+        .where(eq(borrowers.id, appointment.borrower_id));
+    }
+
     // Log the status change
     await logBorrowerAppointmentAction(
       id,
-      existingAppointment[0].borrower_id,
+      appointment.borrower_id,
       "status_update",
       `Updated appointment status to: ${status}${notes ? `. Notes: ${notes}` : ""}`,
       userId,
@@ -564,7 +649,7 @@ export async function updateBorrowerAppointmentStatus(id: number, status: string
     );
 
     revalidatePath("/dashboard/borrowers");
-    revalidatePath(`/dashboard/borrowers/${existingAppointment[0].borrower_id}`);
+    revalidatePath(`/dashboard/borrowers/${appointment.borrower_id}`);
     revalidatePath("/dashboard/appointments");
 
     return { success: true, data: result[0] };
@@ -572,5 +657,152 @@ export async function updateBorrowerAppointmentStatus(id: number, status: string
   } catch (error) {
     console.error("Error updating appointment status:", error);
     throw new Error(error instanceof Error ? error.message : "Failed to update appointment status");
+  }
+}
+
+// Send borrower appointment data to webhook (similar to lead appointments)
+async function sendBorrowerAppointmentToWebhook(borrowerId: number, appointmentData: {
+  appointmentDate: string;
+  appointmentTime: string;
+  appointmentType?: string;
+  notes?: string;
+}) {
+  try {
+    console.log('Sending borrower appointment to webhook for borrower:', borrowerId);
+    
+    // Fetch borrower data from database
+    const borrower = await db
+      .select()
+      .from(borrowers)
+      .where(eq(borrowers.id, borrowerId))
+      .limit(1);
+
+    if (borrower.length === 0) {
+      return {
+        success: false,
+        error: "Borrower not found"
+      };
+    }
+
+    const borrowerData = borrower[0];
+    if (!borrowerData) {
+      return {
+        success: false,
+        error: "Borrower data not found"
+      };
+    }
+
+    // Helper function to format date as DD-MM-YYYY
+    const formatAppointmentDate = (dateStr: string) => {
+      try {
+        const date = new Date(dateStr);
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}-${month}-${year}`;
+      } catch {
+        return dateStr;
+      }
+    };
+
+    // Helper function to mask phone number
+    const maskPhoneNumber = (phone: string) => {
+      if (!phone) return "";
+      // Remove any non-digits and get last 4 digits
+      const cleaned = phone.replace(/\D/g, '');
+      if (cleaned.length >= 5) {
+        const lastFive = cleaned.slice(-5);
+        return `***${lastFive}`;
+      }
+      return phone;
+    };
+
+    // Format the borrower name
+    const formattedName = borrowerData.full_name ? `${borrowerData.full_name.toUpperCase()}` : "";
+    const cleanPhoneNumber = borrowerData.phone_number?.replace(/^\+65/, '') ?? "";
+    const maskedPhone = maskPhoneNumber(borrowerData.phone_number ?? "");
+
+    // Map borrower data to webhook format (similar to lead webhook but for Re Loan)
+    const webhookData = {
+      "Lead ID": `B${borrowerId}`, // Prefix with B for borrower
+      "Full Name": formattedName,
+      "Mobile Number": cleanPhoneNumber,
+      "H/P": maskedPhone,
+      "Email Address": borrowerData.email ?? "",
+      "Loan Amount Applying?": "", // Will be filled during appointment
+      "Monthly Income": borrowerData.average_monthly_income ?? "",
+      "Your Employment Specialisation": borrowerData.current_employer ?? "",
+      "Employment Type": borrowerData.current_employer ?? "",
+      "What is the purpose of the Loan?": "Re Loan - 再贷款", // Keep as New Loan as requested
+      "Place of Residence": borrowerData.residential_status ?? "",
+      
+      // Appointment specific data  
+      "Appointment Date": formatAppointmentDate(appointmentData.appointmentDate),
+      "Appointment Time": appointmentData.appointmentTime,
+      "Appointment Type": appointmentData.appointmentType ?? "Reloan Consultation",
+      "Created At": formatAppointmentDate(new Date().toISOString()),
+      
+      // Default values for required fields
+      "Manual": "Yes",
+      "Reason for manual": "Borrower appointment booking from CRM",
+      "Loan Portal Applied": "CRM",
+      "New or Reloan?": "Re Loan - 再贷款", // Keep as New Loan as requested
+      "Are you a Declared Bankruptcy at the time of this loan application?": "No",
+      "**Declaration - 声明 **": "Agreed",
+      
+      // Fields that might need manual input later
+      UW: "",
+      RM: "",
+      Group: "",
+      Code: "",
+      "Please choose your nationality or Work Pass": borrowerData.residential_status ?? "",
+      "Last 4 digits of the NRIC (including the alphabet)": "",
+      "Marital Status": "",
+      "Which year is your bankruptcy discharge?": "",
+      "What is your work designation?": "",
+      "For how long have you been working in this company?": "",
+      "Number of Room HDB Flat": "",
+      "How many Moneylender Company do you currently have outstanding loan?": "0",
+    };
+
+    // Send to Workato webhook (same endpoint as lead appointments)
+    const webhookUrl = process.env.WORKATO_CREATE_APPOINTMENT_WEBHOOK_URL ?? '';
+    if(!webhookUrl) {
+      console.error('❌ WORKATO_CREATE_APPOINTMENT_WEBHOOK_URL is not set');
+      return {
+        success: false,
+        error: "Webhook URL not configured"
+      };
+    }
+
+    console.log('Sending borrower data to webhook:', webhookData);
+    
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(webhookData),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Webhook request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('Borrower appointment webhook response:', result);
+
+    return {
+      success: true,
+      message: "Borrower appointment data sent to webhook successfully",
+      webhookResponse: result
+    };
+
+  } catch (error) {
+    console.error('Error sending borrower appointment to webhook:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to send borrower appointment to webhook"
+    };
   }
 } 

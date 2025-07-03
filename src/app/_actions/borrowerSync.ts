@@ -56,7 +56,7 @@ export async function fetchExternalBorrowers() {
 
   try {
     const apikey = process.env.BORROWER_SYNC_API_KEY;
-    const response = await fetch("https://api.capcfintech.com/api/ac/qs?last_two_digit=0", {
+    const response = await fetch("https://api.capcfintech.com/api/ac/qs?last_two_digit=2", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

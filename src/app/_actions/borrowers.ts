@@ -44,13 +44,19 @@ export type CreateBorrowerInput = {
   contact_preference?: string;
   communication_language?: string;
   follow_up_date?: Date | null;
-  assigned_to?: string;
+  assigned_to?: string | null;
   // Performance bucket fields
   is_in_closed_loan?: string | null;
   is_in_2nd_reloan?: string | null;
   is_in_attrition?: string | null;
   is_in_last_payment_due?: string | null;
   is_in_bhv1?: string | null;
+  // Questionnaire fields
+  employment_status_changed?: boolean;
+  employment_change_details?: string;
+  work_pass_expiry_status?: string;
+  customer_experience_feedback?: string;
+  last_questionnaire_date?: Date;
 };
 
 export type UpdateBorrowerInput = Partial<CreateBorrowerInput> & {
@@ -68,6 +74,12 @@ export type BorrowerFilters = {
   performance_bucket?: string; // 'closed_loan', '2nd_reloan', 'attrition', 'last_payment', 'bhv1'
   assigned_filter?: string; // 'assigned', 'unassigned', 'my_borrowers'
   date_range?: string; // 'today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'this_year'
+  created_date_start?: string; // Date string in YYYY-MM-DD format
+  created_date_end?: string; // Date string in YYYY-MM-DD format
+  follow_up_date_start?: string; // Date string in YYYY-MM-DD format
+  follow_up_date_end?: string; // Date string in YYYY-MM-DD format
+  last_loan_date_start?: string; // Date string in YYYY-MM-DD format
+  last_loan_date_end?: string; // Date string in YYYY-MM-DD format
   limit?: number;
   offset?: number;
 };
@@ -232,6 +244,12 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
       performance_bucket,
       assigned_filter,
       date_range,
+      created_date_start,
+      created_date_end,
+      follow_up_date_start,
+      follow_up_date_end,
+      last_loan_date_start,
+      last_loan_date_end,
       limit = 50,
       offset = 0
     } = filters;
@@ -349,6 +367,34 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
       }
     }
 
+    // Created date range filter
+    if (created_date_start) {
+      const startDate = new Date(created_date_start + 'T00:00:00');
+      conditions.push(gte(borrowers.created_at, startDate));
+    }
+    if (created_date_end) {
+      const endDate = new Date(created_date_end + 'T23:59:59');
+      conditions.push(lt(borrowers.created_at, endDate));
+    }
+
+    // Follow-up date range filter
+    if (follow_up_date_start) {
+      const startDate = new Date(follow_up_date_start + 'T00:00:00');
+      conditions.push(gte(borrowers.follow_up_date, startDate));
+    }
+    if (follow_up_date_end) {
+      const endDate = new Date(follow_up_date_end + 'T23:59:59');
+      conditions.push(lt(borrowers.follow_up_date, endDate));
+    }
+
+    // Last loan completed date range filter
+    if (last_loan_date_start) {
+      conditions.push(sql`${borrowers.latest_completed_loan_date} >= ${last_loan_date_start}`);
+    }
+    if (last_loan_date_end) {
+      conditions.push(sql`${borrowers.latest_completed_loan_date} <= ${last_loan_date_end}`);
+    }
+
     // Get borrowers with assigned user details
     const borrowersList = await db
       .select({
@@ -367,6 +413,7 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
         current_employer: borrowers.current_employer,
         average_monthly_income: borrowers.average_monthly_income,
         loan_id: borrowers.loan_id,
+        latest_completed_loan_date: borrowers.latest_completed_loan_date,
         is_in_closed_loan: borrowers.is_in_closed_loan,
         is_in_2nd_reloan: borrowers.is_in_2nd_reloan,
         is_in_attrition: borrowers.is_in_attrition,

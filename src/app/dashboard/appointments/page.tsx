@@ -18,6 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { createAppointment, fetchAppointments, type AppointmentWithLead } from '~/app/_actions/appointmentAction';
 import { fetchAvailableTimeslots, type Timeslot } from '~/app/_actions/appointmentAction';
+import { getBorrowerAppointments } from '~/app/_actions/borrowerAppointments';
 import { format, parseISO, addDays, startOfDay, endOfDay, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay, isToday } from 'date-fns';
 import { createLead } from '~/app/_actions/leadActions';
 import { truncate } from 'fs/promises';
@@ -29,6 +30,54 @@ import { updateAppointmentStatusesByTime, testAppointmentStatusUpdate } from '~/
 type ExtendedAppointment = AppointmentWithLead & {
   creator_name?: string;
   creator_email?: string;
+  agent_name?: string;
+  agent_email?: string;
+  // Add borrower-specific fields
+  borrower_type?: 'lead' | 'borrower';
+  borrower_data?: {
+    id: number;
+    name: string;
+    phone: string;
+  };
+};
+
+// Borrower appointment type (from getBorrowerAppointments)
+type BorrowerAppointmentData = Awaited<ReturnType<typeof getBorrowerAppointments>>['data'][0];
+
+// Unified appointment type for calendar display
+type UnifiedAppointment = {
+  id: number;
+  status: string;
+  start_datetime: Date;
+  end_datetime: Date;
+  notes?: string | null;
+  loan_status?: string | null;
+  loan_notes?: string | null;
+  created_at?: Date;
+  updated_at?: Date | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  type: 'lead' | 'borrower';
+  // Lead-specific fields
+  lead?: {
+    id: number;
+    full_name: string;
+    phone_number: string;
+    email?: string | null;
+  } | null;
+  // Borrower-specific fields
+  borrower?: {
+    id: number;
+    name: string;
+    phone: string;
+  } | null;
+  // Agent information (unified from both types)
+  agent?: {
+    id?: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+  } | null;
   agent_name?: string;
   agent_email?: string;
 };
@@ -94,7 +143,7 @@ interface StatusUpdateResult {
 
 export default function AppointmentsPage() {
   const router = useRouter();
-  const [allAppointments, setAllAppointments] = useState<ExtendedAppointment[]>([]);
+  const [allAppointments, setAllAppointments] = useState<UnifiedAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'day' | 'week'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -116,7 +165,7 @@ export default function AppointmentsPage() {
   const [statusUpdateResults, setStatusUpdateResults] = useState<StatusUpdateResult | null>(null);
 
   // Hover modal state
-  const [hoveredAppointment, setHoveredAppointment] = useState<ExtendedAppointment | null>(null);
+  const [hoveredAppointment, setHoveredAppointment] = useState<UnifiedAppointment | null>(null);
   const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 });
 
   // TODO: Get this from user context/auth - for now assuming retail user
@@ -141,18 +190,95 @@ export default function AppointmentsPage() {
       const startDate = viewMode === 'week' ? startOfWeek(currentDate, { weekStartsOn: 1 }) : startOfDay(currentDate);
       const endDate = viewMode === 'week' ? endOfWeek(currentDate, { weekStartsOn: 1 }) : endOfDay(currentDate);
 
-      const filters = {
+      // Fetch lead appointments
+      const leadFilters = {
         startDate,
         endDate,
-        // Don't filter by status or search in the API call - we'll do it client-side for better UX
-        status: ['upcoming', 'done', 'missed', 'cancelled'], // Fetch all statuses
+        status: ['upcoming', 'done', 'missed', 'cancelled'],
         sortBy: 'start_datetime'
       };
+      
+      const fetchedLeadAppointments = await fetchAppointments(leadFilters);
 
-      console.log("Filters: " + JSON.stringify(filters));
-      const fetchedAppointments = await fetchAppointments(filters);
-      setAllAppointments(fetchedAppointments);
-      // console.log("Fetched appointments: " + JSON.stringify(fetchedAppointments));
+      // Fetch borrower appointments
+      const borrowerAppointmentsResult = await getBorrowerAppointments({
+        limit: 1000 // Get all borrower appointments, we'll filter by date client-side
+      });
+
+      // Convert lead appointments to unified format
+      const unifiedLeadAppointments: UnifiedAppointment[] = fetchedLeadAppointments.map(apt => ({
+        id: apt.id,
+        status: apt.status,
+        start_datetime: new Date(apt.start_datetime),
+        end_datetime: new Date(apt.end_datetime),
+        notes: apt.notes,
+        loan_status: apt.loan_status,
+        loan_notes: apt.loan_notes,
+        created_at: apt.created_at,
+        updated_at: apt.updated_at,
+        created_by: apt.created_by,
+        updated_by: apt.updated_by,
+        type: 'lead' as const,
+        lead: apt.lead ? {
+          id: apt.lead.id,
+          full_name: apt.lead.full_name ?? 'Unknown Lead',
+          phone_number: apt.lead.phone_number,
+          email: apt.lead.email
+        } : null,
+        borrower: null,
+        agent: null,
+        agent_name: undefined,
+        agent_email: undefined
+      }));
+
+      // Convert borrower appointments to unified format and filter by date range
+      const unifiedBorrowerAppointments: UnifiedAppointment[] = 
+        (borrowerAppointmentsResult.success && borrowerAppointmentsResult.data ? 
+          borrowerAppointmentsResult.data : [])
+        .filter(apt => {
+          const aptDate = new Date(apt.start_datetime);
+          return aptDate >= startDate && aptDate <= endDate;
+        })
+        .map(apt => ({
+          id: apt.id,
+          status: apt.status,
+          start_datetime: new Date(apt.start_datetime),
+          end_datetime: new Date(apt.end_datetime),
+          notes: apt.notes,
+          loan_status: apt.loan_status,
+          loan_notes: apt.loan_notes,
+          created_at: apt.created_at,
+          updated_at: apt.updated_at,
+          created_by: apt.created_by,
+          updated_by: undefined,
+          type: 'borrower' as const,
+          lead: null,
+          borrower: {
+            id: apt.borrower_id,
+            name: apt.borrower_name ?? 'Unknown Borrower',
+            phone: apt.borrower_phone ?? ''
+          },
+          agent: apt.agent_first_name && apt.agent_last_name ? {
+            id: apt.agent_id,
+            first_name: apt.agent_first_name,
+            last_name: apt.agent_last_name,
+            email: apt.agent_email ?? undefined
+          } : null,
+          agent_name: apt.agent_first_name && apt.agent_last_name ? 
+            `${apt.agent_first_name} ${apt.agent_last_name}` : undefined,
+          agent_email: apt.agent_email ?? undefined
+        }));
+
+      // Combine both types of appointments
+      const allUnifiedAppointments = [...unifiedLeadAppointments, ...unifiedBorrowerAppointments];
+      
+      // Sort by start time
+      allUnifiedAppointments.sort((a, b) => 
+        a.start_datetime.getTime() - b.start_datetime.getTime()
+      );
+
+      setAllAppointments(allUnifiedAppointments);
+      console.log(`Fetched ${unifiedLeadAppointments.length} lead appointments and ${unifiedBorrowerAppointments.length} borrower appointments`);
     } catch (error) {
       console.error("Error fetching appointments:", error);
     } finally {
@@ -172,12 +298,22 @@ export default function AppointmentsPage() {
     // Filter by search query
     if (debouncedSearchQuery.trim()) {
       const searchTerm = debouncedSearchQuery.toLowerCase();
-      filtered = filtered.filter(apt => 
-        (apt.lead?.full_name?.toLowerCase().includes(searchTerm) ?? false) ||
-        (apt.lead?.phone_number?.toLowerCase().includes(searchTerm) ?? false) ||
-        (apt.notes?.toLowerCase().includes(searchTerm) ?? false) ||
-        (apt.lead?.email?.toLowerCase().includes(searchTerm) ?? false)
-      );
+      filtered = filtered.filter(apt => {
+        // Search in lead data
+        if (apt.type === 'lead' && apt.lead) {
+          return apt.lead.full_name?.toLowerCase().includes(searchTerm) ||
+                 apt.lead.phone_number?.toLowerCase().includes(searchTerm) ||
+                 apt.lead.email?.toLowerCase().includes(searchTerm) ||
+                 apt.notes?.toLowerCase().includes(searchTerm);
+        }
+        // Search in borrower data
+        if (apt.type === 'borrower' && apt.borrower) {
+          return apt.borrower.name?.toLowerCase().includes(searchTerm) ||
+                 apt.borrower.phone?.toLowerCase().includes(searchTerm) ||
+                 apt.notes?.toLowerCase().includes(searchTerm);
+        }
+        return false;
+      });
     }
     console.log("All appointments: " + allAppointments.length);
     console.log("Filtered appointments: " + filtered.length);
@@ -428,14 +564,18 @@ export default function AppointmentsPage() {
     );
   };
 
-  const renderAppointmentCard = (appointment: AppointmentWithLead) => {
+  const renderAppointmentCard = (appointment: UnifiedAppointment) => {
     const statusConfig = APPOINTMENT_STATUSES[appointment.status as keyof typeof APPOINTMENT_STATUSES];
     const startTime = format(new Date(appointment.start_datetime), 'h:mm a');
     const endTime = format(new Date(appointment.end_datetime), 'h:mm a');
     // console.log("Appointment: " + JSON.stringify(appointment), "Start datetime: " + startTime, "End datetime: " + endTime);
 
     const handleAppointmentClick = (e: React.MouseEvent) => {
-      router.push(`/dashboard/leads/${appointment.lead?.id}/appointment`);
+      if (appointment.type === 'lead' && appointment.lead?.id) {
+        router.push(`/dashboard/leads/${appointment.lead.id}/appointment`);
+      } else if (appointment.type === 'borrower' && appointment.borrower?.id) {
+        router.push(`/dashboard/borrowers/${appointment.borrower.id}/appointments`);
+      }
     };
 
     const handleMouseEnter = (e: React.MouseEvent) => {
@@ -501,13 +641,30 @@ export default function AppointmentsPage() {
           ${statusConfig?.border ?? 'border-gray-200'} 
           border-l-3 hover:shadow-md hover:-translate-y-0.5 group relative w-full max-w-full overflow-x-hidden
         `}
-        title={`${appointment.lead?.full_name ?? 'Unknown Lead'} - ${startTime} to ${endTime}\nClick to open details`}
+        title={`${
+          appointment.type === 'lead' 
+            ? appointment.lead?.full_name ?? 'Unknown Lead'
+            : appointment.borrower?.name ?? 'Unknown Borrower'
+        } - ${startTime} to ${endTime}\nClick to open details`}
       >
-        {/* Lead Name with Status Indicator */}
+        {/* Name with Status Indicator and Type Badge */}
         <div className="flex items-center justify-between w-full mb-1">
-          <span className="font-semibold text-gray-900 truncate text-xs leading-tight flex-1 min-w-0">
-            {appointment.lead?.full_name ?? 'Unknown Lead'}
-          </span>
+          <div className="flex items-center flex-1 min-w-0">
+            <span className="font-semibold text-gray-900 truncate text-xs leading-tight">
+              {appointment.type === 'lead' 
+                ? appointment.lead?.full_name ?? 'Unknown Lead'
+                : appointment.borrower?.name ?? 'Unknown Borrower'
+              }
+            </span>
+            {/* Type Badge */}
+            <span className={`ml-1 px-1 py-0.5 rounded text-xs font-bold ${
+              appointment.type === 'lead' 
+                ? 'bg-blue-100 text-blue-800' 
+                : 'bg-purple-100 text-purple-800'
+            }`}>
+              {appointment.type === 'lead' ? 'New' : 'Reloan'}
+            </span>
+          </div>
           <div className="flex-shrink-0 ml-1">
             {getStatusBadge(appointment.status)}
           </div>
@@ -517,6 +674,13 @@ export default function AppointmentsPage() {
         <div className="text-gray-600 text-xs font-medium truncate w-full mb-1">
           {startTime}
         </div>
+
+        {/* Agent Information for Borrower Appointments */}
+        {/* {appointment.type === 'borrower' && appointment.agent_name && (
+          <div className="text-gray-500 text-xs truncate w-full mb-1">
+            Agent: {appointment.agent_name}
+          </div>
+        )} */}
 
         {/* Loan Status for TUR Appointments */}
         {appointment.status === 'done' && appointment.loan_status && (
@@ -534,9 +698,14 @@ export default function AppointmentsPage() {
         )}
 
         {/* Phone Number */}
-        {appointment.lead?.phone_number && (
+        {appointment.type === 'lead' && appointment.lead?.phone_number && (
           <div className="text-gray-500 text-xs truncate w-full font-medium">
             {appointment.lead.phone_number}
+          </div>
+        )}
+        {appointment.type === 'borrower' && appointment.borrower?.phone && (
+          <div className="text-gray-500 text-xs truncate w-full font-medium">
+            +65{appointment.borrower.phone}
           </div>
         )}
       </div>
@@ -770,8 +939,6 @@ export default function AppointmentsPage() {
         </div>
       </div>
 
-
-
       {/* Calendar Grid */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
         <div className="overflow-x-auto">
@@ -850,8 +1017,6 @@ export default function AppointmentsPage() {
           </p>
         </div>
       )}
-
-
 
       {/* Statistics Breakdown */}
       {filteredAppointments.length > 0 && (
@@ -947,8 +1112,12 @@ export default function AppointmentsPage() {
                 
                 // Collect stats by creator
                 filteredAppointments.forEach(apt => {
-                  const creatorName = apt.agent.first_name + ' ' + apt.agent.last_name;
-                  const creatorEmail = apt.agent.email;
+                  // Use agent fields if available, fallback to 'Unknown Agent'
+                  const creatorName = apt.agent_name ?? 
+                    (apt.agent?.first_name && apt.agent?.last_name ? 
+                      `${apt.agent.first_name} ${apt.agent.last_name}` : 
+                      'Unknown Agent');
+                  const creatorEmail = apt.agent_email ?? apt.agent?.email ?? '';
                   
                   creatorStats[creatorName] ??= {
                     name: creatorName,
@@ -1061,8 +1230,6 @@ export default function AppointmentsPage() {
           </div>
         </div>
       )}
-
-
 
       {/* Quick Create Modal */}
       {showQuickCreate && (
@@ -1179,18 +1346,38 @@ export default function AppointmentsPage() {
               </div>
             </div>
 
-            {/* Lead Information */}
+            {/* Customer Information */}
             <div>
-              <h5 className="text-sm font-medium text-gray-700 mb-1">Lead Information</h5>
+              <h5 className="text-sm font-medium text-gray-700 mb-1">
+                {hoveredAppointment.type === 'lead' ? 'Lead Information' : 'Borrower Information'}
+              </h5>
               <div className="text-sm space-y-1">
-                <div><span className="font-medium">Name:</span> {hoveredAppointment.lead?.full_name ?? 'Unknown'}</div>
-                {hoveredAppointment.lead?.phone_number && (
+                <div><span className="font-medium">Name:</span> {
+                  hoveredAppointment.type === 'lead' 
+                    ? hoveredAppointment.lead?.full_name ?? 'Unknown'
+                    : hoveredAppointment.borrower?.name ?? 'Unknown'
+                }</div>
+                <div><span className="font-medium">Type:</span> 
+                  <span className={`ml-1 px-2 py-1 rounded text-xs font-bold ${
+                    hoveredAppointment.type === 'lead' 
+                      ? 'bg-blue-100 text-blue-800' 
+                      : 'bg-purple-100 text-purple-800'
+                  }`}>
+                    {hoveredAppointment.type === 'lead' ? 'Lead' : 'Borrower'}
+                  </span>
+                </div>
+                {((hoveredAppointment.type === 'lead' && hoveredAppointment.lead?.phone_number) ||
+                  (hoveredAppointment.type === 'borrower' && hoveredAppointment.borrower?.phone)) && (
                   <div className="flex items-center">
                     <PhoneIcon className="h-3 w-3 mr-1" />
-                    <span>{hoveredAppointment.lead.phone_number}</span>
+                    <span>{
+                      hoveredAppointment.type === 'lead' 
+                        ? hoveredAppointment.lead?.phone_number
+                        : hoveredAppointment.borrower?.phone
+                    }</span>
                   </div>
                 )}
-                {hoveredAppointment.lead?.email && (
+                {hoveredAppointment.type === 'lead' && hoveredAppointment.lead?.email && (
                   <div><span className="font-medium">Email:</span> {hoveredAppointment.lead.email}</div>
                 )}
               </div>
@@ -1209,12 +1396,15 @@ export default function AppointmentsPage() {
             <div>
               <h5 className="text-sm font-medium text-gray-700 mb-1">Booked By</h5>
               <div className="text-sm space-y-1">
-                                 <div className="flex items-center">
-                   <UserIcon className="h-3 w-3 mr-1" />
-                   <span>{hoveredAppointment.agent.first_name + ' ' + hoveredAppointment.agent.last_name}</span>
-                 </div>
+                                                 <div className="flex items-center">
+                  <UserIcon className="h-3 w-3 mr-1" />
+                  <span>{hoveredAppointment.agent_name ?? 
+                    (hoveredAppointment.agent?.first_name && hoveredAppointment.agent?.last_name ? 
+                      `${hoveredAppointment.agent.first_name} ${hoveredAppointment.agent.last_name}` : 
+                      'Unknown Agent')}</span>
+                </div>
                 <div className="text-gray-500">
-                  {format(new Date(hoveredAppointment.created_at), 'MMM d, yyyy h:mm a')}
+                  {hoveredAppointment.created_at ? format(new Date(hoveredAppointment.created_at), 'MMM d, yyyy h:mm a') : 'Unknown date'}
                 </div>
               </div>
             </div>
