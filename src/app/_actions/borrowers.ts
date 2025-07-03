@@ -72,7 +72,7 @@ export type BorrowerFilters = {
   source?: string;
   lead_score_range?: string; // 'high', 'medium', 'low'
   performance_bucket?: string; // 'closed_loan', '2nd_reloan', 'attrition', 'last_payment', 'bhv1'
-  assigned_filter?: string; // 'assigned', 'unassigned', 'my_borrowers'
+  assigned_filter?: string; // 'assigned', 'unassigned', 'my_borrowers', or specific agent ID
   date_range?: string; // 'today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'this_year'
   created_date_start?: string; // Date string in YYYY-MM-DD format
   created_date_end?: string; // Date string in YYYY-MM-DD format
@@ -115,6 +115,60 @@ async function logBorrowerAction(
   } catch (error) {
     console.error("Error logging borrower action:", error);
   }
+}
+
+// Helper function to normalize phone numbers for search
+function normalizePhoneForSearch(phone: string): string[] {
+  if (!phone) return [];
+  
+  // Remove all non-digit characters
+  const digitsOnly = phone.replace(/\D/g, '');
+  
+  const variations: string[] = [];
+  
+  // If it's an 8-digit Singapore number, add all variations
+  if (digitsOnly.length === 8) {
+    variations.push(digitsOnly);           // 91234567
+    variations.push(`65${digitsOnly}`);    // 6591234567  
+    variations.push(`+65${digitsOnly}`);   // +6591234567
+  }
+  
+  // If it starts with 65 and has 10 digits total, extract the 8-digit part
+  if (digitsOnly.length === 10 && digitsOnly.startsWith('65')) {
+    const eightDigit = digitsOnly.substring(2);
+    variations.push(eightDigit);           // 91234567
+    variations.push(digitsOnly);           // 6591234567
+    variations.push(`+${digitsOnly}`);     // +6591234567
+  }
+  
+  // If it starts with +65, handle it
+  if (phone.startsWith('+65') && digitsOnly.length === 10) {
+    const eightDigit = digitsOnly.substring(2);
+    variations.push(eightDigit);           // 91234567
+    variations.push(digitsOnly);           // 6591234567
+    variations.push(`+${digitsOnly}`);     // +6591234567
+  }
+  
+  // Always include the original search term
+  variations.push(phone);
+  variations.push(digitsOnly);
+  
+  // Remove duplicates and empty strings
+  return [...new Set(variations.filter(v => v.length > 0))];
+}
+
+// Helper function to create phone search conditions
+function createPhoneSearchConditions(searchTerm: string) {
+  const phoneVariations = normalizePhoneForSearch(searchTerm);
+  
+  // Create search conditions for all phone variations across all phone fields
+  const phoneConditions = phoneVariations.flatMap(variation => [
+    ilike(borrowers.phone_number, `%${variation}%`),
+    ilike(borrowers.phone_number_2, `%${variation}%`),
+    ilike(borrowers.phone_number_3, `%${variation}%`)
+  ]);
+  
+  return phoneConditions.length > 0 ? or(...phoneConditions) : undefined;
 }
 
 // Create borrower
@@ -261,7 +315,7 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
     if (search) {
       const searchConditions = or(
         ilike(borrowers.full_name, `%${search}%`),
-        ilike(borrowers.phone_number, `%${search}%`),
+        createPhoneSearchConditions(search),
         ilike(borrowers.email, `%${search}%`),
         ilike(borrowers.loan_id, `%${search}%`)
       );
@@ -323,6 +377,10 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
           break;
         case 'my_borrowers':
           conditions.push(eq(borrowers.assigned_to, userId));
+          break;
+        default:
+          // Handle specific agent ID selection
+          conditions.push(eq(borrowers.assigned_to, assigned_filter));
           break;
       }
     }
@@ -428,7 +486,19 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
         follow_up_date: borrowers.follow_up_date,
         created_at: borrowers.created_at,
         updated_at: borrowers.updated_at,
-        assigned_agent_name: sql<string>`CONCAT(${users.first_name}, ' ', ${users.last_name})`,
+        assigned_agent_name: sql<string>`
+          CASE 
+            WHEN ${users.first_name} IS NOT NULL AND ${users.last_name} IS NOT NULL 
+            THEN CONCAT(${users.first_name}, ' ', ${users.last_name})
+            WHEN ${users.first_name} IS NOT NULL 
+            THEN ${users.first_name}
+            WHEN ${users.last_name} IS NOT NULL 
+            THEN ${users.last_name}
+            WHEN ${users.email} IS NOT NULL 
+            THEN ${users.email}
+            ELSE 'Unknown Agent'
+          END
+        `,
         assigned_agent_email: users.email,
       })
       .from(borrowers)
@@ -509,7 +579,19 @@ export async function getBorrower(id: number) {
         assigned_to: borrowers.assigned_to,
         created_at: borrowers.created_at,
         updated_at: borrowers.updated_at,
-        assigned_agent_name: sql<string>`CONCAT(${users.first_name}, ' ', ${users.last_name})`,
+        assigned_agent_name: sql<string>`
+          CASE 
+            WHEN ${users.first_name} IS NOT NULL AND ${users.last_name} IS NOT NULL 
+            THEN CONCAT(${users.first_name}, ' ', ${users.last_name})
+            WHEN ${users.first_name} IS NOT NULL 
+            THEN ${users.first_name}
+            WHEN ${users.last_name} IS NOT NULL 
+            THEN ${users.last_name}
+            WHEN ${users.email} IS NOT NULL 
+            THEN ${users.email}
+            ELSE 'Unknown Agent'
+          END
+        `,
         assigned_agent_email: users.email,
       })
       .from(borrowers)

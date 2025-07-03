@@ -16,7 +16,13 @@ import { revalidatePath } from "next/cache";
 export type CreateBorrowerNoteInput = {
   borrower_id: number;
   content: string;
-  note_type: 'note' | 'questionnaire' | 'call' | 'whatsapp' | 'assignment' | 'others';
+  note_type?: 'general' | 'loan_discussion' | 'payment_issue' | 'follow_up' | 'other';
+};
+
+export type CreateBorrowerActionInput = {
+  borrower_id: number;
+  content: string;
+  action_type: 'note' | 'questionnaire' | 'call' | 'whatsapp' | 'assignment' | 'status_update' | 'communication';
 };
 
 export type UpdateBorrowerNoteInput = {
@@ -28,6 +34,13 @@ export type UpdateBorrowerNoteInput = {
 export type BorrowerNoteFilters = {
   borrower_id?: number;
   note_type?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type BorrowerActionFilters = {
+  borrower_id?: number;
+  action_type?: string;
   limit?: number;
   offset?: number;
 };
@@ -51,21 +64,21 @@ async function logBorrowerNoteAction(
       created_by: userId,
     });
 
-    // Log to main logs table
-    await db.insert(logs).values({
-      description,
-      entity_type: "borrower_note",
-      entity_id: noteId.toString(),
-      action,
-      performed_by: userId,
-      timestamp: new Date(),
-    });
+    // // Log to main logs table
+    // await db.insert(logs).values({
+    //   description,
+    //   entity_type: "borrower_note",
+    //   entity_id: noteId.toString(),
+    //   action,
+    //   performed_by: userId,
+    //   timestamp: new Date(),
+    // });
   } catch (error) {
     console.error("Error logging borrower note action:", error);
   }
 }
 
-// Create borrower note
+// Create borrower note (for manual notes and custom messages)
 export async function createBorrowerNote(input: CreateBorrowerNoteInput) {
   const { userId } = await auth();
   if (!userId) {
@@ -73,13 +86,12 @@ export async function createBorrowerNote(input: CreateBorrowerNoteInput) {
   }
 
   try {
-    const result = await db.insert(borrower_actions).values({
+    const result = await db.insert(borrower_notes).values({
       borrower_id: input.borrower_id,
-      user_id: userId,
-      action_type: input.note_type,
       content: input.content,
-      timestamp: new Date(),
+      note_type: input.note_type ?? 'general',
       created_by: userId,
+      created_at: new Date(),
     });
 
     revalidatePath(`/dashboard/borrowers/${input.borrower_id}`);
@@ -89,6 +101,33 @@ export async function createBorrowerNote(input: CreateBorrowerNoteInput) {
   } catch (error) {
     console.error("Error creating borrower note:", error);
     throw new Error("Failed to create borrower note");
+  }
+}
+
+// Create borrower action (for system actions like questionnaire, calls, etc.)
+export async function createBorrowerAction(input: CreateBorrowerActionInput) {
+  const { userId } = await auth();
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  try {
+    const result = await db.insert(borrower_actions).values({
+      borrower_id: input.borrower_id,
+      user_id: userId,
+      action_type: input.action_type,
+      content: input.content,
+      timestamp: new Date(),
+      created_by: userId,
+    });
+
+    revalidatePath(`/dashboard/borrowers/${input.borrower_id}`);
+    revalidatePath('/dashboard/borrowers');
+
+    return { success: true, message: "Action logged successfully" };
+  } catch (error) {
+    console.error("Error creating borrower action:", error);
+    throw new Error("Failed to create borrower action");
   }
 }
 
@@ -305,5 +344,58 @@ export async function deleteBorrowerNote(id: number) {
   } catch (error) {
     console.error("Error deleting borrower note:", error);
     throw new Error(error instanceof Error ? error.message : "Failed to delete borrower note");
+  }
+}
+
+// Get borrower actions with filters
+export async function getBorrowerActions(filters: BorrowerActionFilters = {}) {
+  const { userId } = await auth();
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  try {
+    const {
+      borrower_id,
+      action_type,
+      limit = 50,
+      offset = 0
+    } = filters;
+
+    // Build query conditions
+    const conditions = [];
+    if (borrower_id) {
+      conditions.push(eq(borrower_actions.borrower_id, borrower_id));
+    }
+    if (action_type) {
+      conditions.push(eq(borrower_actions.action_type, action_type));
+    }
+
+    // Get actions with user details
+    const actions = await db
+      .select({
+        action_id: borrower_actions.action_id,
+        borrower_id: borrower_actions.borrower_id,
+        content: borrower_actions.content,
+        action_type: borrower_actions.action_type,
+        timestamp: borrower_actions.timestamp,
+        created_by_name: users.first_name,
+        created_by_last_name: users.last_name,
+        created_by_email: users.email,
+        borrower_name: borrowers.full_name,
+      })
+      .from(borrower_actions)
+      .leftJoin(users, eq(borrower_actions.user_id, users.id))
+      .leftJoin(borrowers, eq(borrower_actions.borrower_id, borrowers.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(borrower_actions.timestamp))
+      .limit(limit)
+      .offset(offset);
+
+    return { success: true, data: actions };
+
+  } catch (error) {
+    console.error("Error fetching borrower actions:", error);
+    throw new Error("Failed to fetch borrower actions");
   }
 } 

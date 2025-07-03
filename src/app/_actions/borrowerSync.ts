@@ -1,9 +1,9 @@
 "use server";
 
 import { db } from "~/server/db";
-import { borrowers, loan_plans, borrower_actions, logs } from "~/server/db/schema";
+import { borrowers, loan_plans, borrower_actions, logs, users } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 // Types for the external API response
@@ -631,10 +631,66 @@ export async function getBorrowerWithLoanPlans(borrowerId: number) {
   }
 
   try {
-    // Get borrower data
+    // Get borrower data with agent information
     const borrowerResult = await db
-      .select()
+      .select({
+        id: borrowers.id,
+        atom_borrower_id: borrowers.atom_borrower_id,
+        full_name: borrowers.full_name,
+        phone_number: borrowers.phone_number,
+        phone_number_2: borrowers.phone_number_2,
+        phone_number_3: borrowers.phone_number_3,
+        email: borrowers.email,
+        residential_status: borrowers.residential_status,
+        status: borrowers.status,
+        source: borrowers.source,
+        aa_status: borrowers.aa_status,
+        id_type: borrowers.id_type,
+        id_number: borrowers.id_number,
+        income_document_type: borrowers.income_document_type,
+        current_employer: borrowers.current_employer,
+        average_monthly_income: borrowers.average_monthly_income,
+        annual_income: borrowers.annual_income,
+        estimated_reloan_amount: borrowers.estimated_reloan_amount,
+        loan_id: borrowers.loan_id,
+        latest_completed_loan_date: borrowers.latest_completed_loan_date,
+        is_in_closed_loan: borrowers.is_in_closed_loan,
+        is_in_2nd_reloan: borrowers.is_in_2nd_reloan,
+        is_in_attrition: borrowers.is_in_attrition,
+        is_in_last_payment_due: borrowers.is_in_last_payment_due,
+        is_in_bhv1: borrowers.is_in_bhv1,
+        credit_score: borrowers.credit_score,
+        loan_amount: borrowers.loan_amount,
+        loan_status: borrowers.loan_status,
+        loan_notes: borrowers.loan_notes,
+        lead_score: borrowers.lead_score,
+        financial_commitment_change: borrowers.financial_commitment_change,
+        contact_preference: borrowers.contact_preference,
+        communication_language: borrowers.communication_language,
+        follow_up_date: borrowers.follow_up_date,
+        assigned_to: borrowers.assigned_to,
+        created_at: borrowers.created_at,
+        updated_at: borrowers.updated_at,
+        created_by: borrowers.created_by,
+        updated_by: borrowers.updated_by,
+        is_deleted: borrowers.is_deleted,
+        assigned_agent_name: sql<string>`
+          CASE 
+            WHEN ${users.first_name} IS NOT NULL AND ${users.last_name} IS NOT NULL 
+            THEN CONCAT(${users.first_name}, ' ', ${users.last_name})
+            WHEN ${users.first_name} IS NOT NULL 
+            THEN ${users.first_name}
+            WHEN ${users.last_name} IS NOT NULL 
+            THEN ${users.last_name}
+            WHEN ${users.email} IS NOT NULL 
+            THEN ${users.email}
+            ELSE 'Unknown Agent'
+          END
+        `,
+        assigned_agent_email: users.email,
+      })
       .from(borrowers)
+      .leftJoin(users, eq(borrowers.assigned_to, users.id))
       .where(eq(borrowers.id, borrowerId))
       .limit(1);
 

@@ -140,6 +140,7 @@ export default function BorrowersPage() {
   const [showStatusUpdateModal, setShowStatusUpdateModal] = useState(false);
   const [statusUpdateBorrower, setStatusUpdateBorrower] = useState<{id: number; full_name: string; phone_number: string; status: string} | null>(null);
   const [preSelectedStatus, setPreSelectedStatus] = useState<'follow_up' | 'no_answer' | 'give_up' | 'blacklisted' | undefined>(undefined);
+  const [defaultFiltersLoaded, setDefaultFiltersLoaded] = useState(false);
   
   const router = useRouter();
   const { userRole, hasAnyRole } = useUserRole();
@@ -281,6 +282,7 @@ export default function BorrowersPage() {
         setSourceFilter('Attrition Risk');
         setAssignedFilter('');
       }
+      setDefaultFiltersLoaded(true); // Mark default filters as loaded
     }
   }, [userRole]);
 
@@ -304,16 +306,27 @@ export default function BorrowersPage() {
     void loadAgents();
   }, []);
 
-  // Initial load and filter changes
+  // Debounced search effect - only for search query
   useEffect(() => {
+    if (!defaultFiltersLoaded || !userId) return; // Don't fetch until defaults are loaded
+    
     const delayedSearch = setTimeout(() => {
       setPage(1);
       setBorrowers([]);
       void fetchBorrowers(1);
-    }, 300);
+    }, 500); // Increased delay for search to 500ms
 
     return () => clearTimeout(delayedSearch);
-  }, [searchQuery, statusFilter, aaStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, createdDateStart, createdDateEnd, followUpDateStart, followUpDateEnd, lastLoanDateStart, lastLoanDateEnd, userId]);
+  }, [searchQuery, userId, defaultFiltersLoaded]); // Only searchQuery triggers this
+
+  // Immediate effect for filter changes (dropdowns, dates, etc.)
+  useEffect(() => {
+    if (!defaultFiltersLoaded || !userId) return; // Don't fetch until defaults are loaded
+    
+    setPage(1);
+    setBorrowers([]);
+    void fetchBorrowers(1);
+  }, [statusFilter, aaStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, createdDateStart, createdDateEnd, followUpDateStart, followUpDateEnd, lastLoanDateStart, lastLoanDateEnd, userId, defaultFiltersLoaded]); // All filters except searchQuery
 
   // Handle scroll for infinite loading
   const handleScroll = () => {
@@ -692,6 +705,7 @@ export default function BorrowersPage() {
                   </select>
                 </div>
 
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Assignment</label>
                   <select
@@ -986,8 +1000,15 @@ export default function BorrowersPage() {
                       {/* Assigned To */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
-                          {borrower.assigned_agent_name ?? 'Unassigned'}
+                          {borrower.assigned_agent_name && borrower.assigned_agent_name !== 'Unknown Agent' 
+                            ? borrower.assigned_agent_name 
+                            : borrower.assigned_agent_email ?? 'Unassigned'}
                         </div>
+                        {borrower.assigned_agent_email && borrower.assigned_agent_name && borrower.assigned_agent_name !== 'Unknown Agent' && borrower.assigned_agent_name !== borrower.assigned_agent_email && (
+                          <div className="text-xs text-gray-500">
+                            {borrower.assigned_agent_email}
+                          </div>
+                        )}
                       </td>
 
                       {/* Actions */}
@@ -1127,7 +1148,7 @@ export default function BorrowersPage() {
       <BorrowerQuestionnaireModal
         isOpen={showQuestionnaireModal}
         onClose={() => setShowQuestionnaireModal(false)}
-        borrower={questionnaireBorrower as any}
+        borrower={questionnaireBorrower}
         onUpdate={handleQuestionnaireUpdate}
       />
 
