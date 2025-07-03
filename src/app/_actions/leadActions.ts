@@ -295,23 +295,80 @@ const validateSGPhoneNumber = (phone: string) => {
 };
 
 const formatSGPhoneNumber = (phone: string) => {
-  if (!phone) return '';
-  
-  // Remove all non-digit characters except the plus sign
+  // Remove all non-digit characters except '+'
   const cleaned = phone.replace(/[^\d+]/g, '');
   
-  // If it doesn't have a country code, add +65
-  if (!cleaned.includes('+')) {
-    // If it starts with 65, add a + at the beginning
-    if (cleaned.startsWith('65')) {
-      return `+${cleaned}`;
-    }
-    // Otherwise, add +65 prefix
-    return `+65${cleaned}`;
+  // If it starts with +65, return as is
+  if (cleaned.startsWith('+65')) {
+    return cleaned;
+  }
+  
+  // If it starts with 65, add the +
+  if (cleaned.startsWith('65') && cleaned.length === 10) {
+    return '+' + cleaned;
+  }
+  
+  // If it's 8 digits, assume Singapore number
+  if (cleaned.length === 8 && /^[8-9]/.test(cleaned)) {
+    return '+65' + cleaned;
   }
   
   return cleaned;
 };
+
+// Helper function to normalize phone numbers for search
+function normalizePhoneForSearch(phone: string): string[] {
+  if (!phone) return [];
+  
+  // Remove all non-digit characters
+  const digitsOnly = phone.replace(/\D/g, '');
+  
+  const variations: string[] = [];
+  
+  // If it's an 8-digit Singapore number, add all variations
+  if (digitsOnly.length === 8) {
+    variations.push(digitsOnly);           // 91234567
+    variations.push(`65${digitsOnly}`);    // 6591234567  
+    variations.push(`+65${digitsOnly}`);   // +6591234567
+  }
+  
+  // If it starts with 65 and has 10 digits total, extract the 8-digit part
+  if (digitsOnly.length === 10 && digitsOnly.startsWith('65')) {
+    const eightDigit = digitsOnly.substring(2);
+    variations.push(eightDigit);           // 91234567
+    variations.push(digitsOnly);           // 6591234567
+    variations.push(`+${digitsOnly}`);     // +6591234567
+  }
+  
+  // If it starts with +65, handle it
+  if (phone.startsWith('+65') && digitsOnly.length === 10) {
+    const eightDigit = digitsOnly.substring(2);
+    variations.push(eightDigit);           // 91234567
+    variations.push(digitsOnly);           // 6591234567
+    variations.push(`+${digitsOnly}`);     // +6591234567
+  }
+  
+  // Always include the original search term
+  variations.push(phone);
+  variations.push(digitsOnly);
+  
+  // Remove duplicates and empty strings
+  return [...new Set(variations.filter(v => v.length > 0))];
+}
+
+// Helper function to create phone search conditions for leads
+function createLeadPhoneSearchConditions(searchTerm: string) {
+  const phoneVariations = normalizePhoneForSearch(searchTerm);
+  
+  // Create search conditions for all phone variations across all phone fields
+  const phoneConditions = phoneVariations.flatMap(variation => [
+    like(leads.phone_number, `%${variation}%`),
+    like(leads.phone_number_2, `%${variation}%`),
+    like(leads.phone_number_3, `%${variation}%`)
+  ]);
+  
+  return phoneConditions.length > 0 ? or(...phoneConditions) : undefined;
+}
 
 // Push ineligible lead data to Workato retention sheets
 async function pushToWorkatoRetention(leadData: {
@@ -836,13 +893,12 @@ export async function fetchFilteredLeads({
     
     if (search) {
       // console.log('🔎 SEARCH FILTER applied:', search);
+      const phoneSearchCondition = createLeadPhoneSearchConditions(search);
       const searchConditions = [
         ilike(leads.full_name, `%${search}%`),
-        like(leads.phone_number, `%${search}%`),
-        like(leads.phone_number_2, `%${search}%`),
-        like(leads.phone_number_3, `%${search}%`),
+        phoneSearchCondition,
         like(sql`${leads.id}::text`, `%${search}%`) // Allow searching by ID
-      ].filter(Boolean);
+      ].filter((condition): condition is NonNullable<typeof condition> => Boolean(condition));
       
       if (searchConditions.length > 0) {
         const searchOr = or(...searchConditions);

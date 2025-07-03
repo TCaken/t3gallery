@@ -37,12 +37,12 @@ export default function TopNav({ expanded, setExpanded, isMobile }: TopNavProps)
       </div>
       
       <div className="flex items-center space-x-4">
-        <button className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full">
+        {/* <button className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full">
           <BellIcon className="h-5 w-5" />
           <span className="absolute top-0 right-0 h-4 w-4 bg-red-500 rounded-full text-xs text-white flex items-center justify-center">
             3
           </span>
-        </button>
+        </button> */}
         
         <div className="border-l h-8 border-gray-300 mx-2"></div>
         

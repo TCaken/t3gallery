@@ -8,13 +8,23 @@ import {
   type ParsedLoan
 } from "~/app/_actions/borrowerSync";
 
+// Type for sync results
+type SyncResults = {
+  total: number;
+  created: number;
+  updated: number;
+  errors: number;
+  details: Array<{ borrower_id: string; action: string; error?: string }>;
+};
+
 export default function BorrowersSettingsPage() {
   const [externalData, setExternalData] = useState<ExternalBorrowerData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isShowingRawData, setIsShowingRawData] = useState(false);
-  const [syncResults, setSyncResults] = useState<any>(null);
+  const [syncResults, setSyncResults] = useState<SyncResults | null>(null);
   const [selectedBorrower, setSelectedBorrower] = useState<ExternalBorrowerData | null>(null);
   const [message, setMessage] = useState<string>("");
+  const [lastTwoDigit, setLastTwoDigit] = useState<string>("02");
 
   const showMessage = (msg: string) => {
     setMessage(msg);
@@ -24,10 +34,10 @@ export default function BorrowersSettingsPage() {
   const handleFetchData = async () => {
     setIsLoading(true);
     try {
-      const result = await fetchExternalBorrowers();
+      const result = await fetchExternalBorrowers(lastTwoDigit);
       if (result.success) {
         setExternalData(result.data);
-        showMessage(`✅ Fetched ${result.data.length} borrowers from external API`);
+        showMessage(`✅ Fetched ${result.data.length} borrowers from external API (last_two_digits=${lastTwoDigit})`);
       }
     } catch (error) {
       showMessage(`❌ ${error instanceof Error ? error.message : "Failed to fetch data"}`);
@@ -69,6 +79,14 @@ export default function BorrowersSettingsPage() {
     }
   };
 
+  // Helper function to get loans as ParsedLoan array
+  const getLoansArray = (loans: string | ParsedLoan[]): ParsedLoan[] => {
+    if (Array.isArray(loans)) {
+      return loans;
+    }
+    return parseLoansForDisplay(loans);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
@@ -103,9 +121,9 @@ export default function BorrowersSettingsPage() {
             <div style={{ marginBottom: "15px" }}>
               <strong>Data Mapping:</strong>
               <ul style={{ marginLeft: "20px", marginTop: "5px" }}>
-                <li><code>borrowers.loan_id</code> ← Primary loan's loan_id</li>
-                <li><code>borrowers.loan_product</code> ← Primary loan's product_name</li>
-                <li><code>borrowers.loan_amount</code> ← Primary loan's estimated_reloan_amount</li>
+                <li><code>borrowers.loan_id</code> ← Primary loan&apos;s loan_id</li>
+                <li><code>borrowers.loan_product</code> ← Primary loan&apos;s product_name</li>
+                <li><code>borrowers.loan_amount</code> ← Primary loan&apos;s estimated_reloan_amount</li>
               </ul>
             </div>
             <div>
@@ -135,17 +153,43 @@ export default function BorrowersSettingsPage() {
               <p className="text-gray-600 mb-6">Fetch and synchronize borrower data</p>
               
               <div className="space-y-4">
+                {/* Last Two Digit Selector */}
+                <div>
+                  <label htmlFor="lastTwoDigit" className="block text-sm font-medium text-gray-700 mb-2">
+                    Last Two Digits Filter
+                  </label>
+                  <select
+                    id="lastTwoDigit"
+                    value={lastTwoDigit}
+                    onChange={(e) => setLastTwoDigit(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    disabled={isLoading}
+                  >
+                    {Array.from({ length: 100 }, (_, i) => {
+                      const value = i.toString().padStart(2, '0');
+                      return (
+                        <option key={value} value={value}>
+                          {value} - Borrower IDs ending in {value}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select which borrowers to fetch based on their ID&apos;s last two digits (00-99)
+                  </p>
+                </div>
+
                 <button 
                   onClick={handleFetchData} 
                   disabled={isLoading}
                   className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {isLoading ? "⏳ Loading..." : "📥 Fetch External Data"}
+                  {isLoading ? "⏳ Loading..." : `📥 Fetch External Data (Last Two Digits: ${lastTwoDigit})`}
                 </button>
 
                 {externalData.length > 0 && (
                   <div className="p-3 bg-green-100 border border-green-200 rounded-lg text-green-800 text-sm">
-                    📊 {externalData.length} borrowers fetched from external API
+                    📊 {externalData.length} borrowers fetched from external API (last_two_digits={lastTwoDigit})
                   </div>
                 )}
 
@@ -272,10 +316,10 @@ export default function BorrowersSettingsPage() {
                         <hr className="my-6" />
                         
                         <h4 className="text-lg font-medium mb-4">
-                          Loans ({selectedBorrower.loans.length})
+                          Loans ({getLoansArray(selectedBorrower.loans).length})
                         </h4>
                         <div className="space-y-4 h-96 overflow-auto">
-                          {selectedBorrower.loans.map((loan, idx) => (
+                          {getLoansArray(selectedBorrower.loans).map((loan, idx) => (
                             <div key={idx} className="border border-gray-200 rounded-lg p-4">
                               <div className="grid grid-cols-2 gap-4 text-sm">
                                 <div><span className="font-medium">Loan ID:</span> {loan.loan_id}</div>
@@ -304,17 +348,17 @@ export default function BorrowersSettingsPage() {
                               
                               {/* Show primary loan indicator */}
                               {(() => {
-                                const loans = selectedBorrower.loans;
+                                const loans = getLoansArray(selectedBorrower.loans);
                                 const overdueLoan = loans.find(l => !l.loan_completed_date && l.is_overdue === "Yes");
                                 const activeLoan = loans.find(l => !l.loan_completed_date);
                                 const latestCompletedLoan = loans
                                   .filter(l => l.loan_completed_date)
                                   .sort((a, b) => {
-                                    const dateA = new Date(a.loan_completed_date || 0);
-                                    const dateB = new Date(b.loan_completed_date || 0);
+                                    const dateA = new Date(a.loan_completed_date ?? 0);
+                                    const dateB = new Date(b.loan_completed_date ?? 0);
                                     return dateB.getTime() - dateA.getTime();
                                   })[0];
-                                const primaryLoan = overdueLoan || activeLoan || latestCompletedLoan;
+                                const primaryLoan = overdueLoan ?? activeLoan ?? latestCompletedLoan;
                                 const isPrimary = primaryLoan && loan.loan_id === primaryLoan.loan_id;
                                 
                                 return isPrimary ? (
@@ -324,7 +368,7 @@ export default function BorrowersSettingsPage() {
                                         PRIMARY LOAN
                                       </span>
                                       <span className="text-xs text-blue-600">
-                                        This loan data will be used in the borrower's main record
+                                        This loan data will be used in the borrower&apos;s main record
                                       </span>
                                     </div>
                                     <div className="mt-2 text-xs text-blue-700">
@@ -366,7 +410,7 @@ export default function BorrowersSettingsPage() {
                         <h3 className="text-lg font-semibold mb-4">Borrowers Preview</h3>
                         <div className="h-96 overflow-auto space-y-4">
                           {externalData.map((borrower, idx) => {
-                            const loans = borrower.loans;
+                            const loans = getLoansArray(borrower.loans);
                             const hasActiveLoan = loans.some(loan => !loan.loan_completed_date);
                             const hasOverdueLoan = loans.some(loan => loan.is_overdue === "Yes");
 
@@ -400,14 +444,14 @@ export default function BorrowersSettingsPage() {
                                 <div className="grid grid-cols-3 gap-4 text-sm text-gray-600">
                                   <div><span className="font-medium">ID:</span> {borrower.borrower_id}</div>
                                   <div><span className="font-medium">Employer:</span> {borrower.current_employer_name}</div>
-                                  <div><span className="font-medium">Loans:</span> {borrower.loans.length}</div>
+                                  <div><span className="font-medium">Loans:</span> {loans.length}</div>
                                 </div>
                               </div>
                             );
                           })}
                           {externalData.length === 0 && (
                             <div className="text-center text-gray-500 py-12">
-                              No data available. Click "Fetch External Data" to load borrowers.
+                              No data available. Click &ldquo;Fetch External Data&rdquo; to load borrowers.
                             </div>
                           )}
                         </div>

@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { getAvailableTemplates } from '~/app/_actions/whatsappActions';
 import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
-import { createBorrowerNote } from '~/app/_actions/borrowerNotes';
+import { createBorrowerAction } from '~/app/_actions/borrowerNotes';
+import { updateBorrower } from '~/app/_actions/borrowers';
 
 interface WhatsAppTemplate {
   id: number;
@@ -128,10 +129,10 @@ export default function BorrowerWhatsAppModal({
             // Add note to borrower record
             const template = templates.find(t => t.id === selectedTemplate);
             const noteContent = `WhatsApp message sent using template "${template?.name ?? 'Unknown'}" via ${deliveryMethod.toUpperCase()}`;
-            await createBorrowerNote({
+            await createBorrowerAction({
               borrower_id: borrower.id,
               content: noteContent,
-              note_type: 'communication'
+              action_type: 'communication'
             });
           } else {
             failedCount++;

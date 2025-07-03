@@ -617,6 +617,31 @@ export async function updateBorrowerAppointmentStatus(id: number, status: string
       throw new Error("Failed to update appointment status");
     }
 
+    // Free up timeslots when appointment is marked as missed or cancelled
+    // Only do this if the previous status was NOT already missed or cancelled
+    if ((status === 'missed' || status === 'cancelled') && 
+        appointment.status !== 'missed' && appointment.status !== 'cancelled') {
+      
+      // Get associated timeslots for this appointment
+      const timeslots_to_free = await db
+        .select({ timeslot_id: borrower_appointment_timeslots.timeslot_id })
+        .from(borrower_appointment_timeslots)
+        .where(eq(borrower_appointment_timeslots.borrower_appointment_id, id));
+
+      // Decrement occupied count for freed timeslots
+      for (const slot of timeslots_to_free) {
+        await db
+          .update(timeslots)
+          .set({
+            occupied_count: sql`GREATEST(${timeslots.occupied_count} - 1, 0)`,
+            updated_at: new Date()
+          })
+          .where(eq(timeslots.id, slot.timeslot_id));
+      }
+
+      console.log(`✅ Freed ${timeslots_to_free.length} timeslots for ${status} appointment ${id}`);
+    }
+
     // Update borrower status based on appointment status change
     let borrowerStatus = appointment.status; // Keep existing status by default
     

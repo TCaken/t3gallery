@@ -4,7 +4,7 @@ import { Fragment, useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { updateBorrower } from '~/app/_actions/borrowers';
-import { createBorrowerNote } from '~/app/_actions/borrowerNotes';
+import { createBorrowerAction } from '~/app/_actions/borrowerNotes';
 
 interface BorrowerStatusUpdateModalProps {
   isOpen: boolean;
@@ -51,20 +51,18 @@ export default function BorrowerStatusUpdateModal({
   }, [isOpen, preSelectedStatus]);
 
   const REASON_OPTIONS = [
-    { value: 'blacklisted_do_not_call', label: 'Blacklisted - Do Not Call', finalStatus: 'blacklisted' },
-    { value: 'blacklisted_drs_bankrupt', label: 'Blacklist - DRS / Bankrupt', finalStatus: 'blacklisted' },
-    { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted', customReason: true },
-    { value: 'give_up_trouble_maker', label: 'Give Up - Trouble Maker', finalStatus: 'give_up' },
-    { value: 'give_up_already_got_loan', label: 'Give Up - Already Got Loan', finalStatus: 'give_up' },
-    { value: 'give_up_cash_flow_ok', label: 'Give Up - Cash Flow Ok', finalStatus: 'give_up' },
-    { value: 'give_up_loan_plan_dispute_on_charges', label: 'Give Up - Loan Plan & Dispute on Charges', finalStatus: 'give_up' },
-    { value: 'give_up_feedback_retail_payment_refund_policy', label: 'Give Up - Feedback (Retail, Payment, Refund Policy)', finalStatus: 'give_up' },
-    { value: 'give_up_unsatisfied_service_location_waiting_time_income_etc', label: 'Give Up - Unsatisfied Service (Location, Waiting Time, Income etc)', finalStatus: 'give_up' },
-    { value: 'give_up_prs_r', label: 'Give Up - PRS/R', finalStatus: 'give_up' },
-    { value: 'give_up_not_interested', label: 'Give Up - Not Interested', finalStatus: 'give_up' },
-    { value: 'give_up_no_income_proof', label: 'Give Up - No Income Proof', finalStatus: 'give_up' },
-    { value: 'give_up_unemployed', label: 'Give Up - Unemployed', finalStatus: 'give_up' },
+    { value: 'blacklisted_do_not_call', label: 'Do Not Call', finalStatus: 'blacklisted' },
+    { value: 'blacklisted_drs_bankrupt', label: 'DRS / Bankrupt', finalStatus: 'blacklisted' },
+    { value: 'give_up_cash_flow_ok', label: 'Cash Flow Ok', finalStatus: 'give_up' },
+    { value: 'give_up_loan_plan_dispute_on_charges', label: 'Loan Plan & Dispute on Charges', finalStatus: 'give_up' },
+    { value: 'give_up_feedback_retail_payment_refund_policy', label: 'Feedback (Retail, Payment, Refund Policy)', finalStatus: 'give_up' },
+    { value: 'give_up_unsatisfied_service_location_waiting_time_income_etc', label: 'Unsatisfied Service (Location, Waiting Time, Income etc)', finalStatus: 'give_up' },
+    { value: 'give_up_prs_r', label: 'PRS/R', finalStatus: 'give_up' },
+    { value: 'give_up_not_interested', label: 'Not Interested', finalStatus: 'give_up' },
+    { value: 'give_up_no_income_proof', label: 'No Income Proof', finalStatus: 'give_up' },
+    { value: 'give_up_unemployed', label: 'Unemployed', finalStatus: 'give_up' },
     { value: 'give_up_others', label: 'Give Up - Others', finalStatus: 'give_up', customReason: true },
+    { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted', customReason: true },
   ];
 
   // Get default follow-up date (today at 00:00 Singapore time)
@@ -148,10 +146,10 @@ export default function BorrowerStatusUpdateModal({
 
         // Add note
         const noteContent = `STATUS UPDATE: Set to Follow-up for ${followUpDate}${followUpTime ? ` at ${followUpTime}` : ''}`;
-        await createBorrowerNote({
+        await createBorrowerAction({
           borrower_id: borrower.id,
           content: noteContent,
-          note_type: 'note'
+          action_type: 'status_update'
         });
 
         showNotification('Borrower scheduled for follow-up successfully', 'success');
@@ -165,10 +163,10 @@ export default function BorrowerStatusUpdateModal({
           follow_up_date: undefined
         });
 
-        await createBorrowerNote({
+        await createBorrowerAction({
           borrower_id: borrower.id,
           content: 'STATUS UPDATE: Marked as No Answer',
-          note_type: 'note'
+          action_type: 'status_update'
         });
 
         showNotification('Borrower marked as No Answer', 'success');
@@ -205,18 +203,18 @@ export default function BorrowerStatusUpdateModal({
           ? `STATUS UPDATE: ${reasonOption.label.toUpperCase()} (${customReasonText.trim()})`
           : `STATUS UPDATE: ${reasonOption.label.toUpperCase()}`;
 
-        await createBorrowerNote({
+        await createBorrowerAction({
           borrower_id: borrower.id,
           content: statusNote,
-          note_type: 'note'
+          action_type: 'status_update'
         });
 
         // Add additional notes if provided
         if (additionalNotes.trim()) {
-          await createBorrowerNote({
+          await createBorrowerAction({
             borrower_id: borrower.id,
             content: additionalNotes.trim(),
-            note_type: 'note'
+            action_type: 'note'
           });
         }
 
