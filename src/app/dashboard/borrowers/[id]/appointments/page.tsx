@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+// Removed useRouter import - using window.open() instead
 import { 
   ArrowLeftIcon, 
   CalendarIcon, 
