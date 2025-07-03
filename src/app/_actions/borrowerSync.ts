@@ -536,14 +536,14 @@ export async function syncBorrower(externalData: ExternalBorrowerData) {
 }
 
 // Sync all borrowers from external API
-export async function syncAllBorrowers() {
+export async function syncAllBorrowers(lastTwoDigit = "02") {
   const { userId } = await auth();
   if (!userId) {
     throw new Error("Unauthorized");
   }
 
   try {
-    const { data: externalBorrowers } = await fetchExternalBorrowers();
+    const { data: externalBorrowers } = await fetchExternalBorrowers(lastTwoDigit);
     
     const results = {
       total: externalBorrowers.length,
@@ -582,7 +582,7 @@ export async function syncAllBorrowers() {
 
     // Log the sync summary
     await db.insert(logs).values({
-      description: `Synced ${results.total} borrowers: ${results.created} created, ${results.updated} updated, ${results.errors} errors`,
+      description: `Synced ${results.total} borrowers (last_two_digits=${lastTwoDigit}): ${results.created} created, ${results.updated} updated, ${results.errors} errors`,
       entity_type: "borrower_sync",
       entity_id: "bulk_sync",
       action: "sync_all",

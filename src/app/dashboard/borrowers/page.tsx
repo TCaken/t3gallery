@@ -628,7 +628,7 @@ export default function BorrowersPage() {
               </button>
               )}
               
-              {hasAnyRole(['admin']) && (
+              {/* {hasAnyRole(['admin']) && (
               <button
                 onClick={() => router.push('/dashboard/borrowers/new')}
                 className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
@@ -636,7 +636,7 @@ export default function BorrowersPage() {
                 <PlusIcon className="h-5 w-5" />
                 <span>Add Borrower</span>
               </button>
-              )}
+              )} */}
             </div>
           </div>
         </div>
