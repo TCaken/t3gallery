@@ -42,7 +42,7 @@ export async function makeBorrowerCall({ phoneNumber, borrowerId, borrowerName }
     const username = `${userEmail}@capitalc`;
 
     // Clean the phone number (remove any non-digit characters except +)
-    const cleanedPhoneNumber = "+6583992504"// "+65" + phoneNumber.replace(/[^\d+]/g, '');
+    const cleanedPhoneNumber = "+65" + phoneNumber.replace(/[^\d+]/g, '');
 
     // Make the API call to Samespace
     const response = await fetch('https://api.capcfintech.com/api/samespace/voice/v1', {

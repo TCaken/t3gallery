@@ -181,7 +181,7 @@ export default function LeadCard({
   const formatAppointmentStatus = (status: string) => {
     switch (status) {
       case 'done':
-        return 'TU';
+        return 'TUR';
       case 'upcoming':
         return 'Upcoming';
       case 'missed':

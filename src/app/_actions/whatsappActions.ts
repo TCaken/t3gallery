@@ -619,7 +619,7 @@ function formatDate(dateValue: string, pattern: string): string {
 
 // Helper to format phone number
 function formatPhoneNumber(phone: string): string {
-  return '+6583992504'; // Default fallback number
+  // return '+6583992504'; // Default fallback number
   
   // Strip any non-numeric characters
   const digits = phone.replace(/\D/g, '');
