@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { 
   fetchExternalBorrowers, 
-  syncAllBorrowers, 
   type ExternalBorrowerData,
   type ParsedLoan
 } from "~/app/_actions/borrowerSync";
@@ -54,10 +53,21 @@ export default function BorrowersSettingsPage() {
 
     setIsLoading(true);
     try {
-      const result = await syncAllBorrowers();
+      const response = await fetch('/api/borrowers/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ lastTwoDigit }),
+      });
+
+      const result = await response.json();
+      
       if (result.success) {
         setSyncResults(result.results);
-        showMessage(`✅ Sync completed: ${result.results.created} created, ${result.results.updated} updated`);
+        showMessage(`✅ Sync completed (${lastTwoDigit}): ${result.results.created} created, ${result.results.updated} updated, ${result.results.errors} errors`);
+      } else {
+        showMessage(`❌ ${result.message || "Failed to sync borrowers"}`);
       }
     } catch (error) {
       showMessage(`❌ ${error instanceof Error ? error.message : "Failed to sync borrowers"}`);
@@ -198,7 +208,7 @@ export default function BorrowersSettingsPage() {
                   disabled={isLoading || externalData.length === 0}
                   className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {isLoading ? "⏳ Syncing..." : "🔄 Sync All Borrowers"}
+                  {isLoading ? "⏳ Syncing..." : `🔄 Sync All Borrowers (Last Two Digits: ${lastTwoDigit})`}
                 </button>
 
                 {syncResults && (
