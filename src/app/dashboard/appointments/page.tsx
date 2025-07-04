@@ -1325,7 +1325,7 @@ export default function AppointmentsPage() {
       {/* Hover Modal for Appointment Details */}
       {hoveredAppointment && (
         <div
-          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-80 max-h-96 overflow-y-auto"
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-80 max-h-108 overflow-y-auto"
           style={{
             left: modalPosition.x,
             top: modalPosition.y,
