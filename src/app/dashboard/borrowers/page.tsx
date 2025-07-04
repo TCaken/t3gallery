@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+// Removed useRouter import - using window.open() instead
 import { useAuth } from '@clerk/nextjs';
 import { 
   PlusIcon, 
@@ -142,7 +142,6 @@ export default function BorrowersPage() {
   const [preSelectedStatus, setPreSelectedStatus] = useState<'follow_up' | 'no_answer' | 'give_up' | 'blacklisted' | undefined>(undefined);
   const [defaultFiltersLoaded, setDefaultFiltersLoaded] = useState(false);
   
-  const router = useRouter();
   const { userRole, hasAnyRole } = useUserRole();
   const { userId } = useAuth();
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -392,7 +391,7 @@ export default function BorrowersPage() {
       switch (action) {
         case 'view':
         case 'edit':
-          router.push(`/dashboard/borrowers/${borrower.id}`);
+          window.open(`/dashboard/borrowers/${borrower.id}`, '_blank');
           break;
         case 'assign':
           setSelectedBorrower(borrower);
@@ -628,15 +627,15 @@ export default function BorrowersPage() {
               </button>
               )}
               
-              {/* {hasAnyRole(['admin']) && (
+              {hasAnyRole(['admin']) && (
               <button
-                onClick={() => router.push('/dashboard/borrowers/new')}
+                onClick={() => window.open('/dashboard/borrowers/new', '_blank')}
                 className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
               >
                 <PlusIcon className="h-5 w-5" />
                 <span>Add Borrower</span>
               </button>
-              )} */}
+              )}
             </div>
           </div>
         </div>

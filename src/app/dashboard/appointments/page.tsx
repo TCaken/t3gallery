@@ -26,21 +26,6 @@ import { auth } from '@clerk/nextjs/server';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
 import { updateAppointmentStatusesByTime, testAppointmentStatusUpdate } from '~/app/_actions/appointmentStatusUpdateAction';
 
-// Extended type for appointments with creator information
-type ExtendedAppointment = AppointmentWithLead & {
-  creator_name?: string;
-  creator_email?: string;
-  agent_name?: string;
-  agent_email?: string;
-  // Add borrower-specific fields
-  borrower_type?: 'lead' | 'borrower';
-  borrower_data?: {
-    id: number;
-    name: string;
-    phone: string;
-  };
-};
-
 // Borrower appointment type (from getBorrowerAppointments)
 type BorrowerAppointmentData = Awaited<ReturnType<typeof getBorrowerAppointments>>['data'][0];
 
@@ -226,9 +211,15 @@ export default function AppointmentsPage() {
           email: apt.lead.email
         } : null,
         borrower: null,
-        agent: null,
-        agent_name: undefined,
-        agent_email: undefined
+        agent: apt.agent ? {
+          id: apt.agent.id,
+          first_name: apt.agent.first_name ?? undefined,
+          last_name: apt.agent.last_name ?? undefined,
+          email: apt.agent.email ?? undefined
+        } : null,
+        agent_name: apt.agent && apt.agent.first_name && apt.agent.last_name ? 
+          `${apt.agent.first_name} ${apt.agent.last_name}` : undefined,
+        agent_email: apt.agent?.email ?? undefined
       }));
 
       // Convert borrower appointments to unified format and filter by date range
@@ -301,16 +292,22 @@ export default function AppointmentsPage() {
       filtered = filtered.filter(apt => {
         // Search in lead data
         if (apt.type === 'lead' && apt.lead) {
-          return apt.lead.full_name?.toLowerCase().includes(searchTerm) ||
-                 apt.lead.phone_number?.toLowerCase().includes(searchTerm) ||
-                 apt.lead.email?.toLowerCase().includes(searchTerm) ||
-                 apt.notes?.toLowerCase().includes(searchTerm);
+          const fieldsToSearch = [
+            apt.lead.full_name,
+            apt.lead.phone_number,
+            apt.lead.email,
+            apt.notes
+          ];
+          return fieldsToSearch.some(field => field?.toLowerCase().includes(searchTerm));
         }
         // Search in borrower data
         if (apt.type === 'borrower' && apt.borrower) {
-          return apt.borrower.name?.toLowerCase().includes(searchTerm) ||
-                 apt.borrower.phone?.toLowerCase().includes(searchTerm) ||
-                 apt.notes?.toLowerCase().includes(searchTerm);
+          const fieldsToSearch = [
+            apt.borrower.name,
+            apt.borrower.phone,
+            apt.notes
+          ];
+          return fieldsToSearch.some(field => field?.toLowerCase().includes(searchTerm));
         }
         return false;
       });
@@ -1328,7 +1325,7 @@ export default function AppointmentsPage() {
       {/* Hover Modal for Appointment Details */}
       {hoveredAppointment && (
         <div
-          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-80 max-h-96 overflow-y-auto"
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-80 max-h-108 overflow-y-auto"
           style={{
             left: modalPosition.x,
             top: modalPosition.y,
@@ -1366,17 +1363,27 @@ export default function AppointmentsPage() {
                     {hoveredAppointment.type === 'lead' ? 'Lead' : 'Borrower'}
                   </span>
                 </div>
-                {((hoveredAppointment.type === 'lead' && hoveredAppointment.lead?.phone_number) ||
-                  (hoveredAppointment.type === 'borrower' && hoveredAppointment.borrower?.phone)) && (
-                  <div className="flex items-center">
-                    <PhoneIcon className="h-3 w-3 mr-1" />
-                    <span>{
-                      hoveredAppointment.type === 'lead' 
-                        ? hoveredAppointment.lead?.phone_number
-                        : hoveredAppointment.borrower?.phone
-                    }</span>
-                  </div>
-                )}
+                {(() => {
+                  const getPhoneNumber = () => {
+                    if (hoveredAppointment.type === 'lead') {
+                      return hoveredAppointment.lead?.phone_number;
+                    }
+                    if (hoveredAppointment.type === 'borrower') {
+                      return hoveredAppointment.borrower?.phone;
+                    }
+                    return null;
+                  };
+                  
+                  const phoneNumber = getPhoneNumber();
+                  if (!phoneNumber) return null;
+                  
+                  return (
+                    <div className="flex items-center">
+                      <PhoneIcon className="h-3 w-3 mr-1" />
+                      <span>{phoneNumber}</span>
+                    </div>
+                  );
+                })()}
                 {hoveredAppointment.type === 'lead' && hoveredAppointment.lead?.email && (
                   <div><span className="font-medium">Email:</span> {hoveredAppointment.lead.email}</div>
                 )}

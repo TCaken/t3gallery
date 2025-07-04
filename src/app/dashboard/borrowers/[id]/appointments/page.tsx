@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+// Removed useRouter import - using window.open() instead
 import { 
   ArrowLeftIcon, 
   CalendarIcon, 
@@ -32,7 +32,6 @@ type Borrower = Awaited<ReturnType<typeof getBorrower>>['data'];
 type BorrowerAppointment = Awaited<ReturnType<typeof getBorrowerAppointments>>['data'][0];
 
 export default function BorrowerAppointmentPage({ params }: { params: { id: string } }) {
-  const router = useRouter();
   const { userId } = useAuth();
   const borrowerId = parseInt(params.id);
   const calendarRef = useRef<HTMLDivElement>(null);
@@ -163,7 +162,7 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
       
       if (result.success) {
         alert('Appointment scheduled successfully!');
-        router.push(`/dashboard/borrowers/${borrowerId}`);
+        window.open(`/dashboard/borrowers/${borrowerId}`, '_blank');
       } else {
         alert('Failed to schedule appointment');
       }
@@ -337,7 +336,7 @@ export default function BorrowerAppointmentPage({ params }: { params: { id: stri
     <div className="max-w-6xl mx-auto">
       <div className="mb-6 flex items-center">
         <button
-          onClick={() => router.push(`/dashboard/borrowers/${borrowerId}`)}
+          onClick={() => window.open(`/dashboard/borrowers/${borrowerId}`, '_blank')}
           className="mr-4 p-2 rounded-full hover:bg-gray-100"
         >
           <ArrowLeftIcon className="h-5 w-5" />
