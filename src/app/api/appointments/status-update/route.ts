@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
 
     // Get request parameters - handle both JSON and form data from Workato
     let excelData: ExcelData | undefined;
-    let thresholdHours = 3;
+    let thresholdHours = 4;
     
     const contentType = request.headers.get('content-type') ?? '';
     console.log('📥 Content-Type:', contentType);
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       try {
         const body = await request.json() as { excelData?: ExcelData; thresholdHours?: number };
         excelData = body.excelData;
-        thresholdHours = body.thresholdHours ?? 3;
+        thresholdHours = body.thresholdHours ?? 4;
         console.log('📋 Parsed as JSON');
       } catch (jsonError) {
         console.error('❌ JSON parsing failed:', jsonError);
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
           
           const thresholdParam = formData.get('thresholdHours');
           if (thresholdParam && typeof thresholdParam === 'string') {
-            thresholdHours = parseFloat(thresholdParam) || 3;
+            thresholdHours = parseFloat(thresholdParam) || 4;
           }
           
           console.log('✅ Successfully parsed form data');
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
               spreadsheet_name: url.searchParams.get('spreadsheet_name') ?? 'URL Parameters',
               sheet: url.searchParams.get('sheet') ?? 'Sheet1'
             };
-            thresholdHours = parseFloat(url.searchParams.get('thresholdHours') ?? '3');
+            thresholdHours = parseFloat(url.searchParams.get('thresholdHours') ?? '4');
             console.log('✅ Successfully parsed URL parameters');
           } else {
             throw new Error('No rows parameter found');
@@ -1085,7 +1085,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const thresholdHours = parseFloat(searchParams.get('thresholdHours') ?? '3');
+    const thresholdHours = parseFloat(searchParams.get('thresholdHours') ?? '4');
 
     console.log('🔄 Manual trigger: Processing appointments without Excel data');
 
