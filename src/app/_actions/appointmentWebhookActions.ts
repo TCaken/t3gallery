@@ -106,7 +106,7 @@ export async function sendAppointmentToWebhook(leadId: number, appointmentData?:
         "LendingPot": "LDP",
         "ROSHI": "ROSHI",
         "Loanable": "L.A", // Assuming Loanable maps to L.A
-        "MoneyIQ": "L.E", // Assuming MoneyIQ maps to L.E
+        "MoneyIQ": "MONEYIQ", // Assuming MoneyIQ maps to MONEYIQ
         "Other": ""
       };
       return mapping[source ?? ""] ?? source ?? "";
