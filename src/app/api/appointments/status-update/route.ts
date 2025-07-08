@@ -62,18 +62,18 @@ export async function POST(request: NextRequest) {
 
     // Get request parameters - handle both JSON and form data from Workato
     let excelData: ExcelData | undefined;
-    let thresholdHours = 4;
+    let thresholdHours = 3;
     
     const contentType = request.headers.get('content-type') ?? '';
-    console.log('📥 Content-Type:', contentType);
+    // console.log('📥 Content-Type:', contentType);
     
     if (contentType.includes('application/json')) {
       // Handle JSON format
       try {
         const body = await request.json() as { excelData?: ExcelData; thresholdHours?: number };
         excelData = body.excelData;
-        thresholdHours = body.thresholdHours ?? 4;
-        console.log('📋 Parsed as JSON');
+        thresholdHours = body.thresholdHours ?? 3;
+        // console.log('📋 Parsed as JSON');
       } catch (jsonError) {
         console.error('❌ JSON parsing failed:', jsonError);
         return NextResponse.json({
@@ -85,11 +85,11 @@ export async function POST(request: NextRequest) {
       // Handle form-encoded data from Workato
       try {
         const formData = await request.formData();
-        console.log('📋 Parsing as form data...');
+        // console.log('📋 Parsing as form data...');
         
         // Log all form fields for debugging
         for (const [key, value] of formData.entries()) {
-          console.log(`📝 Form field: ${key} = ${typeof value === 'string' ? value.substring(0, 100) + '...' : value}`);
+          // console.log(`📝 Form field: ${key} = ${typeof value === 'string' ? value.substring(0, 100) + '...' : value}`);
         }
         
         // Try different possible field names that Workato might use
@@ -98,14 +98,14 @@ export async function POST(request: NextRequest) {
         // Check for 'rows' field
         const rowsField = formData.get('rows');
         if (rowsField && typeof rowsField === 'string') {
-          console.log('🔍 Found "rows" field');
+          // console.log('🔍 Found "rows" field');
           rowsData = rowsField;
         }
         
         // Check for 'excelData' field
         const excelDataField = formData.get('excelData');
         if (excelDataField && typeof excelDataField === 'string') {
-          console.log('🔍 Found "excelData" field');
+          // console.log('🔍 Found "excelData" field');
           try {
             const parsed = JSON.parse(excelDataField);
             if (parsed.rows) {
@@ -118,9 +118,9 @@ export async function POST(request: NextRequest) {
         
         // Check for direct JSON in body (sometimes Workato sends this way)
         if (!rowsData) {
-          console.log('🔍 Checking for direct JSON data...');
+          // console.log('🔍 Checking for direct JSON data...');
           const bodyText = await request.text();
-          console.log('📄 Raw body:', bodyText.substring(0, 200) + '...');
+          // console.log('📄 Raw body:', bodyText.substring(0, 200) + '...');
           
           try {
             // Try to parse the entire body as JSON
@@ -131,12 +131,12 @@ export async function POST(request: NextRequest) {
               rowsData = JSON.stringify(parsed);
             }
           } catch (e) {
-            console.log('❌ Not direct JSON');
+            // console.log('❌ Not direct JSON');
           }
         }
         
         if (rowsData) {
-          console.log('📊 Rows data found, parsing...');
+          // console.log('📊 Rows data found, parsing...');
           const rows = JSON.parse(rowsData);
           
           excelData = {
@@ -148,13 +148,13 @@ export async function POST(request: NextRequest) {
           
           const thresholdParam = formData.get('thresholdHours');
           if (thresholdParam && typeof thresholdParam === 'string') {
-            thresholdHours = parseFloat(thresholdParam) || 4;
+            thresholdHours = parseFloat(thresholdParam) || 3;
           }
           
           console.log('✅ Successfully parsed form data');
           console.log(`📊 Found ${excelData.rows.length} rows`);
         } else {
-          console.log('❌ No rows data found in form');
+          // console.log('❌ No rows data found in form');
           return NextResponse.json({
             error: "No data found in request",
             help: "Workato should send 'rows' parameter with Excel data",
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
           const rowsParam = url.searchParams.get('rows');
           
           if (rowsParam) {
-            console.log('🔍 Trying URL parameters...');
+            // console.log('🔍 Trying URL parameters...');
             const decodedRows = decodeURIComponent(rowsParam);
             const rows = JSON.parse(decodedRows);
             excelData = {
@@ -180,8 +180,8 @@ export async function POST(request: NextRequest) {
               spreadsheet_name: url.searchParams.get('spreadsheet_name') ?? 'URL Parameters',
               sheet: url.searchParams.get('sheet') ?? 'Sheet1'
             };
-            thresholdHours = parseFloat(url.searchParams.get('thresholdHours') ?? '4');
-            console.log('✅ Successfully parsed URL parameters');
+            thresholdHours = parseFloat(url.searchParams.get('thresholdHours') ?? '3');
+            // console.log('✅ Successfully parsed URL parameters');
           } else {
             throw new Error('No rows parameter found');
           }
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('🔄 Starting appointment status update process...');
-    console.log('📊 Excel data provided:', !!excelData);
+    // console.log('📊 Excel data provided:', !!excelData);
     console.log('⏰ Threshold hours:', thresholdHours);
 
     // Get today's date in Singapore timezone (UTC+8)
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
     const singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
     const todaySingapore = singaporeTime.toISOString().split('T')[0]; // YYYY-MM-DD format
 
-    console.log('📅 Today (Singapore):', todaySingapore);
+    // console.log('📅 Today (Singapore):', todaySingapore);
 
     // Fetch all upcoming appointments for today
     const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
@@ -255,21 +255,21 @@ export async function POST(request: NextRequest) {
       const appt = record.appointment;
       const leadData = record.lead;
       const apptTimeSGT = new Date(appt.start_datetime.getTime() + (8 * 60 * 60 * 1000));
-      console.log(`📅 Found lead appointment ${appt.id}: Lead "${leadData?.full_name}" (${leadData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
+      // console.log(`📅 Found lead appointment ${appt.id}: Lead "${leadData?.full_name}" (${leadData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
     });
 
     upcomingBorrowerAppointments.forEach(record => {
       const appt = record.appointment;
       const borrowerData = record.borrower;
       const apptTimeSGT = new Date(appt.start_datetime.getTime() + (8 * 60 * 60 * 1000));
-      console.log(`📅 Found borrower appointment ${appt.id}: Borrower "${borrowerData?.full_name}" (${borrowerData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
+      // console.log(`📅 Found borrower appointment ${appt.id}: Borrower "${borrowerData?.full_name}" (${borrowerData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
     });
 
     if (upcomingAppointments.length === 0 && upcomingBorrowerAppointments.length === 0) {
-      console.log(`📊 No appointments found - Final Summary:`);
-      console.log(`   Today (Singapore): ${todaySingapore}`);
-      console.log(`   Threshold hours: ${thresholdHours}`);
-      console.log(`   Excel data provided: ${!!excelData}`);
+      // console.log(`📊 No appointments found - Final Summary:`);
+      // console.log(`   Today (Singapore): ${todaySingapore}`);
+      // console.log(`   Threshold hours: ${thresholdHours}`);
+      // console.log(`   Excel data provided: ${!!excelData}`);
       
       return NextResponse.json({
         success: true,
@@ -358,7 +358,7 @@ export async function POST(request: NextRequest) {
 
             // Create YYYY-MM-DD format for comparison
             excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-            console.log(`📅 Parsed date: ${timestampStr} → ${excelDate}`);
+            // console.log(`📅 Parsed date: ${timestampStr} → ${excelDate}`);
           } else {
             throw new Error('Unsupported date format');
           }
@@ -370,14 +370,14 @@ export async function POST(request: NextRequest) {
 
         // Only process if the Excel row is from today
         if (excelDate !== todaySingapore) {
-          console.log(`⏭️ Skipping row ${row.row_number} - not from today (${excelDate} vs ${todaySingapore})`);
+          // console.log(`⏭️ Skipping row ${row.row_number} - not from today (${excelDate} vs ${todaySingapore})`);
           continue;
         }
 
         // Clean and format the phone number from Excel
         const cleanExcelPhone = row["col_Mobile Number"]?.toString().replace(/\D/g, '');
         if (!cleanExcelPhone) {
-          console.log(`⚠️ No phone number found in row ${row.row_number}`);
+          // console.log(`⚠️ No phone number found in row ${row.row_number}`);
           continue;
         }
 
@@ -385,7 +385,7 @@ export async function POST(request: NextRequest) {
         // console.log(`🔍 Finding matching appointment for phone "${cleanExcelPhone}"`);
         const matchingAppointment = upcomingAppointments.find(record => {
           const leadPhone = record.lead?.phone_number?.replace(/\+65/g, '');
-          console.log(`🔍 Found lead phone "${leadPhone}"`);
+          // console.log(`🔍 Found lead phone "${leadPhone}"`);
           return leadPhone === cleanExcelPhone;
         });
 
@@ -628,7 +628,7 @@ export async function POST(request: NextRequest) {
 
             // Create YYYY-MM-DD format for comparison
             excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-            console.log(`📅 Parsed borrower appointment date: ${timestampStr} → ${excelDate}`);
+            // console.log(`📅 Parsed borrower appointment date: ${timestampStr} → ${excelDate}`);
           } else {
             throw new Error('Unsupported date format');
           }
@@ -640,7 +640,7 @@ export async function POST(request: NextRequest) {
 
         // Only process if the Excel row is from today
         if (excelDate !== todaySingapore) {
-          console.log(`⏭️ Skipping borrower row ${row.row_number} - not from today (${excelDate} vs ${todaySingapore})`);
+          // console.log(`⏭️ Skipping borrower row ${row.row_number} - not from today (${excelDate} vs ${todaySingapore})`);
           continue;
         }
 
@@ -858,13 +858,13 @@ export async function POST(request: NextRequest) {
 
       // Skip if this appointment was already processed by Excel data
       if (processedAppointmentIds.has(appointment.id)) {
-        console.log(`⏭️ Skipping appointment ${appointment.id} - already processed by Excel data`);
+        // console.log(`⏭️ Skipping appointment ${appointment.id} - already processed by Excel data`);
         continue;
       }
 
       // Skip if appointment status is no longer 'upcoming' (safety check)
       if (appointment.status !== 'upcoming') {
-        console.log(`⏭️ Skipping appointment ${appointment.id} - status is ${appointment.status}, not upcoming`);
+        // console.log(`⏭️ Skipping appointment ${appointment.id} - status is ${appointment.status}, not upcoming`);
         continue;
       }
 
@@ -1085,7 +1085,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const thresholdHours = parseFloat(searchParams.get('thresholdHours') ?? '4');
+    const thresholdHours = parseFloat(searchParams.get('thresholdHours') ?? '3');
 
     console.log('🔄 Manual trigger: Processing appointments without Excel data');
 
