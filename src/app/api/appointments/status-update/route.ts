@@ -385,7 +385,7 @@ export async function POST(request: NextRequest) {
         // console.log(`🔍 Finding matching appointment for phone "${cleanExcelPhone}"`);
         const matchingAppointment = upcomingAppointments.find(record => {
           const leadPhone = record.lead?.phone_number?.replace(/\+65/g, '');
-          // console.log(`🔍 Found lead phone "${leadPhone}"`);
+          console.log(`🔍 Found lead phone "${leadPhone}"`);
           return leadPhone === cleanExcelPhone;
         });
 
