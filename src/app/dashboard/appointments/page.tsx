@@ -13,6 +13,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   UserIcon,
+  UsersIcon,
   PhoneIcon,
   Bars3Icon
 } from '@heroicons/react/24/outline';
@@ -217,7 +218,7 @@ export default function AppointmentsPage() {
           last_name: apt.agent.last_name ?? undefined,
           email: apt.agent.email ?? undefined
         } : null,
-        agent_name: apt.agent && apt.agent.first_name && apt.agent.last_name ? 
+        agent_name: apt.agent?.first_name && apt.agent?.last_name ? 
           `${apt.agent.first_name} ${apt.agent.last_name}` : undefined,
         agent_email: apt.agent?.email ?? undefined
       }));
@@ -1015,21 +1016,115 @@ export default function AppointmentsPage() {
         </div>
       )}
 
-      {/* Statistics Breakdown */}
+      {/* Enhanced Statistics Breakdown */}
       {filteredAppointments.length > 0 && (
         <div className="mt-6 space-y-6">
-          {/* Combined Status Breakdown */}
+          {/* Key Metrics Overview */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {(() => {
+              const newLoanAppointments = filteredAppointments.filter(apt => apt.type === 'lead');
+              const reloanAppointments = filteredAppointments.filter(apt => apt.type === 'borrower');
+              const totalAgents = new Set(filteredAppointments.map(apt => apt.agent_name).filter(Boolean)).size;
+              const turAppointments = filteredAppointments.filter(apt => apt.status === 'done');
+              
+              return (
+                <>
+                  {/* New Loan Appointments */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-blue-50 rounded-lg">
+                        <UserIcon className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div className="ml-4 flex-1">
+                        <p className="text-sm font-medium text-gray-600">New Loan Appointments</p>
+                        <div className="flex items-baseline">
+                          <p className="text-2xl font-bold text-gray-900">{newLoanAppointments.length}</p>
+                          <p className="ml-2 text-sm font-medium text-blue-600">
+                            {filteredAppointments.length > 0 ? Math.round((newLoanAppointments.length / filteredAppointments.length) * 100) : 0}%
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">of total appointments</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reloan Appointments */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-purple-50 rounded-lg">
+                        <UsersIcon className="h-6 w-6 text-purple-600" />
+                      </div>
+                      <div className="ml-4 flex-1">
+                        <p className="text-sm font-medium text-gray-600">Reloan Appointments</p>
+                        <div className="flex items-baseline">
+                          <p className="text-2xl font-bold text-gray-900">{reloanAppointments.length}</p>
+                          <p className="ml-2 text-sm font-medium text-purple-600">
+                            {filteredAppointments.length > 0 ? Math.round((reloanAppointments.length / filteredAppointments.length) * 100) : 0}%
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">of total appointments</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* TUR Completed */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-green-50 rounded-lg">
+                        <CheckCircleIcon className="h-6 w-6 text-green-600" />
+                      </div>
+                      <div className="ml-4 flex-1">
+                        <p className="text-sm font-medium text-gray-600">TUR Completed</p>
+                        <div className="flex items-baseline">
+                          <p className="text-2xl font-bold text-gray-900">{turAppointments.length}</p>
+                          <p className="ml-2 text-sm font-medium text-green-600">
+                            {filteredAppointments.length > 0 ? Math.round((turAppointments.length / filteredAppointments.length) * 100) : 0}%
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">completion rate</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Agents */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-orange-50 rounded-lg">
+                        <UsersIcon className="h-6 w-6 text-orange-600" />
+                      </div>
+                      <div className="ml-4 flex-1">
+                        <p className="text-sm font-medium text-gray-600">Active Agents</p>
+                        <div className="flex items-baseline">
+                          <p className="text-2xl font-bold text-gray-900">{totalAgents}</p>
+                          <p className="ml-2 text-sm font-medium text-orange-600">agents</p>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">contributing to appointments</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+
+          {/* Appointment Type Breakdown */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6">Status Breakdown</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-6">Appointment Type Analysis</h3>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Appointment Status */}
-              <div>
-                <h4 className="text-md font-medium text-gray-800 mb-4">Appointment Status</h4>
+              {/* New Loan Appointments */}
+              <div className="border-l-4 border-blue-500 pl-4">
+                <h4 className="text-md font-medium text-blue-800 mb-4 flex items-center">
+                  <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                  New Loan Appointments
+                </h4>
                 <div className="space-y-3">
                   {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => {
-                    const count = filteredAppointments.filter(apt => apt.status === status).length;
-                    const percentage = filteredAppointments.length > 0 ? Math.round((count / filteredAppointments.length) * 100) : 0;
+                    const newLoanAppointments = filteredAppointments.filter(apt => apt.type === 'lead');
+                    const count = newLoanAppointments.filter(apt => apt.status === status).length;
+                    const percentage = newLoanAppointments.length > 0 ? Math.round((count / newLoanAppointments.length) * 100) : 0;
+                    
+                    if (count === 0) return null;
                     
                     return (
                       <div key={status} className="flex items-center justify-between">
@@ -1038,13 +1133,13 @@ export default function AppointmentsPage() {
                           <span className="capitalize font-medium text-gray-700">{getDisplayStatus(status)}</span>
                         </div>
                         <div className="flex items-center space-x-3">
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
+                          <div className="w-16 bg-gray-200 rounded-full h-2">
                             <div 
                               className={`h-2 rounded-full ${config.color.replace('text-', 'bg-').replace('-600', '-500')}`}
                               style={{ width: `${percentage}%` }}
                             ></div>
                           </div>
-                          <span className="text-sm font-semibold text-gray-900 w-8 text-right">{count}</span>
+                          <span className="text-sm font-semibold text-gray-900 w-6 text-right">{count}</span>
                           <span className="text-xs text-gray-500 w-8 text-right">{percentage}%</span>
                         </div>
                       </div>
@@ -1053,20 +1148,68 @@ export default function AppointmentsPage() {
                 </div>
               </div>
 
-              {/* Loan Status for TUR Appointments */}
-              {filteredAppointments.filter(apt => apt.status === 'done').length > 0 && (
-                <div>
-                  <h4 className="text-md font-medium text-gray-800 mb-4">TUR Appointments - Loan Status</h4>
+              {/* Reloan Appointments */}
+              <div className="border-l-4 border-purple-500 pl-4">
+                <h4 className="text-md font-medium text-purple-800 mb-4 flex items-center">
+                  <div className="w-3 h-3 bg-purple-500 rounded-full mr-2"></div>
+                  Reloan Appointments
+                </h4>
+                <div className="space-y-3">
+                  {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => {
+                    const reloanAppointments = filteredAppointments.filter(apt => apt.type === 'borrower');
+                    const count = reloanAppointments.filter(apt => apt.status === status).length;
+                    const percentage = reloanAppointments.length > 0 ? Math.round((count / reloanAppointments.length) * 100) : 0;
+                    
+                    if (count === 0) return null;
+                    
+                    return (
+                      <div key={status} className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <config.icon className={`h-4 w-4 mr-2 ${config.color}`} />
+                          <span className="capitalize font-medium text-gray-700">{getDisplayStatus(status)}</span>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <div className="w-16 bg-gray-200 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full ${config.color.replace('text-', 'bg-').replace('-600', '-500')}`}
+                              style={{ width: `${percentage}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm font-semibold text-gray-900 w-6 text-right">{count}</span>
+                          <span className="text-xs text-gray-500 w-8 text-right">{percentage}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* TUR Loan Status Breakdown */}
+          {filteredAppointments.filter(apt => apt.status === 'done').length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-6">TUR Appointments - Loan Status</h3>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* New Loan TUR */}
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h4 className="text-md font-medium text-green-800 mb-4 flex items-center">
+                    <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                    New Loan TUR Results
+                  </h4>
                   <div className="space-y-3">
                     {[
                       { status: 'P', label: 'Done', color: 'text-green-600 bg-green-500' },
                       { status: 'PRS', label: 'Customer Rejected', color: 'text-blue-600 bg-blue-500' },
-                      { status: 'RS', label: 'Rejected With Special Reason', color: 'text-yellow-600 bg-yellow-500' },
+                      { status: 'RS', label: 'Rejected with Special Reason', color: 'text-yellow-600 bg-yellow-500' },
                       { status: 'R', label: 'Rejected', color: 'text-red-600 bg-red-500' }
                     ].map(({ status, label, color }) => {
-                      const doneAppointments = filteredAppointments.filter(apt => apt.status === 'done');
-                      const count = doneAppointments.filter(apt => apt.loan_status === status).length;
-                      const percentage = doneAppointments.length > 0 ? Math.round((count / doneAppointments.length) * 100) : 0;
+                      const newLoanTur = filteredAppointments.filter(apt => apt.status === 'done' && apt.type === 'lead');
+                      const count = newLoanTur.filter(apt => apt.loan_status === status).length;
+                      const percentage = newLoanTur.length > 0 ? Math.round((count / newLoanTur.length) * 100) : 0;
+                      
+                      if (count === 0) return null;
                       
                       return (
                         <div key={status} className="flex items-center justify-between">
@@ -1075,13 +1218,13 @@ export default function AppointmentsPage() {
                             <span className="font-medium text-gray-700">{status} - {label}</span>
                           </div>
                           <div className="flex items-center space-x-3">
-                            <div className="w-20 bg-gray-200 rounded-full h-2">
+                            <div className="w-16 bg-gray-200 rounded-full h-2">
                               <div 
                                 className={color.split(' ')[1]}
                                 style={{ width: `${percentage}%`, height: '100%', borderRadius: '9999px' }}
                               ></div>
                             </div>
-                            <span className="text-sm font-semibold text-gray-900 w-8 text-right">{count}</span>
+                            <span className="text-sm font-semibold text-gray-900 w-6 text-right">{count}</span>
                             <span className="text-xs text-gray-500 w-8 text-right">{percentage}%</span>
                           </div>
                         </div>
@@ -1089,136 +1232,250 @@ export default function AppointmentsPage() {
                     })}
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
 
-          {/* Status Breakdown by Creator */}
+                {/* Reloan TUR */}
+                <div className="border-l-4 border-purple-500 pl-4">
+                  <h4 className="text-md font-medium text-purple-800 mb-4 flex items-center">
+                    <div className="w-3 h-3 bg-purple-500 rounded-full mr-2"></div>
+                    Reloan TUR Results
+                  </h4>
+                  <div className="space-y-3">
+                    {[
+                      { status: 'P', label: 'Done', color: 'text-green-600 bg-green-500' },
+                      { status: 'PRS', label: 'Customer Rejected', color: 'text-blue-600 bg-blue-500' },
+                      { status: 'RS', label: 'Rejected with Special Reason', color: 'text-yellow-600 bg-yellow-500' },
+                      { status: 'R', label: 'Rejected', color: 'text-red-600 bg-red-500' }
+                    ].map(({ status, label, color }) => {
+                      const reloanTur = filteredAppointments.filter(apt => apt.status === 'done' && apt.type === 'borrower');
+                      const count = reloanTur.filter(apt => apt.loan_status === status).length;
+                      const percentage = reloanTur.length > 0 ? Math.round((count / reloanTur.length) * 100) : 0;
+                      
+                      if (count === 0) return null;
+                      
+                      return (
+                        <div key={status} className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div className={`w-3 h-3 rounded-full mr-2 ${color.split(' ')[1]}`}></div>
+                            <span className="font-medium text-gray-700">{status} - {label}</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-16 bg-gray-200 rounded-full h-2">
+                              <div 
+                                className={color.split(' ')[1]}
+                                style={{ width: `${percentage}%`, height: '100%', borderRadius: '9999px' }}
+                              ></div>
+                            </div>
+                            <span className="text-sm font-semibold text-gray-900 w-6 text-right">{count}</span>
+                            <span className="text-xs text-gray-500 w-8 text-right">{percentage}%</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Agent Performance Analysis */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6">Status Breakdown by Creator</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-6">Agent Performance Analysis</h3>
             
             <div className="space-y-6">
               {(() => {
-                const creatorStats: Record<string, {
+                const agentStats: Record<string, {
                   name: string;
                   email: string | null;
-                  total: number;
-                  statuses: Record<string, number>;
-                  loanStatuses: Record<string, number>;
+                  newLoan: {
+                    total: number;
+                    statuses: Record<string, number>;
+                    loanStatuses: Record<string, number>;
+                  };
+                  reloan: {
+                    total: number;
+                    statuses: Record<string, number>;
+                    loanStatuses: Record<string, number>;
+                  };
                 }> = {};
                 
-                // Collect stats by creator
+                // Collect stats by agent and appointment type
                 filteredAppointments.forEach(apt => {
-                  // Use agent fields if available, fallback to 'Unknown Agent'
-                  const creatorName = apt.agent_name ?? 
+                  const agentName = apt.agent_name ?? 
                     (apt.agent?.first_name && apt.agent?.last_name ? 
                       `${apt.agent.first_name} ${apt.agent.last_name}` : 
                       'Unknown Agent');
-                  const creatorEmail = apt.agent_email ?? apt.agent?.email ?? '';
+                  const agentEmail = apt.agent_email ?? apt.agent?.email ?? '';
                   
-                  creatorStats[creatorName] ??= {
-                    name: creatorName,
-                    email: creatorEmail,
-                    total: 0,
-                    statuses: {},
-                    loanStatuses: {}
+                  agentStats[agentName] ??= {
+                    name: agentName,
+                    email: agentEmail,
+                    newLoan: { total: 0, statuses: {}, loanStatuses: {} },
+                    reloan: { total: 0, statuses: {}, loanStatuses: {} }
                   };
                   
-                  creatorStats[creatorName].total++;
-                  creatorStats[creatorName].statuses[apt.status] = (creatorStats[creatorName].statuses[apt.status] ?? 0) + 1;
+                  const appointmentType = apt.type === 'lead' ? 'newLoan' : 'reloan';
+                  agentStats[agentName][appointmentType].total++;
+                  agentStats[agentName][appointmentType].statuses[apt.status] = 
+                    (agentStats[agentName][appointmentType].statuses[apt.status] ?? 0) + 1;
                   
                   if (apt.status === 'done' && apt.loan_status) {
-                    creatorStats[creatorName].loanStatuses[apt.loan_status] = (creatorStats[creatorName].loanStatuses[apt.loan_status] ?? 0) + 1;
+                    agentStats[agentName][appointmentType].loanStatuses[apt.loan_status] = 
+                      (agentStats[agentName][appointmentType].loanStatuses[apt.loan_status] ?? 0) + 1;
                   }
                 });
 
-                return Object.values(creatorStats)
-                  .sort((a, b) => b.total - a.total)
-                  .map(creator => (
-                    <div key={creator.name} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-4">
+                return Object.values(agentStats)
+                  .sort((a, b) => (b.newLoan.total + b.reloan.total) - (a.newLoan.total + a.reloan.total))
+                  .map(agent => (
+                    <div key={agent.name} className="border border-gray-200 rounded-lg p-6">
+                      <div className="flex items-center justify-between mb-6">
                         <div>
-                          <h4 className="text-md font-medium text-gray-900">{creator.name}</h4>
-                          {creator.email && (
-                            <p className="text-sm text-gray-500">{creator.email}</p>
+                          <h4 className="text-lg font-semibold text-gray-900 flex items-center">
+                            <UserIcon className="h-5 w-5 mr-2 text-blue-600" />
+                            {agent.name}
+                          </h4>
+                          {agent.email && (
+                            <p className="text-sm text-gray-500 mt-1">{agent.email}</p>
                           )}
                         </div>
                         <div className="text-right">
-                          <span className="text-lg font-bold text-gray-900">{creator.total}</span>
-                          <p className="text-xs text-gray-500">appointments</p>
+                          <span className="text-2xl font-bold text-gray-900">{agent.newLoan.total + agent.reloan.total}</span>
+                          <p className="text-sm text-gray-500">total appointments</p>
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Appointment Status for this creator */}
-                        <div>
-                          <h5 className="text-sm font-medium text-gray-700 mb-2">Appointment Status</h5>
-                          <div className="space-y-2">
-                            {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => {
-                              const count = creator.statuses[status] ?? 0;
-                              const percentage = creator.total > 0 ? Math.round((count / creator.total) * 100) : 0;
-                              
-                              if (count === 0) return null;
-                              
-                              return (
-                                <div key={status} className="flex items-center justify-between text-sm">
-                                  <div className="flex items-center">
-                                    <config.icon className={`h-3 w-3 mr-1 ${config.color}`} />
-                                    <span className="capitalize">{getDisplayStatus(status)}</span>
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                    <div className="w-12 bg-gray-200 rounded-full h-1.5">
-                                      <div 
-                                        className={`h-1.5 rounded-full ${config.color.replace('text-', 'bg-').replace('-600', '-500')}`}
-                                        style={{ width: `${percentage}%` }}
-                                      ></div>
-                                    </div>
-                                    <span className="font-medium w-6 text-right">{count}</span>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* New Loan Performance */}
+                        <div className="border-l-4 border-blue-500 pl-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h5 className="text-md font-semibold text-blue-800 flex items-center">
+                              <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                              New Loan Appointments
+                            </h5>
+                            <span className="text-lg font-bold text-blue-600">{agent.newLoan.total}</span>
                           </div>
-                        </div>
-                        
-                        {/* Loan Status for TUR appointments by this creator */}
-                        {Object.keys(creator.loanStatuses).length > 0 && (
-                          <div>
-                            <h5 className="text-sm font-medium text-gray-700 mb-2">TUR - Loan Status</h5>
+                          
+                          {agent.newLoan.total > 0 && (
                             <div className="space-y-2">
-                              {[
-                                { status: 'P', label: 'Done', color: 'bg-green-500' },
-                                { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
-                                { status: 'RS', label: 'Rejected with Special Reason', color: 'bg-yellow-500' },
-                                { status: 'R', label: 'Rejected', color: 'bg-red-500' }
-                              ].map(({ status, label, color }) => {
-                                const count = creator.loanStatuses[status] ?? 0;
-                                const doneCount = creator.statuses.done ?? 0;
-                                const percentage = doneCount > 0 ? Math.round((count / doneCount) * 100) : 0;
+                              {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => {
+                                const count = agent.newLoan.statuses[status] ?? 0;
+                                const percentage = agent.newLoan.total > 0 ? Math.round((count / agent.newLoan.total) * 100) : 0;
                                 
                                 if (count === 0) return null;
                                 
                                 return (
                                   <div key={status} className="flex items-center justify-between text-sm">
                                     <div className="flex items-center">
-                                      <div className={`w-2 h-2 rounded-full mr-1 ${color}`}></div>
-                                      <span>{status}</span>
+                                      <config.icon className={`h-3 w-3 mr-1 ${config.color}`} />
+                                      <span className="capitalize">{getDisplayStatus(status)}</span>
                                     </div>
                                     <div className="flex items-center space-x-2">
-                                      <div className="w-12 bg-gray-200 rounded-full h-1.5">
+                                      <div className="w-10 bg-gray-200 rounded-full h-1.5">
                                         <div 
-                                          className={color}
-                                          style={{ width: `${percentage}%`, height: '100%', borderRadius: '9999px' }}
+                                          className={`h-1.5 rounded-full ${config.color.replace('text-', 'bg-').replace('-600', '-500')}`}
+                                          style={{ width: `${percentage}%` }}
                                         ></div>
                                       </div>
-                                      <span className="font-medium w-6 text-right">{count}</span>
+                                      <span className="font-medium w-4 text-right">{count}</span>
                                     </div>
                                   </div>
                                 );
                               })}
+                              
+                              {/* New Loan TUR Results */}
+                              {Object.keys(agent.newLoan.loanStatuses).length > 0 && (
+                                <div className="mt-3 pt-2 border-t border-gray-200">
+                                  <p className="text-xs font-medium text-gray-600 mb-2">TUR Results:</p>
+                                  {[
+                                    { status: 'P', label: 'Done', color: 'bg-green-500' },
+                                    { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
+                                    { status: 'RS', label: 'Rejected with Special Reason', color: 'bg-yellow-500' },
+                                    { status: 'R', label: 'Rejected', color: 'bg-red-500' }
+                                  ].map(({ status, label, color }) => {
+                                    const count = agent.newLoan.loanStatuses[status] ?? 0;
+                                    if (count === 0) return null;
+                                    
+                                    return (
+                                      <div key={status} className="flex items-center justify-between text-xs">
+                                        <div className="flex items-center">
+                                          <div className={`w-2 h-2 rounded-full mr-1 ${color}`}></div>
+                                          <span>{status}</span>
+                                        </div>
+                                        <span className="font-medium">{count}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
+                          )}
+                        </div>
+
+                        {/* Reloan Performance */}
+                        <div className="border-l-4 border-purple-500 pl-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h5 className="text-md font-semibold text-purple-800 flex items-center">
+                              <div className="w-3 h-3 bg-purple-500 rounded-full mr-2"></div>
+                              Reloan Appointments
+                            </h5>
+                            <span className="text-lg font-bold text-purple-600">{agent.reloan.total}</span>
                           </div>
-                        )}
+                          
+                          {agent.reloan.total > 0 && (
+                            <div className="space-y-2">
+                              {Object.entries(APPOINTMENT_STATUSES).map(([status, config]) => {
+                                const count = agent.reloan.statuses[status] ?? 0;
+                                const percentage = agent.reloan.total > 0 ? Math.round((count / agent.reloan.total) * 100) : 0;
+                                
+                                if (count === 0) return null;
+                                
+                                return (
+                                  <div key={status} className="flex items-center justify-between text-sm">
+                                    <div className="flex items-center">
+                                      <config.icon className={`h-3 w-3 mr-1 ${config.color}`} />
+                                      <span className="capitalize">{getDisplayStatus(status)}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <div className="w-10 bg-gray-200 rounded-full h-1.5">
+                                        <div 
+                                          className={`h-1.5 rounded-full ${config.color.replace('text-', 'bg-').replace('-600', '-500')}`}
+                                          style={{ width: `${percentage}%` }}
+                                        ></div>
+                                      </div>
+                                      <span className="font-medium w-4 text-right">{count}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              
+                              {/* Reloan TUR Results */}
+                              {Object.keys(agent.reloan.loanStatuses).length > 0 && (
+                                <div className="mt-3 pt-2 border-t border-gray-200">
+                                  <p className="text-xs font-medium text-gray-600 mb-2">TUR Results:</p>
+                                  {[
+                                    { status: 'P', label: 'Done', color: 'bg-green-500' },
+                                    { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
+                                    { status: 'RS', label: 'Rejected with Special Reason', color: 'bg-yellow-500' },
+                                    { status: 'R', label: 'Rejected', color: 'bg-red-500' }
+                                  ].map(({ status, label, color }) => {
+                                    const count = agent.reloan.loanStatuses[status] ?? 0;
+                                    if (count === 0) return null;
+                                    
+                                    return (
+                                      <div key={status} className="flex items-center justify-between text-xs">
+                                        <div className="flex items-center">
+                                          <div className={`w-2 h-2 rounded-full mr-1 ${color}`}></div>
+                                          <span>{status}</span>
+                                        </div>
+                                        <span className="font-medium">{count}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ));
@@ -1471,3 +1728,4 @@ export default function AppointmentsPage() {
     </div>
   );
 }
+

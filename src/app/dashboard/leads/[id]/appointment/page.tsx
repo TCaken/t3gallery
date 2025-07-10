@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
+import { fetchUserData } from '~/app/_actions/userActions';
 import { 
   ArrowLeftIcon, 
   CalendarIcon, 
@@ -22,6 +24,7 @@ import {
   checkExistingAppointment, 
   fetchAvailableTimeslots, 
   cancelAppointment,
+  createAppointment,
   getAppointmentsForLead,
   type Timeslot,
   type EnhancedAppointment
@@ -94,6 +97,7 @@ const SingaporeTime = (utcDate: Date) => {
 
 export default function AppointmentPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const { userId, isLoaded } = useAuth();
   const leadId = parseInt(params.id);
   const calendarRef = useRef<HTMLDivElement>(null);
   
@@ -110,10 +114,34 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   const [timeslots, setTimeslots] = useState<Timeslot[]>([]);
   const [loadingTimeslots, setLoadingTimeslots] = useState(false);
   const [isUrgent, setIsUrgent] = useState(false);
+  const [userRoles, setUserRoles] = useState<{roleId: number, roleName: string}[]>([]);
+  const [isLoadingRoles, setIsLoadingRoles] = useState(true);
   
   const today = new Date();
   const todayStr = format(today, 'yyyy-MM-dd');
   
+  // Helper function to check if user has admin role
+  const isAdmin = userRoles.some(role => role.roleName === 'admin');
+
+  // Load user roles
+  useEffect(() => {
+    const loadUserRoles = async () => {
+      if (isLoaded && userId) {
+        try {
+          const { roles } = await fetchUserData();
+          setUserRoles(roles);
+        } catch (error) {
+          console.error('Error fetching user roles:', error);
+        } finally {
+          setIsLoadingRoles(false);
+        }
+      } else if (isLoaded) {
+        setIsLoadingRoles(false);
+      }
+    };
+
+    void loadUserRoles();
+  }, [isLoaded, userId]);
 
   // Load lead info and check for existing appointments
   useEffect(() => {
@@ -247,6 +275,58 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
       }
     } catch (error) {
       console.error('Error scheduling appointment:', error);
+      alert('An error occurred while scheduling the appointment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedTimeslot || !selectedDate) {
+      alert('Please select a date and timeslot');
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      // Find the selected timeslot to get the time details
+      const selectedSlot = timeslots.find(slot => slot.id === selectedTimeslot);
+      if (!selectedSlot) {
+        alert('Selected timeslot not found');
+        return;
+      }
+      
+      // Create the appointment datetime string in Singapore timezone
+      const appointmentDateTimeString = `${selectedDate}T${selectedSlot.start_time}`;
+      
+      // Convert to UTC for database storage
+      const utcDateTime = convertToUTC(appointmentDateTimeString);
+      
+      console.log('🗓️ Admin Appointment Scheduling Debug:');
+      console.log('Selected date:', selectedDate);
+      console.log('Selected time:', selectedSlot.start_time);
+      console.log('Combined datetime string:', appointmentDateTimeString);
+      console.log('UTC datetime for database:', utcDateTime.toISOString());
+      
+      const result = await createAppointment({
+        leadId,
+        timeslotId: selectedTimeslot,
+        notes: notes + (notes ? '\n\n' : '') + '(Admin created - lead status unchanged)',
+        isUrgent
+      });
+      
+      if (result.success) {
+        alert('Appointment scheduled successfully (Admin mode - lead status unchanged)!');
+        // Navigate back to lead details or refresh
+        router.push(`/dashboard/leads/${leadId}`);
+      } else {
+        alert('Failed to schedule appointment: Unknown error');
+      }
+    } catch (error) {
+      console.error('Error scheduling admin appointment:', error);
       alert('An error occurred while scheduling the appointment');
     } finally {
       setLoading(false);
@@ -546,6 +626,15 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
             </div>
           ) : (
             <div className="bg-white p-6 rounded-lg shadow-md">
+              {/* Admin mode indicator */}
+              {!isLoadingRoles && isAdmin && (
+                <div className="mb-4 p-3 bg-orange-50 rounded-lg border border-orange-200">
+                  <div className="text-sm font-medium text-orange-900">
+                    🔧 Admin Mode Available: You can schedule appointments without changing lead status
+                  </div>
+                </div>
+              )}
+              
               <form onSubmit={handleSubmit}>
                 <h2 className="font-semibold text-lg mb-4 flex items-center">
                   <ClockIcon className="h-5 w-5 mr-2 text-blue-600" />
@@ -646,6 +735,24 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                   >
                     Cancel
                   </button>
+                  
+                  {/* Admin button - only show for admin users */}
+                  {!isLoadingRoles && isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleAdminSubmit}
+                      disabled={!selectedTimeslot || loading}
+                      className={`
+                        py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white 
+                        ${!selectedTimeslot || loading ? 'bg-orange-400 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700'}
+                        focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500
+                      `}
+                      title="Admin mode: Schedule appointment without changing lead status"
+                    >
+                      {loading ? 'Scheduling...' : 'Admin Schedule'}
+                    </button>
+                  )}
+                  
                   <button
                     type="submit"
                     disabled={!selectedTimeslot || loading}
