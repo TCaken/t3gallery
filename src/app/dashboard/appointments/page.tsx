@@ -1024,7 +1024,7 @@ export default function AppointmentsPage() {
             {(() => {
               const newLoanAppointments = filteredAppointments.filter(apt => apt.type === 'lead');
               const reloanAppointments = filteredAppointments.filter(apt => apt.type === 'borrower');
-              const totalAgents = new Set(filteredAppointments.map(apt => apt.agent_name).filter(Boolean)).size;
+              const missedAppointments = filteredAppointments.filter(apt => apt.status === 'missed');
               const turAppointments = filteredAppointments.filter(apt => apt.status === 'done');
               
               return (
@@ -1093,12 +1093,14 @@ export default function AppointmentsPage() {
                         <UsersIcon className="h-6 w-6 text-orange-600" />
                       </div>
                       <div className="ml-4 flex-1">
-                        <p className="text-sm font-medium text-gray-600">Active Agents</p>
+                        <p className="text-sm font-medium text-gray-600">Missed</p>
                         <div className="flex items-baseline">
-                          <p className="text-2xl font-bold text-gray-900">{totalAgents}</p>
-                          <p className="ml-2 text-sm font-medium text-orange-600">agents</p>
+                          <p className="text-2xl font-bold text-gray-900">{missedAppointments.length}</p>
+                          <p className="ml-2 text-sm font-medium text-orange-600">
+                            {filteredAppointments.length > 0 ? Math.round(missedAppointments.length/filteredAppointments.length) * 100 : 0} %
+                          </p>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">contributing to appointments</p>
+                        <p className="text-xs text-gray-500 mt-1">of total appointments</p>
                       </div>
                     </div>
                   </div>
