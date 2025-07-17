@@ -2,7 +2,7 @@
 
 import { auth } from '@clerk/nextjs/server';
 import { db } from "~/server/db";
-import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments, borrowers } from "~/server/db/schema";
+import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments, borrowers, appointmentReminderLog } from "~/server/db/schema";
 import { eq, and, desc, or } from 'drizzle-orm';
 
 interface WhatsAppRequest {
@@ -309,6 +309,102 @@ export async function sendAutoTriggeredMessage(
   } catch (error) {
     console.error('Error in sendAutoTriggeredMessage:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+// Ascend Appointment Reminder - Send hardcoded template
+export async function ascendAppointmentReminder(
+  customerName: string,
+  phoneNumber: string,
+  appointmentDate: string,
+  timeSlot: string,
+  app = 'unknown' // Who is requesting this reminder
+) {
+  try {
+    console.log('🔔 Sending Ascend appointment reminder:', {
+      customerName,
+      phoneNumber,
+      appointmentDate,
+      timeSlot,
+      app
+    });
+
+    // Hardcoded template configuration based on your provided structure
+    const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
+    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const projectId = "20144ad5-88f2-4336-be9e-9c30b2c0a89b";
+
+    const whatsappData: WhatsAppRequest = {
+      workspaces: workspaceId,
+      channels: channelId,
+      projectId: projectId,
+      identifierValue: formatPhoneNumber(phoneNumber),
+      parameters: [
+        { type: "string", key: "customer_name", value: customerName },
+        { type: "string", key: "appt_date", value: appointmentDate },
+        { type: "string", key: "time_slot", value: timeSlot }
+      ]
+    };
+
+    // Log the attempt to database first
+    const logEntry = await db.insert(appointmentReminderLog).values({
+      customer_name: customerName,
+      phone_number: formatPhoneNumber(phoneNumber),
+      appointment_date: appointmentDate,
+      time_slot: timeSlot,
+      app: app,
+      status: 'pending',
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      project_id: projectId
+    }).returning();
+
+    const logId = logEntry[0]?.id;
+
+    console.log('📱 WhatsApp request data:', JSON.stringify(whatsappData, null, 2));
+
+    // Send the WhatsApp message
+    const response = await fetch('https://api.capcfintech.com/api/bird/v2/wa/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': `${process.env.WHATSAPP_API_KEY}`
+      },
+      body: JSON.stringify(whatsappData)
+    });
+
+    const data = await response.json() as WhatsAppResponse;
+    
+    console.log('📬 WhatsApp API response:', data);
+
+    // Update log with response
+    if (logId) {
+      await db.update(appointmentReminderLog)
+        .set({ 
+          status: response.ok ? 'sent' : 'failed',
+          api_response: data,
+          error_message: response.ok ? null : (data.message ?? 'Unknown error')
+        })
+        .where(eq(appointmentReminderLog.id, logId));
+    }
+
+    if (!response.ok) {
+      throw new Error(data.message ?? 'Failed to send WhatsApp appointment reminder');
+    }
+
+    return { 
+      success: true, 
+      data,
+      message: `Appointment reminder sent to ${customerName} at ${phoneNumber}`,
+      logId: logId
+    };
+    
+  } catch (error) {
+    console.error('❌ Error sending Ascend appointment reminder:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
   }
 }
 
@@ -739,7 +835,7 @@ export async function getAvailableTemplates(customerType?: 'reloan' | 'new') {
     const { userId } = await auth();
     if (!userId) return { success: false, error: 'Not authenticated' };
 
-    let query = db.select({
+    const query = db.select({
       id: whatsappTemplates.id,
       template_id: whatsappTemplates.template_id,
       name: whatsappTemplates.name,

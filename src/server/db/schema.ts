@@ -641,6 +641,34 @@ export const templateTriggerEnum = pgEnum('template_trigger', [
   'appointment_reminder'
 ]);
 
+// Appointment Reminder Log table
+export const appointmentReminderLog = createTable(
+  "appointment_reminder_log",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    customer_name: d.varchar({ length: 255 }).notNull(),
+    phone_number: d.varchar({ length: 20 }).notNull(),
+    appointment_date: d.varchar({ length: 20 }).notNull(), // YYYY-MM-DD format
+    time_slot: d.varchar({ length: 100 }).notNull(),
+    app: d.varchar({ length: 100 }).notNull(), // Who requested this (e.g., "dashboard", "mobile-app", "cron-job")
+    status: d.varchar({ length: 50 }).default('pending').notNull(), // pending, sent, failed
+    api_response: d.json(), // Store API response for debugging
+    error_message: d.text(),
+    workspace_id: d.varchar({ length: 255 }).notNull(),
+    channel_id: d.varchar({ length: 255 }).notNull(),
+    project_id: d.varchar({ length: 255 }).notNull(),
+    sent_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    sent_by: d.varchar({ length: 256 }), // User ID who triggered the reminder
+  }),
+  (t) => [
+    index("reminder_phone_idx").on(t.phone_number),
+    index("reminder_date_idx").on(t.appointment_date),
+    index("reminder_app_idx").on(t.app),
+    index("reminder_sent_at_idx").on(t.sent_at),
+    index("reminder_status_idx").on(t.status)
+  ]
+);
+
 // Simple Playbook Management Tables
 export const playbooks = createTable(
   "playbooks",
