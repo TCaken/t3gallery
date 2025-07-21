@@ -89,6 +89,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   const [showTimeInput, setShowTimeInput] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [customReasonText, setCustomReasonText] = useState('');
+  const [selectedFollowUpReason, setSelectedFollowUpReason] = useState<string>('');
+  const [customFollowUpReasonText, setCustomFollowUpReasonText] = useState('');
 
   // console.log("LeadEditSlideOver", lead);
   
@@ -103,6 +105,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     setInitialValues(newValues);
     setHasUnsavedChanges(false);
     setCurrentStep(0);
+    setSelectedFollowUpReason('');
+    setCustomFollowUpReasonText('');
   }, [lead]);
 
   // Check for unsaved changes
@@ -129,7 +133,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
   const getConfirmationMessage = (action: string) => {
     switch (action) {
       case 'follow_up':
-        return 'Please select a follow-up date. The lead will be scheduled for follow-up on the selected date.';
+        return 'Please select a follow-up reason and date. The lead will be scheduled for follow-up on the selected date.';
       case 'no_answer':
         return 'The lead will be marked as "No Answer" and will stay in this state for 14 days before requiring action.';
       case 'give_up':
@@ -192,22 +196,35 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     setSelectedAction(action);
     if (action === 'follow_up') {
       setFollowUpDate(getDefaultFollowUpDate());
+      setSelectedFollowUpReason('');
+      setCustomFollowUpReasonText('');
     }
     setShowConfirmationModal(true);
   };
 
   const REASON_OPTIONS = [
+    { value: 'blacklisted_did_not_apply', label: 'Blacklisted - Did Not Apply / Wrong Number', finalStatus: 'blacklisted' },
     { value: 'blacklisted_do_not_call', label: 'Blacklisted - Do Not Call', finalStatus: 'blacklisted' },
-    { value: 'blacklisted_drs_bankrupt', label: 'Blacklist - DRS / Bankrupt', finalStatus: 'blacklisted' },
+    { value: 'blacklisted_drs_bankrupt', label: 'Blacklisted - DRS / Bankrupt', finalStatus: 'blacklisted' },
+    { value: 'blacklisted_foreigner_not_eligible', label: 'Blacklisted - Foreigner - Not Eligible', finalStatus: 'blacklisted' },
     { value: 'blacklisted_others', label: 'Blacklisted - Others', finalStatus: 'blacklisted', customReason: true },
-    { value: 'give_up_trouble_maker', label: 'Give Up - Trouble Maker', finalStatus: 'give_up' },
     { value: 'give_up_already_got_loan', label: 'Give Up - Already Got Loan', finalStatus: 'give_up' },
     { value: 'give_up_income_too_low', label: 'Give Up - Income Too Low', finalStatus: 'give_up' },
-    { value: 'give_up_underage', label: 'Give Up - Underage', finalStatus: 'give_up' },
     { value: 'give_up_not_interested', label: 'Give Up - Not Interested', finalStatus: 'give_up' },
+    { value: 'give_up_not_keen_with_ml', label: 'Give Up - Not Keen with ML', finalStatus: 'give_up' },
     { value: 'give_up_no_income_proof', label: 'Give Up - No Income Proof', finalStatus: 'give_up' },
+    { value: 'give_up_trouble_maker', label: 'Give Up - Trouble Maker', finalStatus: 'give_up' },
+    { value: 'give_up_underage', label: 'Give Up - Underage', finalStatus: 'give_up' },
     { value: 'give_up_unemployed', label: 'Give Up - Unemployed', finalStatus: 'give_up' },
-    { value: 'give_up_others', label: 'Give Up - Others', finalStatus: 'give_up', customReason: true },
+    { value: 'give_up_others', label: 'Give Up - Others', finalStatus: 'give_up', customReason: true }
+  ];
+
+  const FOLLOW_UP_REASON_OPTIONS = [
+    { value: 'consider', label: 'Consider' },
+    { value: 'call_back', label: 'Call Back' },
+    { value: 'info_gather', label: 'Info Gather' },
+    { value: 'unsure_appt', label: 'Unsure Appt' },
+    { value: 'others', label: 'Others', customReason: true }
   ];
 
   // Handle confirmed action
@@ -215,6 +232,21 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
     setShowConfirmationModal(false);
     
     if (selectedAction === 'follow_up' && followUpDate) {
+      // Check if follow-up reason is selected
+      if (!selectedFollowUpReason) {
+        showNotification('Please select a follow-up reason', 'error');
+        setShowConfirmationModal(true);
+        return;
+      }
+
+      // If custom reason is required, ensure it is filled
+      const followUpReasonOption = FOLLOW_UP_REASON_OPTIONS.find(option => option.value === selectedFollowUpReason);
+      if (followUpReasonOption?.customReason && !customFollowUpReasonText.trim()) {
+        showNotification('Please provide a reason for this follow-up', 'error');
+        setShowConfirmationModal(true);
+        return;
+      }
+
       // Create date in Singapore timezone
       const timeStr = followUpTime || '00:00'; // Use 00:00 if no time selected
       const timeParts = timeStr.split(':');
@@ -231,16 +263,53 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
       const localTimeZoneOffset = sgDate.getTimezoneOffset(); // Local timezone offset in minutes
       const utcDate = new Date(sgDate.getTime() - (sgTimeZoneOffset + localTimeZoneOffset) * 60 * 1000);
       
-      // Update form values with the follow-up date
+      // Format the follow-up reason with date and time
+      const formattedDateTime = sgDate.toLocaleString('en-SG', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Singapore'
+      });
+      
+      const reasonText = followUpReasonOption?.customReason && customFollowUpReasonText.trim()
+        ? `${followUpReasonOption.label} (${customFollowUpReasonText.trim()})`
+        : followUpReasonOption?.label;
+      
+      const followUpNote = `FOLLOW - ${reasonText} - ${formattedDateTime}`.toUpperCase();
+      
+      // Update form values with the follow-up date and reason
       const updatedValues = {
         ...formValues,
         status: 'follow_up',
-        follow_up_date: utcDate
+        follow_up_date: utcDate,
+        eligibility_notes: followUpNote
       };
       setFormValues(updatedValues);
+
+      // CHECK FOR LEAD NOTES in follow-up path
+      const formElement = document.querySelector('form');
+      if (formElement) {
+        const formData = new FormData(formElement);
+        const leadNotesFromForm = formData.get('lead_notes');
+        
+        const leadNotesText = typeof leadNotesFromForm === 'string' ? leadNotesFromForm : '';
+        if (leadNotesText.trim() && lead.id) {
+          try {
+            const noteResult = await addLeadNote(lead.id, leadNotesText.trim());
+            console.log("🔴 FOLLOW-UP - Lead notes save result:", noteResult);
+            showNotification?.('Lead notes saved successfully', 'success');
+          } catch (error) {
+            console.error('🔴 FOLLOW-UP - Error saving lead notes:', error);
+            showNotification?.('Failed to save lead notes', 'error');
+          }
+        }
+      }
       
       // Save the lead with updated status and follow-up date
-      await onSave(updatedValues);
+      await onSave(updatedValues, followUpNote);
       onClose();
       return;
     }
@@ -277,6 +346,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
           : `${reasonOption.label.toUpperCase()}`,
         follow_up_date: null // Clear follow-up date when changing to final status
       };
+      const leadNotes = updatedValues.eligibility_notes;
 
       // console.log("🔴 STATUS REASON MODAL - updatedValues:", updatedValues);
       setFormValues(updatedValues);
@@ -292,12 +362,12 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         if (leadNotesFromForm && leadNotesFromForm.toString().trim() && lead.id) {
           // console.log("🔴 STATUS REASON MODAL - ATTEMPTING to save lead notes...");
           try {
-            const noteResult = await addLeadNote(lead.id, leadNotesFromForm.toString().trim());
+            // const noteResult = await addLeadNote(lead.id, leadNotesFromForm.toString().trim());
             // console.log("🔴 STATUS REASON MODAL - Lead notes save result:", noteResult);
-            showNotification?.('Lead notes saved successfully', 'success');
+            // showNotification?.('Lead notes saved successfully', 'success');
           } catch (error) {
-            console.error('🔴 STATUS REASON MODAL - Error saving lead notes:', error);
-            showNotification?.('Failed to save lead notes', 'error');
+            // console.error('🔴 STATUS REASON MODAL - Error saving lead notes:', error);
+            // showNotification?.('Failed to save lead notes', 'error');
           }
         } else {
           // console.log("🔴 STATUS REASON MODAL - NO LEAD NOTES found in form:", {
@@ -307,7 +377,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
           // });
         }
       } else {
-        // console.log("🔴 STATUS REASON MODAL - No form element found!");
+        console.log("🔴 STATUS REASON MODAL - No form element found!");
       }
       
       await onSave(updatedValues);
@@ -346,7 +416,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
           
           // Special handling for lead_notes - extract for lead notes
           if (fieldName === 'lead_notes') {
-            leadNotesContent = value.toString();
+            leadNotesContent = typeof value === 'string' ? value : '';
             return; // Don't add to updatedLead
           }
           
@@ -478,7 +548,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
           const formData = new FormData(formElement);
           const leadNotesValue = formData.get('lead_notes');
           if (leadNotesValue) {
-            leadNotesContent = leadNotesValue.toString();
+            leadNotesContent = typeof leadNotesValue === 'string' ? leadNotesValue : '';
           }
         }
         
@@ -1042,6 +1112,42 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                       </p>
                       {selectedAction === 'follow_up' && (
                         <div className="mt-4 space-y-3">
+                          {/* Follow-up Reason Selection */}
+                          <div>
+                            <label htmlFor="follow-up-reason-select" className="block text-sm font-medium text-gray-700 mb-2">
+                              Follow-up Reason
+                            </label>
+                            <select
+                              id="follow-up-reason-select"
+                              value={selectedFollowUpReason}
+                              onChange={(e) => { setSelectedFollowUpReason(e.target.value); setCustomFollowUpReasonText(''); }}
+                              className="w-full rounded-lg border-2 border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3 font-medium"
+                            >
+                              <option value="">Select a reason...</option>
+                              {FOLLOW_UP_REASON_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            {/* Show custom reason input if needed */}
+                            {FOLLOW_UP_REASON_OPTIONS.find(opt => opt.value === selectedFollowUpReason)?.customReason && (
+                              <div className="mt-3">
+                                <label htmlFor="custom-follow-up-reason" className="block text-sm font-medium text-gray-700 mb-1">
+                                  Please specify the reason
+                                </label>
+                                <input
+                                  id="custom-follow-up-reason"
+                                  type="text"
+                                  value={customFollowUpReasonText}
+                                  onChange={e => setCustomFollowUpReasonText(e.target.value)}
+                                  className="w-full rounded-lg border-2 border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base px-4 py-3"
+                                  placeholder="Enter the reason here..."
+                                />
+                              </div>
+                            )}
+                          </div>
+
                           {/* Date and Time in a better layout */}
                           <div className="space-y-4">
                             {/* Date Selection */}
@@ -1114,6 +1220,14 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                             <div className="flex items-start space-x-2">
                               <div className="text-sm">
                                 <p className="text-blue-700 font-medium">
+                                  {selectedFollowUpReason && (
+                                    <span className="block mb-2">
+                                      Reason: {FOLLOW_UP_REASON_OPTIONS.find(opt => opt.value === selectedFollowUpReason)?.label}
+                                      {FOLLOW_UP_REASON_OPTIONS.find(opt => opt.value === selectedFollowUpReason)?.customReason && customFollowUpReasonText.trim() && (
+                                        <span className="text-blue-600"> ({customFollowUpReasonText.trim()})</span>
+                                      )}
+                                    </span>
+                                  )}
                                   {followUpDate ? (
                                     <>
                                       {new Date(followUpDate).toLocaleDateString('en-SG', {
@@ -1195,10 +1309,14 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
                           ? 'bg-red-600 hover:bg-red-500 focus:ring-red-500'
                           : 'bg-yellow-600 hover:bg-yellow-500 focus:ring-yellow-500'
                       } focus:ring-4 focus:ring-offset-2 ${
-                        selectedAction === 'status_reason_modal' && !selectedReason ? 'opacity-50 cursor-not-allowed' : ''
+                        (selectedAction === 'status_reason_modal' && !selectedReason) ||
+                        (selectedAction === 'follow_up' && (!selectedFollowUpReason || !followUpDate)) ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                       onClick={handleConfirmedAction}
-                      disabled={selectedAction === 'status_reason_modal' && !selectedReason}
+                      disabled={
+                        (selectedAction === 'status_reason_modal' && !selectedReason) ||
+                        (selectedAction === 'follow_up' && (!selectedFollowUpReason || !followUpDate))
+                      }
                     >
                       Confirm
                     </button>
