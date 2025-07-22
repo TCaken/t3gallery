@@ -131,7 +131,7 @@ async function findBorrowerByPhone(phoneNumber: string) {
   const foundBorrower = await db
     .select()
     .from(borrowers)
-    .where(eq(borrowers.phone_number, `+65${cleanPhone}`))
+    .where(eq(borrowers.phone_number, `${cleanPhone}`))
     .limit(1);
   
   return foundBorrower.length > 0 ? foundBorrower[0] : null;
@@ -519,7 +519,12 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const singaporeOffset = 8 * 60; // 8 hours in minutes
     const singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
-    const todaySingapore = singaporeTime.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const todayParts = singaporeTime.toISOString().split('T');
+    const todaySingapore = todayParts[0]; // YYYY-MM-DD format
+    
+    if (!todaySingapore) {
+      throw new Error('Failed to get Singapore date');
+    }
 
     console.log('📅 Today (Singapore):', todaySingapore);
 
@@ -553,25 +558,25 @@ export async function POST(request: NextRequest) {
       console.log('🌅 Running end-of-day processing...');
       
       // Get all done appointments for today
-    const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
-    const endOfDaySGT = new Date(`${todaySingapore}T23:59:59.999Z`);
-    const startOfDayUTC = new Date(startOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
-    const endOfDayUTC = new Date(endOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
+      const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
+      const endOfDaySGT = new Date(`${todaySingapore}T23:59:59.999Z`);
+      const startOfDayUTC = new Date(startOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
+      const endOfDayUTC = new Date(endOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
 
       const doneAppointments = await db
-      .select({
-        appointment: appointments,
-        lead: leads
-      })
-      .from(appointments)
-      .leftJoin(leads, eq(appointments.lead_id, leads.id))
-      .where(
-        and(
+        .select({
+          appointment: appointments,
+          lead: leads
+        })
+        .from(appointments)
+        .leftJoin(leads, eq(appointments.lead_id, leads.id))
+        .where(
+          and(
             eq(appointments.status, 'done'),
-          gte(appointments.start_datetime, startOfDayUTC),
-          lte(appointments.start_datetime, endOfDayUTC)
-        )
-      );
+            gte(appointments.start_datetime, startOfDayUTC),
+            lte(appointments.start_datetime, endOfDayUTC)
+          )
+        );
 
       console.log(`📋 Found ${doneAppointments.length} done appointments for end-of-day processing`);
 
@@ -644,45 +649,53 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Process each Excel row
-      for (const row of excelData.rows) {
+    console.log(`📊 Total Excel rows received: ${excelData.rows.length}`);
+
+    // Filter Excel data to only process today's appointments (avoid processing future appointments)
+    const filteredRows = excelData.rows.filter(row => {
+      try {
+        // Parse the timestamp from Excel (which is in GMT+8)
+        const timestampStr = row.col_Date;
+        if (!timestampStr) return false;
+
+        // Handle DD/MM/YY or DD/MM/YYYY format
+        let excelDate: string;
+        if (timestampStr.includes('/') || timestampStr.includes('-')) {
+          const parts = timestampStr.split(/[\/-]/);
+          if (parts.length !== 3) return false;
+
+          const [day, month, yearTime] = parts;
+          if (!day || !month || !yearTime) return false;
+
+          const [yearPart] = yearTime.split(' ');
+          if (!yearPart) return false;
+
+          const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
+          excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        } else {
+          return false; // Unsupported date format
+        }
+
+        // Only process today's appointments 
+        return excelDate === todaySingapore;
+      } catch (error) {
+        console.error(`❌ Error parsing date for row ${row.row_number}:`, error);
+        return false; // Skip rows with invalid dates
+      }
+    });
+
+    console.log(`📅 Filtered to today's appointments: ${filteredRows.length} rows (${todaySingapore})`);
+    console.log(`⏭️ Skipped ${excelData.rows.length - filteredRows.length} future/invalid appointments`);
+
+    // Process each filtered Excel row (only today's appointments)
+    for (const row of filteredRows) {
         processedCount++;
         
       try {
-        // Parse the timestamp from Excel (which is in GMT+8)
-        let excelDate: string;
-        try {
-          const timestampStr = row.col_Date;
-          if (!timestampStr) {
-            throw new Error('Empty timestamp');
-          }
-
-          // Handle DD/MM/YY or DD/MM/YYYY format
-          if (timestampStr.includes('/') || timestampStr.includes('-')) {
-            const parts = timestampStr.split(/[\/-]/);
-            if (parts.length !== 3) {
-              throw new Error('Invalid date format: expected DD/MM/YY or DD/MM/YYYY');
-            }
-
-            const [day, month, yearTime] = parts;
-            if (!day || !month || !yearTime) {
-              throw new Error('Invalid date format: missing day, month, or year');
-            }
-
-            const [yearPart] = yearTime.split(' ');
-            if (!yearPart) {
-              throw new Error('Invalid date format: missing year');
-            }
-
-            const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
-            excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-          } else {
-            throw new Error('Unsupported date format');
-          }
-        } catch (error) {
-          console.error(`❌ Error parsing timestamp for row ${row.row_number}:`, error);
-          continue;
-        }
+        // Since we already filtered for today's appointments, we know this is today
+        const excelDate = todaySingapore;
+        const isExcelToday = true;
+        const targetAppointmentDate = todaySingapore;
 
         // Clean and format the phone number from Excel
         const cleanExcelPhone = row["col_Mobile Number"]?.toString().replace(/\D/g, '');
@@ -698,15 +711,11 @@ export async function POST(request: NextRequest) {
         // Check if appointment turned up (UW field filled)
         const appointmentTurnedUp = checkAppointmentAttendance(row);
         
-        // Determine target date for appointment
-        const isExcelToday = excelDate === todaySingapore;
-        const targetAppointmentDate = isExcelToday ? todaySingapore : excelDate;
-        
-        console.log(`📅 Processing ${fullName} - Excel date: ${excelDate}, Today: ${todaySingapore}, Target: ${targetAppointmentDate}`);
+        console.log(`📅 Processing ${fullName} - Today's appointment (${todaySingapore}) - Attended: ${appointmentTurnedUp}`);
         
         // Find existing lead by phone number
         const existingLead = await findLeadByPhone(formattedPhone);
-
+        
         if (!existingLead) {
           // Case A: Lead doesn't exist - create new lead and assign to SEO
           console.log(`🆕 Creating new lead for phone ${cleanExcelPhone}`);
@@ -729,37 +738,37 @@ export async function POST(request: NextRequest) {
           if (createLeadResult.success && createLeadResult.lead) {
             createdLeadsCount++;
             
-            // Create appointment for the target date (could be today or future date)
-            const nearestTimeslot = await findNearestTimeslot(targetAppointmentDate);
+            // Create appointment for today
+            const nearestTimeslot = await findNearestTimeslot(todaySingapore);
             if (nearestTimeslot) {
               const appointmentResult = await createAppointment({
                 leadId: createLeadResult.lead.id,
                 timeslotId: nearestTimeslot.id,
-                notes: `Auto-created from Google Sheets - ${fullName} (Original date: ${excelDate})`,
+                notes: `Auto-created from Google Sheets - ${fullName} (Today: ${todaySingapore})`,
                 isUrgent: false,
                 overrideUserId: authenticatedUserId
               });
-        
+
               if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
                 createdAppointmentsCount++;
-          
-                // Update appointment status based on attendance (only if it's for today and attended)
-                const appointmentStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'upcoming';
-                const leadStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'booked';
                 
-                if (isExcelToday && appointmentTurnedUp) {
+                // Update appointment status based on attendance
+                const appointmentStatus = appointmentTurnedUp ? 'done' : 'upcoming';
+                const leadStatus = appointmentTurnedUp ? 'done' : 'booked';
+                
+                if (appointmentTurnedUp) {
                   await db.update(appointments)
-              .set({
+                    .set({ 
                       status: appointmentStatus,
-                updated_by: fallbackUserId
-              })
+                      updated_by: authenticatedUserId
+                    })
                     .where(eq(appointments.id, appointmentResult.appointment.id));
                     
                   await updateLead(createLeadResult.lead.id, {
                     status: leadStatus,
-                    updated_by: fallbackUserId
+                    updated_by: authenticatedUserId
                   });
-          }
+                }
 
                 results.push({
                   appointmentId: appointmentResult.appointment.id.toString(),
@@ -769,7 +778,7 @@ export async function POST(request: NextRequest) {
                   newAppointmentStatus: appointmentStatus,
                   oldLeadStatus: 'none',
                   newLeadStatus: leadStatus,
-                  reason: `New lead created and appointment scheduled for ${targetAppointmentDate}${(isExcelToday && appointmentTurnedUp) ? ' - Marked as attended' : ''}`,
+                  reason: `New lead created and appointment scheduled for today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
                   appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
                   timeDiffHours: 'N/A',
                   action: 'create_lead_and_appointment'
@@ -778,18 +787,18 @@ export async function POST(request: NextRequest) {
             }
           }
         } else {
-          // Lead exists - check for appointments on the target date
-          const targetDateAppointments = await db
+          // Lead exists - check for appointments today
+          const todayAppointments = await db
             .select()
             .from(appointments)
             .where(
               and(
                 eq(appointments.lead_id, existingLead.id),
-                gte(appointments.start_datetime, new Date(`${targetAppointmentDate}T00:00:00.000Z`)),
-                lte(appointments.start_datetime, new Date(`${targetAppointmentDate}T23:59:59.999Z`))
+                gte(appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
+                lte(appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
               )
             );
-            
+
           // Also check for any upcoming appointments on other dates
           const anyUpcomingAppointments = await db
             .select()
@@ -801,45 +810,45 @@ export async function POST(request: NextRequest) {
               )
             );
 
-          if (targetDateAppointments.length === 0) {
-            // No appointment for target date
+          if (todayAppointments.length === 0) {
+            // No appointment for today
             
             if (anyUpcomingAppointments.length > 0) {
-              // Case C: Has appointment on different date - move it to target date
+              // Case C: Has appointment on different date - move it to today
               const appointmentToMove = anyUpcomingAppointments[0];
               if (appointmentToMove) {
-                console.log(`📅 Moving existing appointment for lead ${existingLead.id} to ${targetAppointmentDate}`);
+                console.log(`📅 Moving existing appointment for lead ${existingLead.id} to today`);
                 
-                const nearestTimeslot = await findNearestTimeslot(targetAppointmentDate);
+                const nearestTimeslot = await findNearestTimeslot(todaySingapore);
                 if (nearestTimeslot) {
                   const moveResult = await moveAppointmentToTimeslot(
                     appointmentToMove.id, 
                     nearestTimeslot.id, 
-                    fallbackUserId
+                    authenticatedUserId
                   );
 
                   if (moveResult.success) {
                     movedAppointmentsCount++;
                     
-                    // Update status based on attendance (only if moved to today and attended)
-                    const appointmentStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'upcoming';
-                    const leadStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'booked';
+                    // Update status based on attendance
+                    const appointmentStatus = appointmentTurnedUp ? 'done' : 'upcoming';
+                    const leadStatus = appointmentTurnedUp ? 'done' : 'booked';
                     
-                    if (isExcelToday && appointmentTurnedUp) {
+                    if (appointmentTurnedUp) {
                       await db.update(appointments)
-          .set({ 
+                        .set({ 
                           status: appointmentStatus,
-            updated_by: fallbackUserId
-          })
+                          updated_by: authenticatedUserId
+                        })
                         .where(eq(appointments.id, appointmentToMove.id));
                         
                       await updateLead(existingLead.id, {
                         status: leadStatus,
-          updated_by: fallbackUserId
-        });
+                        updated_by: authenticatedUserId
+                      });
                     }
-        
-        results.push({
+
+                    results.push({
                       appointmentId: appointmentToMove.id.toString(),
                       leadId: existingLead.id.toString(),
                       leadName: fullName,
@@ -847,7 +856,7 @@ export async function POST(request: NextRequest) {
                       newAppointmentStatus: appointmentStatus,
                       oldLeadStatus: existingLead.status,
                       newLeadStatus: leadStatus,
-                      reason: `Appointment moved from ${format(new Date(appointmentToMove.start_datetime), 'yyyy-MM-dd')} to ${targetAppointmentDate}${(isExcelToday && appointmentTurnedUp) ? ' and marked as attended' : ''}`,
+                      reason: `Appointment moved from ${format(new Date(appointmentToMove.start_datetime), 'yyyy-MM-dd')} to today${appointmentTurnedUp ? ' and marked as attended' : ''}`,
                       appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
                       timeDiffHours: 'N/A',
                       action: 'move_appointment'
@@ -856,15 +865,15 @@ export async function POST(request: NextRequest) {
                 }
               }
             } else {
-              // Case B: Lead exists but no appointment at all - create appointment for target date
-              console.log(`📅 Creating appointment for existing lead ${existingLead.id} on ${targetAppointmentDate}`);
+              // Case B: Lead exists but no appointment at all - create appointment for today
+              console.log(`📅 Creating appointment for existing lead ${existingLead.id} today`);
               
-              const nearestTimeslot = await findNearestTimeslot(targetAppointmentDate);
+              const nearestTimeslot = await findNearestTimeslot(todaySingapore);
               if (nearestTimeslot) {
                 const appointmentResult = await createAppointment({
                   leadId: existingLead.id,
                   timeslotId: nearestTimeslot.id,
-                  notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Original date: ${excelDate})`,
+                  notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Today: ${todaySingapore})`,
                   isUrgent: false,
                   overrideUserId: authenticatedUserId
                 });
@@ -872,21 +881,21 @@ export async function POST(request: NextRequest) {
                 if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
                   createdAppointmentsCount++;
                   
-                  // Update appointment status based on attendance (only if it's for today and attended)
-                  const appointmentStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'upcoming';
-                  const leadStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'booked';
+                  // Update appointment status based on attendance
+                  const appointmentStatus = appointmentTurnedUp ? 'done' : 'upcoming';
+                  const leadStatus = appointmentTurnedUp ? 'done' : 'booked';
                   
-                  if (isExcelToday && appointmentTurnedUp) {
+                  if (appointmentTurnedUp) {
                     await db.update(appointments)
                       .set({ 
                         status: appointmentStatus,
-                        updated_by: fallbackUserId 
+                        updated_by: authenticatedUserId
                       })
                       .where(eq(appointments.id, appointmentResult.appointment.id));
                       
                     await updateLead(existingLead.id, {
                       status: leadStatus,
-                      updated_by: fallbackUserId
+                      updated_by: authenticatedUserId
                     });
                   }
 
@@ -898,7 +907,7 @@ export async function POST(request: NextRequest) {
                     newAppointmentStatus: appointmentStatus,
                     oldLeadStatus: existingLead.status,
                     newLeadStatus: leadStatus,
-                    reason: `Appointment created for existing lead on ${targetAppointmentDate}${(isExcelToday && appointmentTurnedUp) ? ' - Marked as attended' : ''}`,
+                    reason: `Appointment created for existing lead today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
                     appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
                     timeDiffHours: 'N/A',
                     action: 'create_appointment'
@@ -907,15 +916,14 @@ export async function POST(request: NextRequest) {
               }
             }
           } else {
-            // Case D: Lead has appointment on target date - update status
-            const targetDateAppointment = targetDateAppointments[0];
+            // Case D: Lead has appointment today - update status
+            const todayAppointment = todayAppointments[0];
             
-            if (targetDateAppointment && isExcelToday) {
-              // Only update if it's today's appointment - for future appointments, just acknowledge
-        const code = row.col_Code?.trim().toUpperCase();
-              let newAppointmentStatus = targetDateAppointment.status;
+            if (todayAppointment) {
+              const code = row.col_Code?.trim().toUpperCase();
+              let newAppointmentStatus = todayAppointment.status;
               let newLeadStatus = existingLead.status;
-        let updateReason = '';
+              let updateReason = '';
 
               // Determine status based on attendance and codes
               if (appointmentTurnedUp) {
@@ -925,28 +933,28 @@ export async function POST(request: NextRequest) {
                 
                 // Update based on code if provided
                 if (code) {
-        switch (code) {
-          case 'P':
+                  switch (code) {
+                    case 'P':
                       newLeadStatus = 'done';
                       updateReason += ' - P (Completed)';
-            break;
-          case 'PRS':
+                      break;
+                    case 'PRS':
                       newLeadStatus = 'done';
                       updateReason += ' - PRS (Customer Rejected)';
-            break;
-          case 'RS':
+                      break;
+                    case 'RS':
                       newLeadStatus = 'missed/RS';
                       updateReason += ' - RS (Rejected by System)';
-            break;
-          case 'R':
+                      break;
+                    case 'R':
                       newLeadStatus = 'done';
                       updateReason += ' - R (Rejected)';
-                  break;
-                }
+                      break;
+                  }
                 }
               } else {
                 // Check if appointment should be marked as missed based on time threshold
-                const appointmentTimeSGT = new Date(targetDateAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000));
+                const appointmentTimeSGT = new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000));
                 const timeDiffMs = singaporeTime.getTime() - appointmentTimeSGT.getTime();
                 const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
 
@@ -958,50 +966,35 @@ export async function POST(request: NextRequest) {
               }
 
               // Apply updates if status changed
-              if (newAppointmentStatus !== targetDateAppointment.status || newLeadStatus !== existingLead.status) {
+              if (newAppointmentStatus !== todayAppointment.status || newLeadStatus !== existingLead.status) {
                 await db.update(appointments)
-          .set({ 
-            status: newAppointmentStatus,
-                    updated_by: fallbackUserId 
-          })
-                  .where(eq(appointments.id, targetDateAppointment.id));
+                  .set({ 
+                    status: newAppointmentStatus,
+                    updated_by: authenticatedUserId
+                  })
+                  .where(eq(appointments.id, todayAppointment.id));
                   
                 await updateLead(existingLead.id, {
                   status: newLeadStatus,
-                  updated_by: fallbackUserId
+                  updated_by: authenticatedUserId
                 });
-        
-        results.push({
-                  appointmentId: targetDateAppointment.id.toString(),
+
+                results.push({
+                  appointmentId: todayAppointment.id.toString(),
                   leadId: existingLead.id.toString(),
                   leadName: fullName,
-                  oldAppointmentStatus: targetDateAppointment.status,
-          newAppointmentStatus: newAppointmentStatus,
+                  oldAppointmentStatus: todayAppointment.status,
+                  newAppointmentStatus: newAppointmentStatus,
                   oldLeadStatus: existingLead.status,
                   newLeadStatus: newLeadStatus,
                   reason: updateReason,
-                  appointmentTime: format(new Date(targetDateAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
-                  timeDiffHours: appointmentTurnedUp ? 'N/A' : `${((singaporeTime.getTime() - new Date(targetDateAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)).getTime()) / (1000 * 60 * 60)).toFixed(2)}`,
+                  appointmentTime: format(new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
+                  timeDiffHours: appointmentTurnedUp ? 'N/A' : `${((singaporeTime.getTime() - new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)).getTime()) / (1000 * 60 * 60)).toFixed(2)}`,
                   action: 'update_existing_appointment'
                 });
 
-        updatedCount++;
+                updatedCount++;
               }
-            } else if (targetDateAppointment && !isExcelToday) {
-              // Future appointment exists - just acknowledge it
-              results.push({
-                appointmentId: targetDateAppointment.id.toString(),
-                leadId: existingLead.id.toString(),
-                leadName: fullName,
-                oldAppointmentStatus: targetDateAppointment.status,
-                newAppointmentStatus: targetDateAppointment.status,
-                oldLeadStatus: existingLead.status,
-                newLeadStatus: existingLead.status,
-                reason: `Future appointment already exists for ${targetAppointmentDate} - no changes needed`,
-                appointmentTime: format(new Date(targetDateAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
-                timeDiffHours: 'N/A',
-                action: 'acknowledge_future_appointment'
-              });
             }
           }
         }
@@ -1012,30 +1005,30 @@ export async function POST(request: NextRequest) {
           const existingBorrower = await findBorrowerByPhone(formattedPhone);
           
           if (existingBorrower) {
-            // Borrower exists - check for appointments
+            // Borrower exists - check for today's appointments
             const todayBorrowerAppointments = await db
               .select()
               .from(borrower_appointments)
               .where(
                 and(
                   eq(borrower_appointments.borrower_id, existingBorrower.id),
-                  gte(borrower_appointments.start_datetime, new Date(`${targetAppointmentDate}T00:00:00.000Z`)),
-                  lte(borrower_appointments.start_datetime, new Date(`${targetAppointmentDate}T23:59:59.999Z`))
+                  gte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
+                  lte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
                 )
               );
 
             if (todayBorrowerAppointments.length === 0) {
               // No borrower appointment for today - create one
-              console.log(`📅 Creating borrower appointment for existing borrower ${existingBorrower.id}`);
+              console.log(`📅 Creating borrower appointment for existing borrower ${existingBorrower.id} today`);
               
-              const nearestTimeslot = await findNearestTimeslot(targetAppointmentDate);
+              const nearestTimeslot = await findNearestTimeslot(todaySingapore);
               if (nearestTimeslot) {
                 // Use existing createBorrowerAppointment function with API key support
                 const borrowerAppointmentResult = await createBorrowerAppointment({
                   borrower_id: existingBorrower.id,
                   agent_id: authenticatedUserId,
                   appointment_type: "reloan_consultation",
-                  notes: `Auto-created from Google Sheets - ${fullName} (Original date: ${excelDate})`,
+                  notes: `Auto-created from Google Sheets - ${fullName} (Today: ${todaySingapore})`,
                   lead_source: "Google Sheets",
                   start_datetime: new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time),
                   end_datetime: new Date(nearestTimeslot.date + 'T' + nearestTimeslot.end_time),
@@ -1046,8 +1039,8 @@ export async function POST(request: NextRequest) {
                 if (borrowerAppointmentResult.success && borrowerAppointmentResult.data) {
                   const newBorrowerAppointment = borrowerAppointmentResult.data;
                   
-                  // Update status if it's for today and attended
-                  if (isExcelToday && appointmentTurnedUp) {
+                  // Update status if attended
+                  if (appointmentTurnedUp) {
                     await db.update(borrower_appointments)
                       .set({ 
                         status: 'done',
@@ -1063,10 +1056,10 @@ export async function POST(request: NextRequest) {
                     leadId: `B${existingBorrower.id}`,
                     leadName: fullName,
                     oldAppointmentStatus: 'none',
-                    newAppointmentStatus: (isExcelToday && appointmentTurnedUp) ? 'done' : 'upcoming',
+                    newAppointmentStatus: appointmentTurnedUp ? 'done' : 'upcoming',
                     oldLeadStatus: existingBorrower.status,
                     newLeadStatus: existingBorrower.status,
-                    reason: `Borrower appointment created for ${targetAppointmentDate}${(isExcelToday && appointmentTurnedUp) ? ' - Marked as attended' : ''}`,
+                    reason: `Borrower appointment created for today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
                     appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
                     timeDiffHours: 'N/A',
                     action: 'create_borrower_appointment'
@@ -1074,10 +1067,10 @@ export async function POST(request: NextRequest) {
                 }
               }
             } else {
-              // Has borrower appointment - update or move it
+              // Has borrower appointment today - update status
               const todayBorrowerAppointment = todayBorrowerAppointments[0];
               
-              if (todayBorrowerAppointment && isExcelToday) {
+              if (todayBorrowerAppointment) {
                 // Update status based on attendance
                 let newAppointmentStatus = todayBorrowerAppointment.status;
                 let updateReason = '';
@@ -1121,60 +1114,6 @@ export async function POST(request: NextRequest) {
 
                   updatedCount++;
                 }
-              } else {
-                // Has borrower appointment on different date - move to today
-                const existingBorrowerAppointment = await db
-                  .select()
-                  .from(borrower_appointments)
-                  .where(
-                    and(
-                      eq(borrower_appointments.borrower_id, existingBorrower.id),
-                      eq(borrower_appointments.status, 'upcoming')
-                    )
-                  )
-                  .limit(1);
-
-                if (existingBorrowerAppointment.length > 0 && existingBorrowerAppointment[0]) {
-                  const appointmentToMove = existingBorrowerAppointment[0];
-                  const nearestTimeslot = await findNearestTimeslot(targetAppointmentDate);
-                  if (nearestTimeslot) {
-                    const moveResult = await moveBorrowerAppointmentToTimeslot(
-                      appointmentToMove.id, 
-                      nearestTimeslot.id, 
-                      authenticatedUserId
-                    );
-
-                    if (moveResult.success) {
-                      movedAppointmentsCount++;
-                      
-                      // Update status based on attendance
-                      const appointmentStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'upcoming';
-                      
-                      if (isExcelToday && appointmentTurnedUp) {
-                        await db.update(borrower_appointments)
-                          .set({ 
-                            status: appointmentStatus,
-                            updated_by: authenticatedUserId
-                          })
-                          .where(eq(borrower_appointments.id, appointmentToMove.id));
-                      }
-
-                      results.push({
-                        appointmentId: `B${appointmentToMove.id}`,
-                        leadId: `B${existingBorrower.id}`,
-                        leadName: fullName,
-                        oldAppointmentStatus: appointmentToMove.status,
-                        newAppointmentStatus: appointmentStatus,
-                        oldLeadStatus: existingBorrower.status,
-                        newLeadStatus: existingBorrower.status,
-                        reason: `Borrower appointment moved from ${format(new Date(appointmentToMove.start_datetime), 'yyyy-MM-dd')} to ${targetAppointmentDate}${(isExcelToday && appointmentTurnedUp) ? ' and marked as attended' : ''}`,
-                        appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
-                        timeDiffHours: 'N/A',
-                        action: 'move_borrower_appointment'
-                      });
-                    }
-                  }
-                }
               }
             }
           } else {
@@ -1216,7 +1155,9 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`📊 Real-time processing completed:`);
-    console.log(`   Excel rows processed: ${processedCount}`);
+    console.log(`   Total Excel rows received: ${excelData.rows.length}`);
+    console.log(`   Today's appointments processed: ${filteredRows.length}`);
+    console.log(`   Future appointments skipped: ${excelData.rows.length - filteredRows.length}`);
     console.log(`   Appointments updated: ${updatedCount}`);
     console.log(`   Leads created: ${createdLeadsCount}`);
     console.log(`   Appointments created: ${createdAppointmentsCount}`);
@@ -1224,9 +1165,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Real-time processing completed. Processed ${processedCount} Excel rows.`,
+      message: `Real-time processing completed. Processed ${filteredRows.length} today's appointments, skipped ${excelData.rows.length - filteredRows.length} future appointments.`,
       mode: processingMode,
-      processed: processedCount,
+      totalReceived: excelData.rows.length,
+      todayProcessed: filteredRows.length,
+      futureSkipped: excelData.rows.length - filteredRows.length,
       updated: updatedCount,
       created: {
         leads: createdLeadsCount,
@@ -1244,7 +1187,9 @@ export async function POST(request: NextRequest) {
       summary: {
         mode: processingMode,
         excelDataProvided: true,
-        excelRowsProcessed: processedCount,
+        totalExcelRows: excelData.rows.length,
+        todayRowsProcessed: filteredRows.length,
+        futureRowsSkipped: excelData.rows.length - filteredRows.length,
         appointmentStatusUpdates: updatedCount,
         leadsCreated: createdLeadsCount,
         appointmentsCreated: createdAppointmentsCount,
