@@ -10,6 +10,7 @@ import { eq, and, gte, lte, isNull, desc, asc } from "drizzle-orm";
 import { format, addHours } from 'date-fns';
 import { updateLead, createLead } from "~/app/_actions/leadActions";
 import { createAppointment } from "~/app/_actions/appointmentAction";
+import { createBorrowerAppointment } from "~/app/_actions/borrowerAppointments";
 
 // Types for Excel data structure (based on the provided JSON)
 interface ExcelRow {
@@ -338,6 +339,8 @@ export async function POST(request: NextRequest) {
     let excelData: ExcelData | undefined;
     let thresholdHours = 3;
     let processingMode: ProcessingMode = 'realtime';
+    let apiKey: string | undefined;
+    let agentUserId: string | undefined;
     
     const contentType = request.headers.get('content-type') ?? '';
     
@@ -348,10 +351,14 @@ export async function POST(request: NextRequest) {
           excelData?: ExcelData; 
           thresholdHours?: number;
           mode?: ProcessingMode;
+          api_key?: string;
+          agent_user_id?: string;
         };
         excelData = body.excelData;
         thresholdHours = body.thresholdHours ?? 3;
         processingMode = body.mode ?? 'realtime';
+        apiKey = body.api_key;
+        agentUserId = body.agent_user_id;
       } catch (jsonError) {
         console.error('❌ JSON parsing failed:', jsonError);
         return NextResponse.json({
@@ -421,6 +428,17 @@ export async function POST(request: NextRequest) {
           if (modeParam && typeof modeParam === 'string') {
             processingMode = (modeParam as ProcessingMode) ?? 'realtime';
           }
+
+          // Get API key and agent user ID from form data
+          const apiKeyParam = formData.get('api_key');
+          if (apiKeyParam && typeof apiKeyParam === 'string') {
+            apiKey = apiKeyParam;
+          }
+
+          const agentUserIdParam = formData.get('agent_user_id');
+          if (agentUserIdParam && typeof agentUserIdParam === 'string') {
+            agentUserId = agentUserIdParam;
+          }
           
           console.log('✅ Successfully parsed form data');
           console.log(`📊 Found ${excelData.rows.length} rows`);
@@ -451,6 +469,8 @@ export async function POST(request: NextRequest) {
             };
             thresholdHours = parseFloat(url.searchParams.get('thresholdHours') ?? '3');
             processingMode = (url.searchParams.get('mode') as ProcessingMode) ?? 'realtime';
+            apiKey = url.searchParams.get('api_key') ?? undefined;
+            agentUserId = url.searchParams.get('agent_user_id') ?? undefined;
           } else {
             throw new Error('No rows parameter found');
           }
@@ -465,8 +485,35 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Validate API key and determine user ID to use
+    const envApiKey = process.env.API_KEY;
+    let authenticatedUserId = "system-update"; // Default fallback
+    let isAuthenticated = false;
+
+    if (apiKey && envApiKey && apiKey === envApiKey) {
+      // API key is valid
+      isAuthenticated = true;
+      if (agentUserId?.trim()) {
+        authenticatedUserId = agentUserId.trim();
+        console.log(`🔐 API key validated - Using agent user ID: ${authenticatedUserId}`);
+      } else {
+        console.log(`🔐 API key validated - No agent_user_id provided, using system-update`);
+      }
+    } else if (apiKey) {
+      // API key provided but invalid
+      console.log(`❌ Invalid API key provided`);
+      return NextResponse.json({
+        error: "Invalid API key",
+        message: "The provided API key is not valid"
+      }, { status: 401 });
+    } else {
+      // No API key provided - use fallback (for manual testing)
+      console.log(`⚠️ No API key provided - Using fallback user ID for manual testing`);
+    }
+
     console.log(`🔄 Starting appointment status update process in ${processingMode} mode...`);
     console.log('⏰ Threshold hours:', thresholdHours);
+    console.log(`👤 Using user ID: ${authenticatedUserId} (Authenticated: ${isAuthenticated})`);
 
     // Get today's date in Singapore timezone (UTC+8)
     const now = new Date();
@@ -476,8 +523,8 @@ export async function POST(request: NextRequest) {
 
     console.log('📅 Today (Singapore):', todaySingapore);
 
-    // Use fallback userId for updates
-    const fallbackUserId = "system-update";
+    // Use authenticated user ID for updates
+    const fallbackUserId = authenticatedUserId;
 
     let processedCount = 0;
     let updatedCount = 0;
@@ -506,25 +553,25 @@ export async function POST(request: NextRequest) {
       console.log('🌅 Running end-of-day processing...');
       
       // Get all done appointments for today
-      const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
-      const endOfDaySGT = new Date(`${todaySingapore}T23:59:59.999Z`);
-      const startOfDayUTC = new Date(startOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
-      const endOfDayUTC = new Date(endOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
+    const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
+    const endOfDaySGT = new Date(`${todaySingapore}T23:59:59.999Z`);
+    const startOfDayUTC = new Date(startOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
+    const endOfDayUTC = new Date(endOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
 
       const doneAppointments = await db
-        .select({
-          appointment: appointments,
-          lead: leads
-        })
-        .from(appointments)
-        .leftJoin(leads, eq(appointments.lead_id, leads.id))
-        .where(
-          and(
+      .select({
+        appointment: appointments,
+        lead: leads
+      })
+      .from(appointments)
+      .leftJoin(leads, eq(appointments.lead_id, leads.id))
+      .where(
+        and(
             eq(appointments.status, 'done'),
-            gte(appointments.start_datetime, startOfDayUTC),
-            lte(appointments.start_datetime, endOfDayUTC)
-          )
-        );
+          gte(appointments.start_datetime, startOfDayUTC),
+          lte(appointments.start_datetime, endOfDayUTC)
+        )
+      );
 
       console.log(`📋 Found ${doneAppointments.length} done appointments for end-of-day processing`);
 
@@ -562,7 +609,7 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-
+      
       return NextResponse.json({
         success: true,
         message: `End-of-day processing completed. Updated ${updatedCount} leads.`,
@@ -571,11 +618,18 @@ export async function POST(request: NextRequest) {
         updated: updatedCount,
         todaySingapore,
         results,
+        authentication: {
+          authenticated: isAuthenticated,
+          userId: authenticatedUserId,
+          apiKeyProvided: !!apiKey
+        },
         summary: {
           mode: processingMode,
           doneAppointmentsProcessed: doneAppointments.length,
           leadStatusUpdates: updatedCount,
-          errorCount: results.filter(r => r.error).length
+          errorCount: results.filter(r => r.error).length,
+          authenticatedUser: authenticatedUserId,
+          isAuthenticated: isAuthenticated
         }
       });
     }
@@ -591,9 +645,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Process each Excel row
-    for (const row of excelData.rows) {
-      processedCount++;
-      
+      for (const row of excelData.rows) {
+        processedCount++;
+        
       try {
         // Parse the timestamp from Excel (which is in GMT+8)
         let excelDate: string;
@@ -652,7 +706,7 @@ export async function POST(request: NextRequest) {
         
         // Find existing lead by phone number
         const existingLead = await findLeadByPhone(formattedPhone);
-        
+
         if (!existingLead) {
           // Case A: Lead doesn't exist - create new lead and assign to SEO
           console.log(`🆕 Creating new lead for phone ${cleanExcelPhone}`);
@@ -667,6 +721,8 @@ export async function POST(request: NextRequest) {
             email: row["col_Email Address"]?.toString() || '',
             employment_status: row["col_Employment Type"]?.toString() || '',
             loan_purpose: row["col_What is the purpose of the Loan?"]?.toString() || '',
+            created_by: authenticatedUserId,
+            updated_by: authenticatedUserId,
             bypassEligibility: false // Check eligibility for new leads
           });
 
@@ -680,29 +736,30 @@ export async function POST(request: NextRequest) {
                 leadId: createLeadResult.lead.id,
                 timeslotId: nearestTimeslot.id,
                 notes: `Auto-created from Google Sheets - ${fullName} (Original date: ${excelDate})`,
-                isUrgent: false
+                isUrgent: false,
+                overrideUserId: authenticatedUserId
               });
-
+        
               if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
                 createdAppointmentsCount++;
-                
+          
                 // Update appointment status based on attendance (only if it's for today and attended)
                 const appointmentStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'upcoming';
                 const leadStatus = (isExcelToday && appointmentTurnedUp) ? 'done' : 'booked';
                 
                 if (isExcelToday && appointmentTurnedUp) {
                   await db.update(appointments)
-                    .set({ 
+              .set({
                       status: appointmentStatus,
-                      updated_by: fallbackUserId 
-                    })
+                updated_by: fallbackUserId
+              })
                     .where(eq(appointments.id, appointmentResult.appointment.id));
                     
                   await updateLead(createLeadResult.lead.id, {
                     status: leadStatus,
                     updated_by: fallbackUserId
                   });
-                }
+          }
 
                 results.push({
                   appointmentId: appointmentResult.appointment.id.toString(),
@@ -732,7 +789,7 @@ export async function POST(request: NextRequest) {
                 lte(appointments.start_datetime, new Date(`${targetAppointmentDate}T23:59:59.999Z`))
               )
             );
-
+            
           // Also check for any upcoming appointments on other dates
           const anyUpcomingAppointments = await db
             .select()
@@ -770,19 +827,19 @@ export async function POST(request: NextRequest) {
                     
                     if (isExcelToday && appointmentTurnedUp) {
                       await db.update(appointments)
-                        .set({ 
+          .set({ 
                           status: appointmentStatus,
-                          updated_by: fallbackUserId 
-                        })
+            updated_by: fallbackUserId
+          })
                         .where(eq(appointments.id, appointmentToMove.id));
                         
                       await updateLead(existingLead.id, {
                         status: leadStatus,
-                        updated_by: fallbackUserId
-                      });
+          updated_by: fallbackUserId
+        });
                     }
-
-                    results.push({
+        
+        results.push({
                       appointmentId: appointmentToMove.id.toString(),
                       leadId: existingLead.id.toString(),
                       leadName: fullName,
@@ -808,7 +865,8 @@ export async function POST(request: NextRequest) {
                   leadId: existingLead.id,
                   timeslotId: nearestTimeslot.id,
                   notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Original date: ${excelDate})`,
-                  isUrgent: false
+                  isUrgent: false,
+                  overrideUserId: authenticatedUserId
                 });
 
                 if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
@@ -854,10 +912,10 @@ export async function POST(request: NextRequest) {
             
             if (targetDateAppointment && isExcelToday) {
               // Only update if it's today's appointment - for future appointments, just acknowledge
-              const code = row.col_Code?.trim().toUpperCase();
+        const code = row.col_Code?.trim().toUpperCase();
               let newAppointmentStatus = targetDateAppointment.status;
               let newLeadStatus = existingLead.status;
-              let updateReason = '';
+        let updateReason = '';
 
               // Determine status based on attendance and codes
               if (appointmentTurnedUp) {
@@ -867,24 +925,24 @@ export async function POST(request: NextRequest) {
                 
                 // Update based on code if provided
                 if (code) {
-                  switch (code) {
-                    case 'P':
+        switch (code) {
+          case 'P':
                       newLeadStatus = 'done';
                       updateReason += ' - P (Completed)';
-                      break;
-                    case 'PRS':
+            break;
+          case 'PRS':
                       newLeadStatus = 'done';
                       updateReason += ' - PRS (Customer Rejected)';
-                      break;
-                    case 'RS':
+            break;
+          case 'RS':
                       newLeadStatus = 'missed/RS';
                       updateReason += ' - RS (Rejected by System)';
-                      break;
-                    case 'R':
+            break;
+          case 'R':
                       newLeadStatus = 'done';
                       updateReason += ' - R (Rejected)';
-                      break;
-                  }
+                  break;
+                }
                 }
               } else {
                 // Check if appointment should be marked as missed based on time threshold
@@ -902,23 +960,23 @@ export async function POST(request: NextRequest) {
               // Apply updates if status changed
               if (newAppointmentStatus !== targetDateAppointment.status || newLeadStatus !== existingLead.status) {
                 await db.update(appointments)
-                  .set({ 
-                    status: newAppointmentStatus,
+          .set({ 
+            status: newAppointmentStatus,
                     updated_by: fallbackUserId 
-                  })
+          })
                   .where(eq(appointments.id, targetDateAppointment.id));
                   
                 await updateLead(existingLead.id, {
                   status: newLeadStatus,
                   updated_by: fallbackUserId
                 });
-
-                results.push({
+        
+        results.push({
                   appointmentId: targetDateAppointment.id.toString(),
                   leadId: existingLead.id.toString(),
                   leadName: fullName,
                   oldAppointmentStatus: targetDateAppointment.status,
-                  newAppointmentStatus: newAppointmentStatus,
+          newAppointmentStatus: newAppointmentStatus,
                   oldLeadStatus: existingLead.status,
                   newLeadStatus: newLeadStatus,
                   reason: updateReason,
@@ -927,7 +985,7 @@ export async function POST(request: NextRequest) {
                   action: 'update_existing_appointment'
                 });
 
-                updatedCount++;
+        updatedCount++;
               }
             } else if (targetDateAppointment && !isExcelToday) {
               // Future appointment exists - just acknowledge it
@@ -972,41 +1030,31 @@ export async function POST(request: NextRequest) {
               
               const nearestTimeslot = await findNearestTimeslot(targetAppointmentDate);
               if (nearestTimeslot) {
-                // Create borrower appointment directly in database
-                const [newBorrowerAppointment] = await db
-                  .insert(borrower_appointments)
-                  .values({
-                    borrower_id: existingBorrower.id,
-                    agent_id: fallbackUserId,
-                    status: (isExcelToday && appointmentTurnedUp) ? 'done' : 'upcoming',
-                    appointment_type: "reloan_consultation",
-                    notes: `Auto-created from Google Sheets - ${fullName} (Original date: ${excelDate})`,
-                    lead_source: "Google Sheets",
-                    start_datetime: new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time),
-                    end_datetime: new Date(nearestTimeslot.date + 'T' + nearestTimeslot.end_time),
-                    created_by: fallbackUserId,
-                    created_at: new Date(),
-                  })
-                  .returning();
+                // Use existing createBorrowerAppointment function with API key support
+                const borrowerAppointmentResult = await createBorrowerAppointment({
+                  borrower_id: existingBorrower.id,
+                  agent_id: authenticatedUserId,
+                  appointment_type: "reloan_consultation",
+                  notes: `Auto-created from Google Sheets - ${fullName} (Original date: ${excelDate})`,
+                  lead_source: "Google Sheets",
+                  start_datetime: new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time),
+                  end_datetime: new Date(nearestTimeslot.date + 'T' + nearestTimeslot.end_time),
+                  timeslot_ids: [nearestTimeslot.id],
+                  overrideUserId: authenticatedUserId
+                });
 
-                if (newBorrowerAppointment) {
-                  // Link to timeslot
-                  await db
-                    .insert(borrower_appointment_timeslots)
-                    .values({
-                      borrower_appointment_id: newBorrowerAppointment.id,
-                      timeslot_id: nearestTimeslot.id,
-                      primary: true
-                    });
-
-                  // Update timeslot count
-                  await db
-                    .update(timeslots)
-                    .set({
-                      occupied_count: (nearestTimeslot.occupied_count ?? 0) + 1,
-                      updated_at: new Date()
-                    })
-                    .where(eq(timeslots.id, nearestTimeslot.id));
+                if (borrowerAppointmentResult.success && borrowerAppointmentResult.data) {
+                  const newBorrowerAppointment = borrowerAppointmentResult.data;
+                  
+                  // Update status if it's for today and attended
+                  if (isExcelToday && appointmentTurnedUp) {
+                    await db.update(borrower_appointments)
+                      .set({ 
+                        status: 'done',
+                        updated_by: authenticatedUserId 
+                      })
+                      .where(eq(borrower_appointments.id, newBorrowerAppointment.id));
+                  }
 
                   createdAppointmentsCount++;
 
@@ -1053,7 +1101,7 @@ export async function POST(request: NextRequest) {
                   await db.update(borrower_appointments)
                     .set({ 
                       status: newAppointmentStatus,
-                      updated_by: fallbackUserId 
+                      updated_by: authenticatedUserId
                     })
                     .where(eq(borrower_appointments.id, todayBorrowerAppointment.id));
 
@@ -1093,7 +1141,7 @@ export async function POST(request: NextRequest) {
                     const moveResult = await moveBorrowerAppointmentToTimeslot(
                       appointmentToMove.id, 
                       nearestTimeslot.id, 
-                      fallbackUserId
+                      authenticatedUserId
                     );
 
                     if (moveResult.success) {
@@ -1106,7 +1154,7 @@ export async function POST(request: NextRequest) {
                         await db.update(borrower_appointments)
                           .set({ 
                             status: appointmentStatus,
-                            updated_by: fallbackUserId 
+                            updated_by: authenticatedUserId
                           })
                           .where(eq(borrower_appointments.id, appointmentToMove.id));
                       }
@@ -1148,9 +1196,9 @@ export async function POST(request: NextRequest) {
             });
           }
         }
-      } catch (error) {
+        } catch (error) {
         console.error(`❌ Error processing row ${row.row_number}:`, error);
-        results.push({
+          results.push({
           appointmentId: 'N/A',
           leadId: 'N/A',
           leadName: row["col_Full Name"]?.toString() || 'Unknown',
@@ -1162,9 +1210,9 @@ export async function POST(request: NextRequest) {
           appointmentTime: 'N/A',
           timeDiffHours: 'N/A',
           action: 'error',
-          error: (error as Error).message
-        });
-      }
+            error: (error as Error).message
+          });
+        }
     }
 
     console.log(`📊 Real-time processing completed:`);
@@ -1188,6 +1236,11 @@ export async function POST(request: NextRequest) {
       todaySingapore,
       thresholdHours,
       results,
+      authentication: {
+        authenticated: isAuthenticated,
+        userId: authenticatedUserId,
+        apiKeyProvided: !!apiKey
+      },
       summary: {
         mode: processingMode,
         excelDataProvided: true,
@@ -1196,7 +1249,9 @@ export async function POST(request: NextRequest) {
         leadsCreated: createdLeadsCount,
         appointmentsCreated: createdAppointmentsCount,
         appointmentsMoved: movedAppointmentsCount,
-        errorCount: results.filter(r => r.error).length
+        errorCount: results.filter(r => r.error).length,
+        authenticatedUser: authenticatedUserId,
+        isAuthenticated: isAuthenticated
       }
     });
 
@@ -1215,16 +1270,22 @@ export async function POST(request: NextRequest) {
 // GET endpoint for testing/manual trigger
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
     const { searchParams } = new URL(request.url);
     const thresholdHours = parseFloat(searchParams.get('thresholdHours') ?? '3');
     const mode = (searchParams.get('mode') as ProcessingMode) ?? 'realtime';
+    const apiKey = searchParams.get('api_key');
+    const agentUserId = searchParams.get('agent_user_id');
 
     console.log(`🔄 Manual trigger: Processing appointments in ${mode} mode`);
+
+    // Validate API key for GET requests too
+    const envApiKey = process.env.API_KEY;
+    if (apiKey && envApiKey && apiKey !== envApiKey) {
+      return NextResponse.json({
+        error: "Invalid API key",
+        message: "The provided API key is not valid"
+      }, { status: 401 });
+    }
 
     // Call the POST method 
     const response = await POST(new NextRequest(request.url, {
@@ -1232,6 +1293,8 @@ export async function GET(request: NextRequest) {
       body: JSON.stringify({ 
         thresholdHours,
         mode,
+        api_key: apiKey,
+        agent_user_id: agentUserId,
         excelData: mode === 'realtime' ? { rows: [], spreadsheet_id: 'manual', spreadsheet_name: 'Manual Test', sheet: 'Test' } : undefined
       }),
       headers: {

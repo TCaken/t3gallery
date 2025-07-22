@@ -201,7 +201,19 @@ interface CreateLeadInput {
 
 export async function createLead(input: CreateLeadInput, assignedToMe = false) {
   try {
-    const { userId } = await auth();
+    // Support API key authentication
+    let userId: string;
+    
+    if (input.created_by) {
+      userId = input.created_by;
+    } else {
+      // Fall back to Clerk authentication if no override provided  
+      const { userId: clerkUserId } = await auth();
+      if (!clerkUserId) {
+        throw new Error("Unauthorized");
+      }
+      userId = clerkUserId;
+    }
     
     // Format phone number
     const formattedPhone = formatSGPhoneNumber(input.phone_number);

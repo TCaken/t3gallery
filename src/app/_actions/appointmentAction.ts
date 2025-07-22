@@ -143,9 +143,19 @@ export async function createAppointment(data: {
   timeslotId: number;
   notes: string;
   isUrgent: boolean;
+  overrideUserId?: string; // Add support for API key authentication
 }) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  // Support API key authentication
+  let userId: string;
+  
+  if (data.overrideUserId) {
+    userId = data.overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // First check if lead already has an active appointment

@@ -24,6 +24,7 @@ export type CreateBorrowerAppointmentInput = {
   start_datetime: Date;
   end_datetime: Date;
   timeslot_ids?: number[];
+  overrideUserId?: string; // Add support for API key authentication
 };
 
 export type UpdateBorrowerAppointmentInput = Partial<Omit<CreateBorrowerAppointmentInput, 'borrower_id'>> & {
@@ -77,9 +78,18 @@ async function logBorrowerAppointmentAction(
 
 // Create borrower appointment
 export async function createBorrowerAppointment(input: CreateBorrowerAppointmentInput) {
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error("Unauthorized");
+  // Support API key authentication
+  let userId: string;
+  
+  if (input.overrideUserId) {
+    userId = input.overrideUserId!; // Non-null assertion since we just checked it exists
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) {
+      throw new Error("Unauthorized");
+    }
+    userId = clerkUserId;
   }
 
   try {
