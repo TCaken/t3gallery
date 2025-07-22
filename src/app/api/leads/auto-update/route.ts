@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     console.log('thresholdDate', thresholdDate);
 
     // Statuses to check
-    const statusesToUpdate = ['new', 'assigned', 'no_answer', 'follow_up', 'missed/RS', 'RS'];
+    const statusesToUpdate = ['new', 'assigned', 'no_answer', 'follow_up', 'missed/RS'];
 
     // Use system user ID for tracking updates
     const systemUserId = process.env.SYSTEM_USER_ID ?? 'system';
@@ -106,8 +106,8 @@ export async function POST(request: Request) {
           updated_by: systemUserId,
           updated_at: new Date(),
           eligibility_notes: isAssignedLeadOnReferenceDate 
-            ? 'NO ANSWER - NO ACTIVITY (AUTO-UPDATE)'
-            : 'GIVE UP - NO ACTIVITY (AUTO-UPDATE)'
+            ? 'NO ANSWER - NO ACTIVITY (1 day)'
+            : `GIVE UP - NO ACTIVITY (${daysThreshold} days)`
         });
 
         if (result.success) {

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/prefer-nullish-coalescing */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 'use server';
@@ -115,25 +116,35 @@ interface CreateLeadInput {
   email?: string;
   status?: string;
   source?: string;
+  lead_type?: string;
   residential_status?: string;
   has_work_pass_expiry?: string;
+  has_payslip_3months?: boolean;
+  has_proof_of_residence?: boolean;
   proof_of_residence_type?: string;
   has_letter_of_consent?: boolean;
   employment_status?: string;
   employment_salary?: string;
   employment_length?: string;
-  has_payslip_3months?: boolean;
   amount?: string;
   loan_purpose?: string;
   existing_loans?: string;
   outstanding_loan_amount?: string;
+  lead_score?: number;
   contact_preference?: string;
   communication_language?: string;
-  created_by?: string;
-  received_time?: Date;
-  bypassEligibility?: boolean;
+  follow_up_date?: Date;
+  is_contactable?: boolean;
+  is_deleted?: boolean;
+  has_exported?: boolean;
+  exported_at?: Date;
   loan_status?: string;
   loan_notes?: string;
+  created_by?: string;
+  updated_by?: string;
+  received_time?: Date;
+  bypassEligibility?: boolean;
+  pushToWebhook?: boolean; // New flag to control webhook push
 }
 
 
@@ -157,7 +168,6 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       eligibilityNotes = eligibilityResult.notes;
       finalStatus = eligibilityResult.isEligible ? 'new' : 'unqualified';
     }
-    
     // Prepare comprehensive values with all the new fields
     const baseValues = {
       phone_number: formattedPhone,
@@ -166,21 +176,26 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       full_name: input.full_name ?? '',
       email: input.email ?? '',
       source: input.source ?? 'Unknown',
+      lead_type: input.lead_type ?? 'new',
       residential_status: input.residential_status ?? '',
       has_work_pass_expiry: input.has_work_pass_expiry ?? '',
+      has_payslip_3months: input.has_payslip_3months ?? false,
+      has_proof_of_residence: input.has_proof_of_residence ?? false,
       proof_of_residence_type: input.proof_of_residence_type ?? '',
       has_letter_of_consent: input.has_letter_of_consent ?? false,
       employment_status: input.employment_status ?? '',
       employment_salary: input.employment_salary ?? '',
       employment_length: input.employment_length ?? '',
-      has_payslip_3months: input.has_payslip_3months ?? false,
       amount: input.amount ?? '',
       loan_purpose: input.loan_purpose ?? '',
       existing_loans: input.existing_loans ?? '',
       outstanding_loan_amount: input.outstanding_loan_amount ?? '',
+      lead_score: input.lead_score ?? 0,
       contact_preference: input.contact_preference ?? 'No Preferences',
       communication_language: input.communication_language ?? 'No Preferences',
-      lead_type: 'new',
+      is_contactable: input.is_contactable ?? true,
+      is_deleted: input.is_deleted ?? false,
+      has_exported: input.has_exported ?? false,
       status: finalStatus,
       loan_status: input.loan_status ?? '',
       loan_notes: input.loan_notes ?? '',
@@ -188,7 +203,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       eligibility_status: eligibilityStatus,
       eligibility_notes: eligibilityNotes,
       created_by: input.created_by ?? userId,
-      created_at: input.received_time ? new Date(input.received_time) : undefined,
+      updated_by: input.updated_by ?? userId,
     };
 
     // Create the lead
@@ -214,6 +229,53 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       performed_by: input.created_by ?? userId,
     });
 
+    // Push to webhook for lead matching if enabled (regardless of eligibility)
+    if (lead?.id && (input.pushToWebhook ?? true)) {
+      try {
+        const webhookPayload = {
+          action: 'lead_created',
+          lead_id: lead.id,
+          phone_number: formattedPhone,
+          full_name: input.full_name ?? '',
+          email: input.email ?? '',
+          source: input.source ?? 'Unknown',
+          status: finalStatus,
+          eligibility_status: eligibilityStatus,
+          amount: input.amount ?? '',
+          created_at_sgt: new Date().toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }),
+          lead_data: {
+            ...baseValues,
+            id: lead.id
+          }
+        };
+
+        const webhookUrl = process.env.LEAD_WEBHOOK_URL || process.env.WHATSAPP_API_URL;
+        
+        if (webhookUrl) {
+          console.log('Pushing lead to webhook for matching:', lead.id);
+          
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': process.env.WHATSAPP_API_KEY || '',
+              'X-Action': 'lead-matching'
+            },
+            body: JSON.stringify(webhookPayload)
+          });
+
+          if (response.ok) {
+            console.log('Successfully pushed lead to webhook:', lead.id);
+          } else {
+            console.warn('Failed to push lead to webhook:', await response.text());
+          }
+        }
+      } catch (error) {
+        console.error('Error pushing lead to webhook:', error);
+        // Don't fail lead creation if webhook fails
+      }
+    }
+
     // Auto-assign the lead only if eligible
     if (lead?.id && eligibilityStatus === 'eligible') {
       // console.log("Inside auto-assignment", assignedToMe);
@@ -234,6 +296,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
             })
             .where(eq(leads.id, lead.id));
           
+            
           // Add log entry for direct assignment
           await db.insert(logs).values({
             description: `Lead assigned to creator ${userId}`,
@@ -1171,9 +1234,9 @@ export async function deleteLead(leadId: number) {
     // Add log entry for lead deletion with business information
     const deleteLogDescription = [
       `Deleted lead - Status: ${leadToDelete.status}`,
-      `Source: ${leadToDelete.source || 'Unknown'}`,
-      `Amount: ${leadToDelete.amount || 'Not specified'}`,
-      `Eligibility: ${leadToDelete.eligibility_status || 'Not checked'}`,
+      `Source: ${leadToDelete.source ?? 'Unknown'}`,
+      `Amount: ${leadToDelete.amount ?? 'Not specified'}`,
+      `Eligibility: ${leadToDelete.eligibility_status ?? 'Not checked'}`,
       leadToDelete.loan_status ? `Loan Status: ${leadToDelete.loan_status}` : '',
       leadToDelete.assigned_to ? `Was assigned to: ${leadToDelete.assigned_to}` : ''
     ].filter(Boolean).join(' | ');
@@ -1239,7 +1302,7 @@ export async function findDuplicatePhoneLeads() {
         if (!phoneGroups[lead.phone_number]) {
           phoneGroups[lead.phone_number] = [];
         }
-        phoneGroups[lead.phone_number].push(lead);
+        phoneGroups[lead.phone_number]?.push(lead);
       }
 
       // Add secondary phones if they exist and are different from primary

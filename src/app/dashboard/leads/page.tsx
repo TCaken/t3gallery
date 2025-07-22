@@ -1429,6 +1429,8 @@ export default function LeadsPage() {
     }
   };
 
+  // Removed censored export functionality per user request
+
   // Toggle a status selection
   const toggleStatusSelection = (status: string) => {
     setSelectedExportStatuses(prev => ({
@@ -2469,6 +2471,8 @@ export default function LeadsPage() {
           </div>
         </div>
       )}
+
+      {/* Removed censored export modal per user request */}
 
       {/* Add LeadEditSlideOver at the end of the component */}
       {selectedLead && <LeadEditSlideOver

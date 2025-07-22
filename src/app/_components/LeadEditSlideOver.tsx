@@ -380,7 +380,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         console.log("🔴 STATUS REASON MODAL - No form element found!");
       }
       
-      await onSave(updatedValues);
+      await onSave(updatedValues, leadNotes);
       onClose();
       return;
     }
