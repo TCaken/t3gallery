@@ -16,6 +16,57 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { autoAssignSingleLead } from "./agentActions";
 
+// PII Censoring utility functions (imported from exportActions pattern)
+function censorName(name: string | null): string {
+  if (!name || name.trim() === '') return 'N/A';
+  
+  const trimmedName = name.trim();
+  if (trimmedName.length <= 3) {
+    return trimmedName.charAt(0) + '*'.repeat(trimmedName.length - 1);
+  }
+  
+  const firstTwo = trimmedName.substring(0, 2);
+  const lastTwo = trimmedName.substring(trimmedName.length - 2);
+  const middleLength = Math.max(0, trimmedName.length - 4);
+  
+  return firstTwo + '*'.repeat(middleLength) + lastTwo;
+}
+
+function censorPhoneNumber(phone: string | null): string {
+  if (!phone || phone.trim() === '') return 'N/A';
+  
+  const trimmedPhone = phone.trim();
+  if (trimmedPhone.length <= 5) {
+    return '*'.repeat(trimmedPhone.length);
+  }
+  
+  const lastFive = trimmedPhone.substring(trimmedPhone.length - 5);
+  const hiddenLength = trimmedPhone.length - 5;
+  
+  return '*'.repeat(hiddenLength) + lastFive;
+}
+
+function censorEmail(email: string | null): string {
+  if (!email || email.trim() === '' || email === 'UNKNOWN') return 'N/A';
+  
+  const trimmedEmail = email.trim();
+  const atIndex = trimmedEmail.indexOf('@');
+  
+  if (atIndex <= 0) return 'N/A';
+  
+  const localPart = trimmedEmail.substring(0, atIndex);
+  const domainPart = trimmedEmail.substring(atIndex);
+  
+  if (localPart.length <= 2) {
+    return '*'.repeat(localPart.length) + domainPart;
+  }
+  
+  const firstChar = localPart.charAt(0);
+  const lastChar = localPart.charAt(localPart.length - 1);
+  const middleLength = localPart.length - 2;
+  
+  return firstChar + '*'.repeat(middleLength) + lastChar + domainPart;
+}
 
 // Fetch all leads with optional filtering by status
 export async function fetchLeads(statusFilter?: string[]) {
@@ -235,21 +286,31 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
         const webhookPayload = {
           action: 'lead_created',
           lead_id: lead.id,
-          phone_number: formattedPhone,
-          full_name: input.full_name ?? '',
-          email: input.email ?? '',
+          phone_number_censored: censorPhoneNumber(formattedPhone),
+          full_name_censored: censorName(input.full_name ?? ''),
+          email_censored: censorEmail(input.email ?? ''),
           source: input.source ?? 'Unknown',
           status: finalStatus,
           eligibility_status: eligibilityStatus,
+          eligibility_notes: eligibilityNotes,
           amount: input.amount ?? '',
           created_at_sgt: new Date().toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }),
-          lead_data: {
-            ...baseValues,
-            id: lead.id
+          // Keep business data uncensored for internal processing
+          business_data: {
+            lead_id: lead.id,
+            status: finalStatus,
+            eligibility_status: eligibilityStatus,
+            source: input.source ?? 'Unknown',
+            amount: input.amount ?? '',
+            lead_type: baseValues.lead_type,
+            employment_status: baseValues.employment_status,
+            loan_purpose: baseValues.loan_purpose,
+            contact_preference: baseValues.contact_preference,
+            communication_language: baseValues.communication_language
           }
         };
 
-        const webhookUrl = process.env.LEAD_WEBHOOK_URL || process.env.WHATSAPP_API_URL;
+        const webhookUrl = process.env.WORKATO_INSERT_LEADS_WEBHOOK_URL;
         
         if (webhookUrl) {
           console.log('Pushing lead to webhook for matching:', lead.id);
@@ -762,13 +823,15 @@ export async function updateLead(
     );
 
     // Build detailed description with actual values (excluding personal information)
-    const businessFields = ['status', 'eligibility_status', 'eligibility_notes', 'status', 'assigned_to'];
+    const businessFields = ['status', 'eligibility_status', 'eligibility_notes', 'assigned_to'];
     const businessChanges = changedFields
       .filter(field => businessFields.includes(field))
       .map(field => {
         const oldValue = originalLead[field as keyof typeof originalLead];
         const newValue = leadData[field as keyof typeof leadData];
-        return `${field}: ${oldValue || 'empty'} → ${newValue || 'empty'}`;
+        const oldValueStr = oldValue !== null && oldValue !== undefined ? String(oldValue) : 'empty';
+        const newValueStr = newValue !== null && newValue !== undefined ? String(newValue) : 'empty';
+        return `${field}: ${oldValueStr} → ${newValueStr}`;
       });
 
     const updateDescription = businessChanges.length > 0 
