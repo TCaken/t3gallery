@@ -721,6 +721,25 @@ export async function updateLeadDetails (leadId: number, newStatus: string) {
   return { success: true };
 }
 
+// Helper function to find lead by phone number (for appointment system)
+export async function findLeadByPhoneNumber(phoneNumber: string) {
+  try {
+    const cleanPhone = phoneNumber.replace(/^\+65/, '').replace(/\D/g, '');
+    const formattedPhone = `+65${cleanPhone}`;
+    
+    const foundLead = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.phone_number, formattedPhone))
+      .limit(1);
+    
+    return foundLead.length > 0 ? foundLead[0] : null;
+  } catch (error) {
+    console.error('Error finding lead by phone:', error);
+    return null;
+  }
+}
+
 // Update a lead with any valid fields
 export async function updateLead(
   leadId: number,

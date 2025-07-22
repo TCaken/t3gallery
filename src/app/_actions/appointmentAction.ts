@@ -22,7 +22,8 @@ import {
   or, 
   between,
   isNull,
-  not
+  not,
+  asc
 } from "drizzle-orm";
 import { 
   format, 
@@ -842,5 +843,175 @@ export async function getAppointmentsForLead(leadId: number) {
   } catch (error) {
     console.error("Error fetching appointments for lead:", error);
     return { success: false, message: "Failed to fetch appointments", appointments: [] };
+  }
+}
+
+/**
+ * Find nearest available timeslot for a given date
+ */
+export async function findNearestAvailableTimeslot(targetDate: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    // Try to find timeslots for the target date first
+    let availableSlots = await db
+      .select()
+      .from(timeslots)
+      .where(
+        and(
+          eq(timeslots.date, targetDate),
+          eq(timeslots.is_disabled, false)
+        )
+      )
+      .orderBy(asc(timeslots.start_time));
+
+    // Filter slots with available capacity
+    availableSlots = availableSlots.filter(slot => 
+      (slot.occupied_count ?? 0) < (slot.max_capacity ?? 1)
+    );
+
+    if (availableSlots.length > 0) {
+      return { success: true, timeslot: availableSlots[0] };
+    }
+
+    // If no slots available today, try next few days
+    for (let i = 1; i <= 7; i++) {
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + i);
+      const futureDateStr = futureDate.toISOString().split('T')[0];
+      
+      const futureSlots = await db
+        .select()
+        .from(timeslots)
+        .where(
+          and(
+            eq(timeslots.date, futureDateStr),
+            eq(timeslots.is_disabled, false)
+          )
+        )
+        .orderBy(asc(timeslots.start_time));
+
+      const availableFutureSlots = futureSlots.filter(slot => 
+        (slot.occupied_count ?? 0) < (slot.max_capacity ?? 1)
+      );
+
+      if (availableFutureSlots.length > 0) {
+        return { success: true, timeslot: availableFutureSlots[0] };
+      }
+    }
+
+    return { success: false, message: "No available timeslots found" };
+  } catch (error) {
+    console.error("Error finding nearest timeslot:", error);
+    return { success: false, message: "Failed to find available timeslot" };
+  }
+}
+
+/**
+ * Move appointment to a different timeslot
+ */
+export async function moveAppointmentToTimeslot(appointmentId: number, newTimeslotId: number) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    return await db.transaction(async (tx) => {
+      // Get current appointment details
+      const currentAppt = await tx
+        .select({
+          appointment: appointments,
+          timeslot_id: appointment_timeslots.timeslot_id
+        })
+        .from(appointments)
+        .leftJoin(appointment_timeslots, eq(appointments.id, appointment_timeslots.appointment_id))
+        .where(eq(appointments.id, appointmentId))
+        .limit(1);
+
+      if (currentAppt.length === 0) {
+        throw new Error('Appointment not found');
+      }
+
+      const oldTimeslotId = currentAppt[0]?.timeslot_id;
+
+      // Get new timeslot details
+      const newTimeslot = await tx
+        .select()
+        .from(timeslots)
+        .where(eq(timeslots.id, newTimeslotId))
+        .limit(1);
+
+      if (newTimeslot.length === 0) {
+        throw new Error('New timeslot not found');
+      }
+
+      const slot = newTimeslot[0];
+      if (!slot) {
+        throw new Error('Invalid timeslot data');
+      }
+      
+      // Update appointment times
+      const slotDate = typeof slot.date === 'string' ? slot.date : format(slot.date, 'yyyy-MM-dd');
+      const startTimeString = `${slotDate}T${slot.start_time}`;
+      const endTimeString = `${slotDate}T${slot.end_time}`;
+      
+      const startSGT = new Date(startTimeString);
+      const endSGT = new Date(endTimeString);
+      const startUTC = new Date(startSGT.getTime() - (8 * 60 * 60 * 1000));
+      const endUTC = new Date(endSGT.getTime() - (8 * 60 * 60 * 1000));
+
+      await tx
+        .update(appointments)
+        .set({
+          start_datetime: startUTC,
+          end_datetime: endUTC,
+          updated_at: new Date(),
+          updated_by: userId
+        })
+        .where(eq(appointments.id, appointmentId));
+
+      // Update timeslot relationships
+      if (oldTimeslotId) {
+        // Remove old relationship and decrease old timeslot count
+        await tx
+          .delete(appointment_timeslots)
+          .where(
+            and(
+              eq(appointment_timeslots.appointment_id, appointmentId),
+              eq(appointment_timeslots.timeslot_id, oldTimeslotId)
+            )
+          );
+
+        await tx
+          .update(timeslots)
+          .set({
+            occupied_count: Math.max(0, (slot.occupied_count ?? 0) - 1),
+            updated_at: new Date()
+          })
+          .where(eq(timeslots.id, oldTimeslotId));
+      }
+
+      // Create new relationship and increase new timeslot count
+      await tx
+        .insert(appointment_timeslots)
+        .values({
+          appointment_id: appointmentId,
+          timeslot_id: newTimeslotId,
+          primary: true
+        });
+
+      await tx
+        .update(timeslots)
+        .set({
+          occupied_count: (slot.occupied_count ?? 0) + 1,
+          updated_at: new Date()
+        })
+        .where(eq(timeslots.id, newTimeslotId));
+
+      return { success: true };
+    });
+  } catch (error) {
+    console.error("Error moving appointment:", error);
+    return { success: false, message: "Failed to move appointment" };
   }
 }
