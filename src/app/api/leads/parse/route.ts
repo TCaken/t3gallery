@@ -9,6 +9,7 @@ const RequestSchema = z.object({
   received_time: z.string().optional(),
 });
 
+
 // Define the lead schema
 const LeadSchema = z.object({
   full_name: z.string().max(255).optional(),
@@ -477,6 +478,7 @@ export async function POST(request: Request) {
       assigned_to: assignedTo?.trim()?.substring(0, 256) ?? 'UNKNOWN',
       source: source,
       created_at: received_time,
+      created_by: process.env.AGENT_USER_ID
     };
 
     console.log('Extracted values:', {
