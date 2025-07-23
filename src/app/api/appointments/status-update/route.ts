@@ -149,28 +149,17 @@ function checkAppointmentAttendance(row: ExcelRow): boolean {
   return !!(uwField && uwField.length > 0 && uwField.toLowerCase() !== 'n/a');
 }
 
-// Helper function to find borrower by phone number with validation
+// Helper function to find borrower by phone number
 async function findBorrowerByPhone(phoneNumber: string) {
   const cleanPhone = phoneNumber.replace(/^\+65/, '').replace(/\D/g, '');
   
-  const foundBorrowers = await db
+  const foundBorrower = await db
     .select()
     .from(borrowers)
-    .where(eq(borrowers.phone_number, `${cleanPhone}`));
+    .where(eq(borrowers.phone_number, `${cleanPhone}`))
+    .limit(1);
   
-  if (foundBorrowers.length > 1) {
-    console.log(`❌ [MULTIPLE BORROWERS] Found ${foundBorrowers.length} borrowers for ${cleanPhone}: ${foundBorrowers.map(b => `ID:${b.id}(${b.full_name})`).join(', ')}`);
-    throw new Error(`Multiple borrowers found for phone ${cleanPhone}. Found ${foundBorrowers.length} borrowers: ${foundBorrowers.map(b => `ID:${b.id}(${b.full_name})`).join(', ')}`);
-  }
-  
-  if (foundBorrowers.length === 1) {
-    const borrower = foundBorrowers[0];
-    console.log(`✅ [BORROWER SEARCH] Found borrower ID:${borrower?.id} (${borrower?.full_name}) for phone ${cleanPhone}`);
-    return borrower;
-  } else {
-    console.log(`❌ [BORROWER SEARCH] No borrower found for: ${cleanPhone}`);
-    return null;
-  }
+  return foundBorrower.length > 0 ? foundBorrower[0] : null;
 }
 
 // Helper function to move appointment to new timeslot
