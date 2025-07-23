@@ -112,9 +112,18 @@ export async function checkExistingAppointment(leadId: number, overrideUserId?: 
 /**
  * Fetch available timeslots for a specific date
  */
-export async function fetchAvailableTimeslots(date: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function fetchAvailableTimeslots(date: string, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Convert string date to the format the database expects (YYYY-MM-DD)
@@ -308,10 +317,10 @@ export async function createAppointment(data: {
             notes: data.notes
           });
           
-          if (webhookResult.success) {
+          if (webhookResult?.success) {
             console.log('✅ Appointment data sent to webhook successfully');
           } else {
-            console.error('❌ Failed to send appointment data to webhook:', webhookResult.error);
+            console.error('❌ Failed to send appointment data to webhook:', webhookResult?.error);
             // Don't fail the appointment creation if webhook fails
           }
         } else {
@@ -361,7 +370,7 @@ export async function cancelAppointment(appointmentId: number, overrideUserId?: 
       .where(eq(appointments.id, appointmentId))
       .limit(1);
     
-    if (appointmentToCancel.length === 0) {
+    if (appointmentToCancel.length === 0 || !appointmentToCancel[0]) {
       return { success: false, message: "Appointment not found" };
     }
     
@@ -387,11 +396,11 @@ export async function cancelAppointment(appointmentId: number, overrideUserId?: 
         .from(timeslots)
         .where(eq(timeslots.id, timeslotId));
       
-      if (currentTimeslot && currentTimeslot.occupied_count > 0) {
+      if (currentTimeslot && (currentTimeslot.occupied_count ?? 0) > 0) {
         await db
           .update(timeslots)
           .set({
-            occupied_count: currentTimeslot.occupied_count - 1,
+            occupied_count: (currentTimeslot.occupied_count ?? 0) - 1,
             updated_at: new Date(),
             updated_by: userId
           })
@@ -652,9 +661,18 @@ export async function createCalendarSettings(data: {
   slotDurationMinutes: number;
   defaultMaxCapacity: number;
   timezone?: string;
-}) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+}, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     const [settings] = await db.insert(calendar_settings).values({
@@ -686,9 +704,18 @@ export async function generateTimeslots(data: {
   calendarSettingId: number;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
-}) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+}, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Get calendar settings
@@ -956,9 +983,18 @@ export async function findNearestAvailableTimeslot(targetDate: string) {
 /**
  * Move appointment to a different timeslot
  */
-export async function moveAppointmentToTimeslot(appointmentId: number, newTimeslotId: number) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function moveAppointmentToTimeslot(appointmentId: number, newTimeslotId: number, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     return await db.transaction(async (tx) => {
