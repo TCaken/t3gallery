@@ -487,7 +487,7 @@ export async function POST(request: NextRequest) {
 
     // Validate API key and determine user ID to use
     const envApiKey = process.env.API_KEY;
-    let authenticatedUserId = "system-update"; // Default fallback
+    let authenticatedUserId = process.env.AGENT_USER_ID; // Default fallback
     let isAuthenticated = false;
 
     if (apiKey && envApiKey && apiKey === envApiKey) {
