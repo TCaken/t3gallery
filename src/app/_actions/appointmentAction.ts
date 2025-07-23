@@ -22,7 +22,8 @@ import {
   or, 
   between,
   isNull,
-  not
+  not,
+  asc
 } from "drizzle-orm";
 import { 
   format, 
@@ -74,9 +75,18 @@ export type EnhancedAppointment = {
 /**
  * Check if a lead has an active appointment
  */
-export async function checkExistingAppointment(leadId: number) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function checkExistingAppointment(leadId: number, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     const existingAppointments = await db
@@ -102,9 +112,18 @@ export async function checkExistingAppointment(leadId: number) {
 /**
  * Fetch available timeslots for a specific date
  */
-export async function fetchAvailableTimeslots(date: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function fetchAvailableTimeslots(date: string, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Convert string date to the format the database expects (YYYY-MM-DD)
@@ -142,13 +161,31 @@ export async function createAppointment(data: {
   timeslotId: number;
   notes: string;
   isUrgent: boolean;
+  overrideUserId?: string; // Add support for API key authentication
 }) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+  // Support API key authentication
+  let userId: string;
+  
+  // console.log('🔍 Creating appointment with overrideUserId:', data.overrideUserId);
+  console.log("Input data:", data);
+  if(data.overrideUserId) {
+    console.log("Override user ID:", data.overrideUserId);
+  }
+  else{
+    console.log("No override user ID");
+  }
+  if (data.overrideUserId) {
+    userId = data.overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // First check if lead already has an active appointment
-    const { hasAppointment } = await checkExistingAppointment(data.leadId);
+    const { hasAppointment } = await checkExistingAppointment(data.leadId, data.overrideUserId);
     if (hasAppointment) {
       return { 
         success: false, 
@@ -168,10 +205,11 @@ export async function createAppointment(data: {
     
     // Check if the timeslot is already at capacity
     const occupiedCount = selectedSlot.occupied_count ?? 0;
-    const maxCapacity = selectedSlot.max_capacity ?? 1;
-    if (occupiedCount >= maxCapacity) {
-      return { success: false, message: "This timeslot is already fully booked" };
-    }
+    console.log('🔍 Occupied count:', occupiedCount);
+    // const maxCapacity = selectedSlot.max_capacity ?? 1;
+    // if (occupiedCount >= maxCapacity) {
+    //   return { success: false, message: "This timeslot is already fully booked" };
+    // }
 
     // Use a transaction to ensure all operations succeed or fail together
     return await db.transaction(async (tx) => {
@@ -280,10 +318,10 @@ export async function createAppointment(data: {
             notes: data.notes
           });
           
-          if (webhookResult.success) {
+          if (webhookResult?.success) {
             console.log('✅ Appointment data sent to webhook successfully');
           } else {
-            console.error('❌ Failed to send appointment data to webhook:', webhookResult.error);
+            console.error('❌ Failed to send appointment data to webhook:', webhookResult?.error);
             // Don't fail the appointment creation if webhook fails
           }
         } else {
@@ -305,9 +343,18 @@ export async function createAppointment(data: {
 /**
  * Cancel an appointment and update lead status
  */
-export async function cancelAppointment(appointmentId: number) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function cancelAppointment(appointmentId: number, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Get the appointment to be cancelled along with its associated timeslot
@@ -324,7 +371,7 @@ export async function cancelAppointment(appointmentId: number) {
       .where(eq(appointments.id, appointmentId))
       .limit(1);
     
-    if (appointmentToCancel.length === 0) {
+    if (appointmentToCancel.length === 0 || !appointmentToCancel[0]) {
       return { success: false, message: "Appointment not found" };
     }
     
@@ -350,11 +397,11 @@ export async function cancelAppointment(appointmentId: number) {
         .from(timeslots)
         .where(eq(timeslots.id, timeslotId));
       
-      if (currentTimeslot && currentTimeslot.occupied_count > 0) {
+      if (currentTimeslot && (currentTimeslot.occupied_count ?? 0) > 0) {
         await db
           .update(timeslots)
           .set({
-            occupied_count: currentTimeslot.occupied_count - 1,
+            occupied_count: (currentTimeslot.occupied_count ?? 0) - 1,
             updated_at: new Date(),
             updated_by: userId
           })
@@ -382,9 +429,18 @@ export async function cancelAppointment(appointmentId: number) {
 /**
  * Update appointment status
  */
-export async function updateAppointmentStatus(appointmentId: number, newStatus: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function updateAppointmentStatus(appointmentId: number, newStatus: string, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Get the appointment to be updated
@@ -606,9 +662,18 @@ export async function createCalendarSettings(data: {
   slotDurationMinutes: number;
   defaultMaxCapacity: number;
   timezone?: string;
-}) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+}, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     const [settings] = await db.insert(calendar_settings).values({
@@ -640,9 +705,18 @@ export async function generateTimeslots(data: {
   calendarSettingId: number;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
-}) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+}, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Get calendar settings
@@ -842,5 +916,218 @@ export async function getAppointmentsForLead(leadId: number) {
   } catch (error) {
     console.error("Error fetching appointments for lead:", error);
     return { success: false, message: "Failed to fetch appointments", appointments: [] };
+  }
+}
+
+/**
+ * Find nearest available timeslot for a given date
+ */
+export async function findNearestAvailableTimeslot(targetDate: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+  
+  try {
+    // Get current time in Singapore timezone (UTC+8)
+    const now = new Date();
+    const singaporeTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+    const currentTimeString = singaporeTime.toTimeString().split(' ')[0]; // HH:mm:ss format
+    
+    console.log(`🕐 Finding nearest timeslot for ${targetDate} at current time: ${currentTimeString}`);
+    
+    // Try to find timeslots for the target date first
+    const availableSlots = await db
+      .select()
+      .from(timeslots)
+      .where(
+        and(
+          eq(timeslots.date, targetDate),
+          eq(timeslots.is_disabled, false)
+        )
+      )
+      .orderBy(asc(timeslots.start_time));
+
+    // Filter slots with available capacity (allow overbooking by commenting out)
+    // availableSlots = availableSlots.filter(slot => 
+    //   (slot.occupied_count ?? 0) < (slot.max_capacity ?? 1)
+    // );
+
+    if (availableSlots.length > 0) {
+      // Check if target date is today
+      const todayStr = singaporeTime.toISOString().split('T')[0];
+      
+      if (targetDate === todayStr) {
+        // For today, find the nearest timeslot to current time
+        const futureSlots = availableSlots.filter(slot => {
+          return slot.start_time >= currentTimeString;
+        });
+        
+        if (futureSlots.length > 0) {
+          // Return the earliest future slot
+          console.log(`✅ Found ${futureSlots.length} future slots, returning earliest: ${futureSlots[0]?.start_time}`);
+          return { success: true, timeslot: futureSlots[0] };
+        } else {
+          // No future slots today, find the closest past slot (for testing/debugging)
+          const pastSlots = availableSlots.filter(slot => slot.start_time < currentTimeString);
+          if (pastSlots.length > 0) {
+            // Return the latest past slot (closest to current time)
+            const closestPastSlot = pastSlots[pastSlots.length - 1];
+            console.log(`⚠️ No future slots today, returning closest past slot: ${closestPastSlot?.start_time}`);
+            return { success: true, timeslot: closestPastSlot };
+          }
+        }
+      } else {
+        // For future dates, return the earliest slot
+        console.log(`📅 Future date (${targetDate}), returning earliest slot: ${availableSlots[0]?.start_time}`);
+        return { success: true, timeslot: availableSlots[0] };
+      }
+    }
+
+    // If no slots available today, try next few days
+    for (let i = 1; i <= 7; i++) {
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + i);
+      const futureDateStr = futureDate.toISOString().split('T')[0];
+      
+      const futureSlots = await db
+        .select()
+        .from(timeslots)
+        .where(
+          and(
+            eq(timeslots.date, futureDateStr),
+            eq(timeslots.is_disabled, false)
+          )
+        )
+        .orderBy(asc(timeslots.start_time));
+
+      const availableFutureSlots = futureSlots.filter(slot => 
+        (slot.occupied_count ?? 0) < (slot.max_capacity ?? 1)
+      );
+
+      if (availableFutureSlots.length > 0) {
+        return { success: true, timeslot: availableFutureSlots[0] };
+      }
+    }
+
+    return { success: false, message: "No available timeslots found" };
+  } catch (error) {
+    console.error("Error finding nearest timeslot:", error);
+    return { success: false, message: "Failed to find available timeslot" };
+  }
+}
+
+/**
+ * Move appointment to a different timeslot
+ */
+export async function moveAppointmentToTimeslot(appointmentId: number, newTimeslotId: number, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
+  
+  try {
+    return await db.transaction(async (tx) => {
+      // Get current appointment details
+      const currentAppt = await tx
+        .select({
+          appointment: appointments,
+          timeslot_id: appointment_timeslots.timeslot_id
+        })
+        .from(appointments)
+        .leftJoin(appointment_timeslots, eq(appointments.id, appointment_timeslots.appointment_id))
+        .where(eq(appointments.id, appointmentId))
+        .limit(1);
+
+      if (currentAppt.length === 0) {
+        throw new Error('Appointment not found');
+      }
+
+      const oldTimeslotId = currentAppt[0]?.timeslot_id;
+
+      // Get new timeslot details
+      const newTimeslot = await tx
+        .select()
+        .from(timeslots)
+        .where(eq(timeslots.id, newTimeslotId))
+        .limit(1);
+
+      if (newTimeslot.length === 0) {
+        throw new Error('New timeslot not found');
+      }
+
+      const slot = newTimeslot[0];
+      if (!slot) {
+        throw new Error('Invalid timeslot data');
+      }
+      
+      // Update appointment times
+      const slotDate = typeof slot.date === 'string' ? slot.date : format(slot.date, 'yyyy-MM-dd');
+      const startTimeString = `${slotDate}T${slot.start_time}`;
+      const endTimeString = `${slotDate}T${slot.end_time}`;
+      
+      const startSGT = new Date(startTimeString);
+      const endSGT = new Date(endTimeString);
+      const startUTC = new Date(startSGT.getTime() - (8 * 60 * 60 * 1000));
+      const endUTC = new Date(endSGT.getTime() - (8 * 60 * 60 * 1000));
+
+      await tx
+        .update(appointments)
+        .set({
+          start_datetime: startUTC,
+          end_datetime: endUTC,
+          updated_at: new Date(),
+          updated_by: userId
+        })
+        .where(eq(appointments.id, appointmentId));
+
+      // Update timeslot relationships
+      if (oldTimeslotId) {
+        // Remove old relationship and decrease old timeslot count
+        await tx
+          .delete(appointment_timeslots)
+          .where(
+            and(
+              eq(appointment_timeslots.appointment_id, appointmentId),
+              eq(appointment_timeslots.timeslot_id, oldTimeslotId)
+            )
+          );
+
+        await tx
+          .update(timeslots)
+          .set({
+            occupied_count: Math.max(0, (slot.occupied_count ?? 0) - 1),
+            updated_at: new Date()
+          })
+          .where(eq(timeslots.id, oldTimeslotId));
+      }
+
+      // Create new relationship and increase new timeslot count
+      await tx
+        .insert(appointment_timeslots)
+        .values({
+          appointment_id: appointmentId,
+          timeslot_id: newTimeslotId,
+          primary: true
+        });
+
+      await tx
+        .update(timeslots)
+        .set({
+          occupied_count: (slot.occupied_count ?? 0) + 1,
+          updated_at: new Date()
+        })
+        .where(eq(timeslots.id, newTimeslotId));
+
+      return { success: true };
+    });
+  } catch (error) {
+    console.error("Error moving appointment:", error);
+    return { success: false, message: "Failed to move appointment" };
   }
 }

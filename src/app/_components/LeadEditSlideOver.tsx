@@ -342,8 +342,8 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         ...formValues,
         status: reasonOption.finalStatus,
         eligibility_notes: reasonOption.customReason
-          ? `${reasonOption.label.toUpperCase()} (${customReasonText.trim()})`
-          : `${reasonOption.label.toUpperCase()}`,
+          ? `${reasonOption.label} (${customReasonText.trim()})`.toUpperCase()
+          : `${reasonOption.label}`.toUpperCase(),
         follow_up_date: null // Clear follow-up date when changing to final status
       };
       const leadNotes = updatedValues.eligibility_notes;
