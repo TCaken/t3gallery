@@ -740,7 +740,15 @@ export async function POST(request: NextRequest) {
             
             // Create appointment for today
             const nearestTimeslot = await findNearestTimeslot(todaySingapore);
+            console.log('🔄 Creating appointment for today');
             if (nearestTimeslot) {
+              console.log('Input data:', {
+                leadId: createLeadResult.lead.id,
+                timeslotId: nearestTimeslot.id,
+                notes: `Auto-created from Google Sheets - ${fullName} (Today: ${todaySingapore})`,
+                isUrgent: false,
+                overrideUserId: authenticatedUserId
+              });
               const appointmentResult = await createAppointment({
                 leadId: createLeadResult.lead.id,
                 timeslotId: nearestTimeslot.id,
@@ -870,6 +878,13 @@ export async function POST(request: NextRequest) {
               
               const nearestTimeslot = await findNearestTimeslot(todaySingapore);
               if (nearestTimeslot) {
+                console.log('Input data:', {
+                  leadId: existingLead.id,
+                  timeslotId: nearestTimeslot.id,
+                  notes: `Auto-created from Google Sheets - ${fullName} (Today: ${todaySingapore})`,
+                  isUrgent: false,
+                  overrideUserId: authenticatedUserId
+                });
                 const appointmentResult = await createAppointment({
                   leadId: existingLead.id,
                   timeslotId: nearestTimeslot.id,

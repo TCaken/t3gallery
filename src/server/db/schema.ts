@@ -474,7 +474,7 @@ export const logs = createTable(
     entity_type: d.varchar({ length: 100 }).notNull(),
     entity_id: d.varchar({ length: 256 }).notNull(),
     action: d.varchar({ length: 50 }).notNull(),
-    performed_by: d.varchar({ length: 256 }).references(() => users.id),
+    performed_by: d.varchar({ length: 256 }),
     timestamp: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   })
 );
@@ -897,9 +897,9 @@ export const borrower_appointment_timeslots = createTable(
     primary: d.boolean().default(true),
   }),
   (t) => [
-    primaryKey({ columns: [t.borrower_appointment_id, t.timeslot_id] }),
-    index("borrower_appt_timeslot_appt_id_idx").on(t.borrower_appointment_id),
-    index("borrower_appt_timeslot_slot_id_idx").on(t.timeslot_id)
+    primaryKey({ columns: [t.borrower_appointment_id, t.timeslot_id], name: "borrower_appointment_timeslots_pk" }),
+    index("borrower_appointment_timeslot_appointment_id_idx").on(t.borrower_appointment_id),
+    index("borrower_appointment_timeslot_timeslot_id_idx").on(t.timeslot_id)
   ]
 );
 
