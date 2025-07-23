@@ -362,9 +362,9 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         if (leadNotesFromForm && leadNotesFromForm.toString().trim() && lead.id) {
           // console.log("🔴 STATUS REASON MODAL - ATTEMPTING to save lead notes...");
           try {
-            // const noteResult = await addLeadNote(lead.id, leadNotesFromForm.toString().trim());
+            const noteResult = await addLeadNote(lead.id, leadNotesFromForm.toString().trim());
             // console.log("🔴 STATUS REASON MODAL - Lead notes save result:", noteResult);
-            // showNotification?.('Lead notes saved successfully', 'success');
+            showNotification?.('Lead notes saved successfully', 'success');
           } catch (error) {
             // console.error('🔴 STATUS REASON MODAL - Error saving lead notes:', error);
             // showNotification?.('Failed to save lead notes', 'error');
@@ -380,7 +380,7 @@ export default function LeadEditSlideOver({ isOpen, onClose, lead, onSave, onAct
         console.log("🔴 STATUS REASON MODAL - No form element found!");
       }
       
-      await onSave(updatedValues);
+      await onSave(updatedValues, leadNotes);
       onClose();
       return;
     }
