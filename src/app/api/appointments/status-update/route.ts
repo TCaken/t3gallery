@@ -626,10 +626,27 @@ export async function POST(request: NextRequest) {
     // Count how many are "New Loan - 新贷款" vs other types
     const newLoanRows = filteredRows.filter(row => row["col_New or Reloan? "]?.toString().trim() === "New Loan - 新贷款");
     const otherLoanRows = filteredRows.filter(row => row["col_New or Reloan? "]?.toString().trim() !== "New Loan - 新贷款");
-    console.log(`📅 Filtered: ${filteredRows.length} today's rows (${todaySingapore}) | New Loans:${newLoanRows.length} Other:${otherLoanRows.length} Future skipped:${excelData.rows.length - filteredRows.length}`);
+    
+    // Sort rows to prioritize UW-filled rows (attendance confirmed) over empty ones
+    // This prevents duplicate phone numbers from flipping between statuses
+    const sortedFilteredRows = filteredRows.sort((a, b) => {
+      const aHasUW = !!(a.col_UW?.toString().trim());
+      const bHasUW = !!(b.col_UW?.toString().trim());
+      
+      // UW-filled rows come first (true > false)
+      if (aHasUW !== bHasUW) {
+        return bHasUW ? 1 : -1;
+      }
+      return 0;
+    });
+
+    // Track processed phone numbers to prevent duplicate processing
+    const processedPhoneNumbers = new Set<string>();
+    
+    console.log(`📅 Filtered: ${sortedFilteredRows.length} today's rows (${todaySingapore}) | New Loans:${newLoanRows.length} Other:${otherLoanRows.length} Future skipped:${excelData.rows.length - sortedFilteredRows.length}`);
 
     // Process each filtered Excel row (only today's appointments)
-    for (const row of filteredRows) {
+    for (const row of sortedFilteredRows) {
         processedCount++;
         
       try {
@@ -648,6 +665,15 @@ export async function POST(request: NextRequest) {
         const formattedPhone = `+65${cleanExcelPhone}`;
         const fullName = row["col_Full Name"]?.toString().trim() || '';
         const loanType = row["col_New or Reloan? "]?.toString().trim() || '';
+
+        // Check if we've already processed this phone number to prevent duplicates
+        if (processedPhoneNumbers.has(formattedPhone)) {
+          console.log(`🔄 [DUPLICATE] Skipping row ${row.row_number} for ${fullName} (${formattedPhone}) - already processed`);
+          continue;
+        }
+
+        // Mark this phone number as processed
+        processedPhoneNumbers.add(formattedPhone);
         
         // Check if this is a new loan case for lead appointments (filter out other types)
         if (loanType !== "New Loan - 新贷款") {
@@ -658,7 +684,7 @@ export async function POST(request: NextRequest) {
         // Check if appointment turned up (UW field filled)
         const appointmentTurnedUp = checkAppointmentAttendance(row);
         
-        // Find existing lead by phone number
+                  // Find existing lead by phone number
         console.log(`\n🔍 [ROW ${row.row_number}] ${fullName} (${formattedPhone}) NEW LOAN | UW:"${row.col_UW}" Code:"${row.col_Code}" Attended:${appointmentTurnedUp}`);
         const existingLead = await findLeadByPhone(formattedPhone);
         
@@ -1099,18 +1125,18 @@ export async function POST(request: NextRequest) {
 
                 // Update appointment
                 if (hasAppointmentChanges) {
-                  await db.update(appointments)
-                    .set({
-                      status: newAppointmentStatus,
+                await db.update(appointments)
+                  .set({ 
+                    status: newAppointmentStatus,
                       notes: newAppointmentNotes,
                       loan_status: newAppointmentLoanStatus,
                       loan_notes: newAppointmentLoanNotes,
                       updated_at: new Date(),
-                      updated_by: authenticatedUserId
-                    })
-                    .where(eq(appointments.id, todayAppointment.id));
+                    updated_by: authenticatedUserId
+                  })
+                  .where(eq(appointments.id, todayAppointment.id));
                 }
-
+                  
                 console.log(`✅ [UPDATED] Lead:${existingLead.status}→${newLeadStatus} Appt:${todayAppointment.status}→${newAppointmentStatus} | Loan:${newLoanStatus ?? 'none'}`);
 
                 results.push({
@@ -1159,15 +1185,15 @@ export async function POST(request: NextRequest) {
         appointment: borrower_appointments,
         borrower: borrowers
       })
-      .from(borrower_appointments)
+              .from(borrower_appointments)
       .leftJoin(borrowers, eq(borrower_appointments.borrower_id, borrowers.id))
-      .where(
-        and(
+              .where(
+                and(
           eq(borrower_appointments.status, 'upcoming'),
-          gte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
-          lte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
-        )
-      );
+                  gte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
+                  lte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
+                )
+              );
 
     console.log(`🏦 [BORROWERS] Processing ${upcomingBorrowerAppointments.length} upcoming borrower appointments | Using old logic for "Re Loan - 再贷款" rows`);
 
@@ -1217,7 +1243,7 @@ export async function POST(request: NextRequest) {
             // Create YYYY-MM-DD format for comparison
             excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             // console.log(`📅 Parsed borrower appointment date: ${timestampStr} → ${excelDate}`);
-          } else {
+            } else {
             throw new Error('Unsupported date format');
           }
         } catch (error) {
@@ -1264,7 +1290,7 @@ export async function POST(request: NextRequest) {
         let newBorrowerLoanNotes = borrower.loan_notes;
         let newAppointmentLoanStatus = borrowerAppointment.loan_status;
         let newAppointmentLoanNotes = borrowerAppointment.loan_notes;
-        let updateReason = '';
+                let updateReason = '';
 
         // Format eligibility notes based on code (for borrower) - EXACT OLD LOGIC
         let eligibilityNotes = '';
@@ -1289,7 +1315,7 @@ export async function POST(request: NextRequest) {
 
         switch (code) {
           case 'P':
-            newAppointmentStatus = 'done';
+                  newAppointmentStatus = 'done';
             newBorrowerStatus = 'done';
             newBorrowerLoanStatus = 'P';
             newBorrowerLoanNotes = 'P - Done';
@@ -1377,8 +1403,8 @@ export async function POST(request: NextRequest) {
         // Update borrower appointment status - EXACT OLD LOGIC
         await db
           .update(borrower_appointments)
-          .set({ 
-            status: newAppointmentStatus,
+                    .set({ 
+                      status: newAppointmentStatus,
             loan_status: newAppointmentLoanStatus,
             loan_notes: newAppointmentLoanNotes,
             updated_at: new Date(),
@@ -1403,13 +1429,13 @@ export async function POST(request: NextRequest) {
         // Add to results array - EXACT OLD LOGIC
         const appointmentTimeUTC = new Date(borrowerAppointment.start_datetime);
         const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
-        
-        results.push({
+
+                  results.push({
           appointmentId: `B${borrowerAppointment.id}`, // Prefix with 'B' for borrower appointments
           leadId: `B${borrower.id}`, // Use borrower ID with 'B' prefix
           leadName: borrower.full_name ?? 'Unknown',
           oldAppointmentStatus: borrowerAppointment.status,
-          newAppointmentStatus: newAppointmentStatus,
+                    newAppointmentStatus: newAppointmentStatus,
           oldLeadStatus: borrower.status,
           newLeadStatus: newBorrowerStatus,
           reason: `Excel Code: ${code} - ${eligibilityNotes} (Borrower)${updateReason ? ' - ' + updateReason : ''}`,
@@ -1421,8 +1447,8 @@ export async function POST(request: NextRequest) {
         // Mark this borrower appointment as processed to avoid duplicate updates
         processedBorrowerAppointmentIds.add(borrowerAppointment.id);
 
-        updatedCount++;
-    }
+                  updatedCount++;
+                }
 
     // Then, check remaining borrower appointments for time threshold - EXACT OLD LOGIC
     // console.log(`🕐 Starting time threshold check for ${upcomingBorrowerAppointments.length} total borrower appointments (${processedBorrowerAppointmentIds.size} already processed by Excel)`);
@@ -1483,7 +1509,7 @@ export async function POST(request: NextRequest) {
             .where(eq(borrowers.id, borrower.id));
 
           // Add to results array
-          results.push({
+            results.push({
             appointmentId: `B${borrowerAppointment.id}`, // Prefix with 'B' for borrower appointments
             leadId: `B${borrower.id}`, // Use borrower ID with 'B' prefix
             leadName: borrower.full_name ?? 'Unknown',
@@ -1528,15 +1554,16 @@ export async function POST(request: NextRequest) {
       console.log(`📊 Excel processing for borrower appointments completed: ${processedBorrowerAppointmentIds.size} borrower appointments updated from Excel data`);
     }
 
-    console.log(`📊 COMPLETED | Total:${excelData.rows.length} Today:${filteredRows.length} NewLoans:${newLoanRows.length} | Updated:${updatedCount} Created:${createdLeadsCount}/${createdAppointmentsCount} Moved:${movedAppointmentsCount} Borrowers:${processedBorrowerAppointmentIds.size}`);
+    console.log(`📊 COMPLETED | Total:${excelData.rows.length} Today:${sortedFilteredRows.length} NewLoans:${newLoanRows.length} Processed:${processedPhoneNumbers.size} | Updated:${updatedCount} Created:${createdLeadsCount}/${createdAppointmentsCount} Moved:${movedAppointmentsCount} Borrowers:${processedBorrowerAppointmentIds.size}`);
 
     return NextResponse.json({
       success: true,
-      message: `Live processing completed. Processed ${filteredRows.filter(row => row["col_New or Reloan? "]?.toString().trim() === "New Loan - 新贷款").length} 'New Loan' appointments with Excel codes (P, PRS, RS, R), skipped ${excelData.rows.length - filteredRows.length} future appointments.`,
+      message: `Live processing completed. Processed ${processedPhoneNumbers.size} unique phone numbers from ${newLoanRows.length} 'New Loan' appointments with Excel codes (P, PRS, RS, R), skipped ${excelData.rows.length - sortedFilteredRows.length} future appointments and duplicates.`,
       mode: processingMode,
       totalReceived: excelData.rows.length,
-      todayProcessed: filteredRows.length,
-      futureSkipped: excelData.rows.length - filteredRows.length,
+      todayProcessed: sortedFilteredRows.length,
+      uniquePhoneNumbersProcessed: processedPhoneNumbers.size,
+      futureSkipped: excelData.rows.length - sortedFilteredRows.length,
       updated: updatedCount,
       created: {
         leads: createdLeadsCount,
@@ -1556,9 +1583,10 @@ export async function POST(request: NextRequest) {
         description: 'Live processing with Excel codes (P, PRS, RS, R) - New Loan only',
         excelDataProvided: true,
         totalExcelRows: excelData.rows.length,
-        todayRowsProcessed: filteredRows.length,
-        newLoanRowsProcessed: filteredRows.filter(row => row["col_New or Reloan? "]?.toString().trim() === "New Loan - 新贷款").length,
-        futureRowsSkipped: excelData.rows.length - filteredRows.length,
+        todayRowsProcessed: sortedFilteredRows.length,
+        uniquePhoneNumbersProcessed: processedPhoneNumbers.size,
+        newLoanRowsProcessed: newLoanRows.length,
+        futureRowsSkipped: excelData.rows.length - sortedFilteredRows.length,
         leadAppointmentStatusUpdates: results.filter(r => !r.appointmentId.startsWith('B') && !r.action.includes('skip')).length,
         borrowerAppointmentStatusUpdates: results.filter(r => r.appointmentId.startsWith('B') && r.action.includes('old_logic')).length,
         liveCodeUpdates: results.filter(r => r.action === 'update_existing_appointment_live').length,
