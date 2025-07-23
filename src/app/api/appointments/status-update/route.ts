@@ -4,11 +4,13 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
-import { appointments, leads, borrower_appointments, borrowers } from "~/server/db/schema";
+import { appointments, leads, borrower_appointments, borrowers, timeslots, appointment_timeslots, borrower_appointment_timeslots } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, isNull, desc, asc, or, not } from "drizzle-orm";
 import { format, addHours } from 'date-fns';
-import { updateLead } from "~/app/_actions/leadActions";
+import { updateLead, createLead } from "~/app/_actions/leadActions";
+import { createAppointment } from "~/app/_actions/appointmentAction";
+import { createBorrowerAppointment } from "~/app/_actions/borrowerAppointments";
 
 // Types for Excel data structure (based on the provided JSON)
 interface ExcelRow {
@@ -54,20 +56,339 @@ interface ExcelData {
   sheet: string;
 }
 
+// Processing modes
+type ProcessingMode = 'realtime' | 'end_of_day';
+
+// Helper function to find lead by phone number (check phone_number, phone_number_2, phone_number_3)
+async function findLeadByPhone(phoneNumber: string) {
+  const cleanPhone = phoneNumber.replace(/^\+65/, '').replace(/\D/g, '');
+  const formattedPhone = `+65${cleanPhone}`;
+  
+  const foundLeads = await db
+    .select()
+    .from(leads)
+    .where(
+      and(
+        not(eq(leads.status, 'unqualified')),
+        or(
+          eq(leads.phone_number, formattedPhone),
+          eq(leads.phone_number_2, formattedPhone),
+          eq(leads.phone_number_3, formattedPhone)
+        )
+      )
+    )
+  
+  if (foundLeads.length > 1) {
+    console.log(`❌ [MULTIPLE LEADS] Found ${foundLeads.length} leads for ${formattedPhone}: ${foundLeads.map(l => `ID:${l.id}(${l.full_name})`).join(', ')}`);
+    throw new Error(`Multiple leads found for phone ${formattedPhone}. Found ${foundLeads.length} leads: ${foundLeads.map(l => `ID:${l.id}(${l.full_name})`).join(', ')}`);
+  }
+  
+  if (foundLeads.length === 1) {
+    const lead = foundLeads[0];
+    let matchField = 'PRIMARY';
+    if (lead?.phone_number_2 === formattedPhone) matchField = 'SECONDARY';
+    else if (lead?.phone_number_3 === formattedPhone) matchField = 'TERTIARY';
+    
+    console.log(`✅ [PHONE SEARCH] Found lead ID:${lead?.id} (${lead?.full_name}) via ${matchField} phone | Phones: P:${lead?.phone_number} S:${lead?.phone_number_2} T:${lead?.phone_number_3}`);
+    return lead;
+  } else {
+    console.log(`❌ [PHONE SEARCH] No lead found for: ${formattedPhone}`);
+    return null;
+  }
+}
+
+// Helper function to find nearest available timeslot
+async function findNearestTimeslot(targetDate: string) {
+  // Try to find timeslots for the target date first
+  const availableSlots = await db
+    .select()
+    .from(timeslots)
+    .where(
+      and(
+        eq(timeslots.date, targetDate),
+        eq(timeslots.is_disabled, false)
+      )
+    )
+    .orderBy(asc(timeslots.start_time));
+
+  // Return first slot regardless of capacity (allow overbooking)
+  if (availableSlots.length > 0) {
+    return availableSlots[0];
+  }
+
+  // If no slots available today, try next few days
+  for (let i = 1; i <= 7; i++) {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + i);
+    const futureDateStr = futureDate.toISOString().split('T')[0];
+    
+    if (futureDateStr) {
+      const futureSlots = await db
+        .select()
+        .from(timeslots)
+        .where(
+          and(
+            eq(timeslots.date, futureDateStr),
+            eq(timeslots.is_disabled, false)
+          )
+        )
+        .orderBy(asc(timeslots.start_time));
+
+      if (futureSlots.length > 0) {
+        return futureSlots[0];
+      }
+    }
+  }
+
+  return null; // No available slots found
+}
+
+// Helper function to check if appointment turned up (UW field filled)
+function checkAppointmentAttendance(row: ExcelRow): boolean {
+  const uwField = row.col_UW?.toString().trim();
+  return !!(uwField && uwField.length > 0 && uwField.toLowerCase() !== 'n/a');
+}
+
+// Helper function to find borrower by phone number
+async function findBorrowerByPhone(phoneNumber: string) {
+  const cleanPhone = phoneNumber.replace(/^\+65/, '').replace(/\D/g, '');
+  
+  const foundBorrower = await db
+    .select()
+    .from(borrowers)
+    .where(eq(borrowers.phone_number, `${cleanPhone}`))
+    .limit(1);
+  
+  return foundBorrower.length > 0 ? foundBorrower[0] : null;
+}
+
+// Helper function to move appointment to new timeslot
+async function moveAppointmentToTimeslot(appointmentId: number, newTimeslotId: number, userId: string) {
+  return await db.transaction(async (tx) => {
+    // Get current appointment details
+    const currentAppt = await tx
+      .select({
+        appointment: appointments,
+        timeslot_id: appointment_timeslots.timeslot_id
+      })
+      .from(appointments)
+      .leftJoin(appointment_timeslots, eq(appointments.id, appointment_timeslots.appointment_id))
+      .where(eq(appointments.id, appointmentId))
+      .limit(1);
+
+    if (currentAppt.length === 0) {
+      throw new Error('Appointment not found');
+    }
+
+    const oldTimeslotId = currentAppt[0]?.timeslot_id;
+    const oldTimeslot = await tx
+      .select()
+      .from(timeslots)
+      .where(eq(timeslots.id, oldTimeslotId ?? 0))
+      .limit(1);
+
+    // Get new timeslot details
+    const newTimeslot = await tx
+      .select()
+      .from(timeslots)
+      .where(eq(timeslots.id, newTimeslotId))
+      .limit(1);
+
+    if (newTimeslot.length === 0) {
+      throw new Error('New timeslot not found');
+    }
+
+    const slot = newTimeslot[0];
+    if (!slot) {
+      throw new Error('Invalid timeslot data');
+    }
+    
+    // Update appointment times
+    const slotDate = typeof slot.date === 'string' ? slot.date : format(slot.date, 'yyyy-MM-dd');
+    const startTimeString = `${slotDate}T${slot.start_time}`;
+    const endTimeString = `${slotDate}T${slot.end_time}`;
+    
+    const startSGT = new Date(startTimeString);
+    const endSGT = new Date(endTimeString);
+    const startUTC = new Date(startSGT.getTime() - (8 * 60 * 60 * 1000));
+    const endUTC = new Date(endSGT.getTime() - (8 * 60 * 60 * 1000));
+
+    await tx
+      .update(appointments)
+      .set({
+        start_datetime: startUTC,
+        end_datetime: endUTC,
+        updated_at: new Date(),
+        updated_by: userId
+      })
+      .where(eq(appointments.id, appointmentId));
+
+    // Update timeslot relationships
+    if (oldTimeslotId) {
+      // Remove old relationship and decrease old timeslot count
+      await tx
+        .delete(appointment_timeslots)
+        .where(
+          and(
+            eq(appointment_timeslots.appointment_id, appointmentId),
+            eq(appointment_timeslots.timeslot_id, oldTimeslotId)
+          )
+        );
+
+      await tx
+        .update(timeslots)
+        .set({
+          occupied_count: Math.max(0, (oldTimeslot[0]?.occupied_count ?? 0) - 1),
+          updated_at: new Date()
+        })
+        .where(eq(timeslots.id, oldTimeslotId));
+    }
+
+    // Create new relationship and increase new timeslot count
+    await tx
+      .insert(appointment_timeslots)
+      .values({
+        appointment_id: appointmentId,
+        timeslot_id: newTimeslotId,
+        primary: true
+      });
+
+    await tx
+      .update(timeslots)
+      .set({
+        occupied_count: (slot.occupied_count ?? 0) + 1,
+        updated_at: new Date()
+      })
+      .where(eq(timeslots.id, newTimeslotId));
+
+    return { success: true };
+  });
+}
+
+// Helper function to move borrower appointment to new timeslot
+async function moveBorrowerAppointmentToTimeslot(appointmentId: number, newTimeslotId: number, userId: string) {
+  return await db.transaction(async (tx) => {
+    // Get current borrower appointment details
+    const currentAppt = await tx
+      .select({
+        appointment: borrower_appointments,
+        timeslot_id: borrower_appointment_timeslots.timeslot_id
+      })
+      .from(borrower_appointments)
+      .leftJoin(borrower_appointment_timeslots, eq(borrower_appointments.id, borrower_appointment_timeslots.borrower_appointment_id))
+      .where(eq(borrower_appointments.id, appointmentId))
+      .limit(1);
+
+    if (currentAppt.length === 0) {
+      throw new Error('Borrower appointment not found');
+    }
+
+    const oldTimeslotId = currentAppt[0]?.timeslot_id;
+
+    // Get new timeslot details
+    const newTimeslot = await tx
+      .select()
+      .from(timeslots)
+      .where(eq(timeslots.id, newTimeslotId))
+      .limit(1);
+
+    if (newTimeslot.length === 0) {
+      throw new Error('New timeslot not found');
+    }
+
+    const slot = newTimeslot[0];
+    if (!slot) {
+      throw new Error('Invalid timeslot data');
+    }
+    
+    // Update borrower appointment times
+    const slotDate = typeof slot.date === 'string' ? slot.date : format(slot.date, 'yyyy-MM-dd');
+    const startTimeString = `${slotDate}T${slot.start_time}`;
+    const endTimeString = `${slotDate}T${slot.end_time}`;
+    
+    const startSGT = new Date(startTimeString);
+    const endSGT = new Date(endTimeString);
+    const startUTC = new Date(startSGT.getTime() - (8 * 60 * 60 * 1000));
+    const endUTC = new Date(endSGT.getTime() - (8 * 60 * 60 * 1000));
+
+    await tx
+      .update(borrower_appointments)
+      .set({
+        start_datetime: startUTC,
+        end_datetime: endUTC,
+        updated_at: new Date(),
+        updated_by: userId
+      })
+      .where(eq(borrower_appointments.id, appointmentId));
+
+    // Update timeslot relationships
+    if (oldTimeslotId) {
+      // Remove old relationship and decrease old timeslot count
+      await tx
+        .delete(borrower_appointment_timeslots)
+        .where(
+          and(
+            eq(borrower_appointment_timeslots.borrower_appointment_id, appointmentId),
+            eq(borrower_appointment_timeslots.timeslot_id, oldTimeslotId)
+          )
+        );
+
+      await tx
+        .update(timeslots)
+        .set({
+          occupied_count: Math.max(0, (slot.occupied_count ?? 0) - 1),
+          updated_at: new Date()
+        })
+        .where(eq(timeslots.id, oldTimeslotId));
+    }
+
+    // Create new relationship and increase new timeslot count
+    await tx
+      .insert(borrower_appointment_timeslots)
+      .values({
+        borrower_appointment_id: appointmentId,
+        timeslot_id: newTimeslotId,
+        primary: true
+      });
+
+    await tx
+      .update(timeslots)
+      .set({
+        occupied_count: (slot.occupied_count ?? 0) + 1,
+        updated_at: new Date()
+      })
+      .where(eq(timeslots.id, newTimeslotId));
+
+    return { success: true };
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get request parameters - handle both JSON and form data from Workato
     let excelData: ExcelData | undefined;
     let thresholdHours = 3;
+    let processingMode: ProcessingMode = 'realtime';
+    let apiKey: string | undefined;
+    let agentUserId: string | undefined;
     
     const contentType = request.headers.get('content-type') ?? '';
     
     if (contentType.includes('application/json')) {
       // Handle JSON format
       try {
-        const body = await request.json() as { excelData?: ExcelData; thresholdHours?: number };
+        const body = await request.json() as { 
+          excelData?: ExcelData; 
+          thresholdHours?: number;
+          mode?: ProcessingMode;
+          api_key?: string;
+          agent_user_id?: string;
+        };
         excelData = body.excelData;
         thresholdHours = body.thresholdHours ?? 3;
+        processingMode = body.mode ?? 'realtime';
+        apiKey = body.api_key;
+        agentUserId = body.agent_user_id;
       } catch (jsonError) {
         console.error('❌ JSON parsing failed:', jsonError);
         return NextResponse.json({
@@ -132,11 +453,26 @@ export async function POST(request: NextRequest) {
           if (thresholdParam && typeof thresholdParam === 'string') {
             thresholdHours = parseFloat(thresholdParam) || 3;
           }
+
+          const modeParam = formData.get('mode');
+          if (modeParam && typeof modeParam === 'string') {
+            processingMode = (modeParam as ProcessingMode) ?? 'realtime';
+          }
+
+          // Get API key and agent user ID from form data
+          const apiKeyParam = formData.get('api_key');
+          if (apiKeyParam && typeof apiKeyParam === 'string') {
+            apiKey = apiKeyParam;
+          }
+
+          const agentUserIdParam = formData.get('agent_user_id');
+          if (agentUserIdParam && typeof agentUserIdParam === 'string') {
+            agentUserId = agentUserIdParam;
+          }
           
           console.log('✅ Successfully parsed form data');
           console.log(`📊 Found ${excelData.rows.length} rows`);
         } else {
-          // console.log('❌ No rows data found in form');
           return NextResponse.json({
             error: "No data found in request",
             help: "Workato should send 'rows' parameter with Excel data",
@@ -153,7 +489,6 @@ export async function POST(request: NextRequest) {
           const rowsParam = url.searchParams.get('rows');
           
           if (rowsParam) {
-            // console.log('🔍 Trying URL parameters...');
             const decodedRows = decodeURIComponent(rowsParam);
             const rows = JSON.parse(decodedRows);
             excelData = {
@@ -163,7 +498,9 @@ export async function POST(request: NextRequest) {
               sheet: url.searchParams.get('sheet') ?? 'Sheet1'
             };
             thresholdHours = parseFloat(url.searchParams.get('thresholdHours') ?? '3');
-            // console.log('✅ Successfully parsed URL parameters');
+            processingMode = (url.searchParams.get('mode') as ProcessingMode) ?? 'realtime';
+            apiKey = url.searchParams.get('api_key') ?? undefined;
+            agentUserId = url.searchParams.get('agent_user_id') ?? undefined;
           } else {
             throw new Error('No rows parameter found');
           }
@@ -178,106 +515,61 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('🔄 Starting appointment status update process...');
-    // console.log('📊 Excel data provided:', !!excelData);
+    // Validate API key and determine user ID to use
+    const envApiKey = process.env.API_KEY;
+    let authenticatedUserId = process.env.AGENT_USER_ID ?? 'system-update'; // Default fallback
+    let isAuthenticated = false;
+
+    if (apiKey && envApiKey && apiKey === envApiKey) {
+      // API key is valid
+      isAuthenticated = true;
+      if (agentUserId?.trim()) {
+        authenticatedUserId = agentUserId.trim();
+        console.log(`🔐 API key validated - Using agent user ID: ${authenticatedUserId}`);
+      } else {
+        console.log(`🔐 API key validated - No agent_user_id provided, using system-update`);
+      }
+    } else if (apiKey) {
+      // API key provided but invalid
+      console.log(`❌ Invalid API key provided`);
+      return NextResponse.json({
+        error: "Invalid API key",
+        message: "The provided API key is not valid"
+      }, { status: 401 });
+    } else {
+      // No API key provided - use fallback (for manual testing)
+      console.log(`⚠️ No API key provided - Using fallback user ID for manual testing`);
+    }
+
+    console.log(`🔄 Starting appointment status update process in ${processingMode} mode...`);
     console.log('⏰ Threshold hours:', thresholdHours);
+    console.log(`👤 Using user ID: ${authenticatedUserId} (Authenticated: ${isAuthenticated})`);
+
+    // Ensure we always have a valid user ID
+    const safeUserId = authenticatedUserId ?? 'system-update';
 
     // Get today's date in Singapore timezone (UTC+8)
     const now = new Date();
     const singaporeOffset = 8 * 60; // 8 hours in minutes
     const singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
-    const todaySingapore = singaporeTime.toISOString().split('T')[0]; // YYYY-MM-DD format
-
-    // console.log('📅 Today (Singapore):', todaySingapore);
-
-    // Fetch all upcoming appointments for today
-    const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
-    const endOfDaySGT = new Date(`${todaySingapore}T23:59:59.999Z`);
+    const todayParts = singaporeTime.toISOString().split('T');
+    const todaySingapore = todayParts[0]; // YYYY-MM-DD format
     
-    // Convert to UTC for database query
-    const startOfDayUTC = new Date(startOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
-    const endOfDayUTC = new Date(endOfDaySGT.getTime() - (8 * 60 * 60 * 1000));
-
-    // Fetch lead appointments
-    const upcomingAppointments = await db
-      .select({
-        appointment: appointments,
-        lead: leads
-      })
-      .from(appointments)
-      .leftJoin(leads, eq(appointments.lead_id, leads.id))
-      .where(
-        and(
-          eq(appointments.status, 'upcoming'),
-          gte(appointments.start_datetime, startOfDayUTC),
-          lte(appointments.start_datetime, endOfDayUTC)
-        )
-      );
-
-    // Fetch borrower appointments
-    const upcomingBorrowerAppointments = await db
-      .select({
-        appointment: borrower_appointments,
-        borrower: borrowers
-      })
-      .from(borrower_appointments)
-      .leftJoin(borrowers, eq(borrower_appointments.borrower_id, borrowers.id))
-      .where(
-        and(
-          eq(borrower_appointments.status, 'upcoming'),
-          gte(borrower_appointments.start_datetime, startOfDayUTC),
-          lte(borrower_appointments.start_datetime, endOfDayUTC)
-        )
-      );
-
-    console.log(`📋 Found ${upcomingAppointments.length} upcoming lead appointments and ${upcomingBorrowerAppointments.length} upcoming borrower appointments for today`);
-    
-    // Debug: List all found appointments
-    upcomingAppointments.forEach(record => {
-      const appt = record.appointment;
-      const leadData = record.lead;
-      const apptTimeSGT = new Date(appt.start_datetime.getTime() + (8 * 60 * 60 * 1000));
-      // console.log(`📅 Found lead appointment ${appt.id}: Lead "${leadData?.full_name}" (${leadData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
-    });
-
-    upcomingBorrowerAppointments.forEach(record => {
-      const appt = record.appointment;
-      const borrowerData = record.borrower;
-      const apptTimeSGT = new Date(appt.start_datetime.getTime() + (8 * 60 * 60 * 1000));
-      // console.log(`📅 Found borrower appointment ${appt.id}: Borrower "${borrowerData?.full_name}" (${borrowerData?.phone_number}), Time: ${format(apptTimeSGT, 'yyyy-MM-dd HH:mm')}, Status: ${appt.status}`);
-    });
-
-    if (upcomingAppointments.length === 0 && upcomingBorrowerAppointments.length === 0) {
-      // console.log(`📊 No appointments found - Final Summary:`);
-      // console.log(`   Today (Singapore): ${todaySingapore}`);
-      // console.log(`   Threshold hours: ${thresholdHours}`);
-      // console.log(`   Excel data provided: ${!!excelData}`);
-      
-      return NextResponse.json({
-        success: true,
-        message: "No upcoming appointments found for today",
-        processed: 0,
-        updated: 0,
-        todaySingapore,
-        thresholdHours,
-        results: [],
-        summary: {
-          excelDataProvided: !!excelData,
-          excelRowsProcessed: excelData?.rows?.length ?? 0,
-          upcomingLeadAppointmentsFound: 0,
-          upcomingBorrowerAppointmentsFound: 0,
-          leadAppointmentStatusUpdates: 0,
-          borrowerAppointmentStatusUpdates: 0,
-          timeBasedMissedUpdates: 0,
-          errorCount: 0
-        }
-      });
+    if (!todaySingapore) {
+      throw new Error('Failed to get Singapore date');
     }
+
+    console.log('📅 Today (Singapore):', todaySingapore);
+
+    // Use authenticated user ID for updates
+    const fallbackUserId = authenticatedUserId ?? 'system-update';
 
     let processedCount = 0;
     let updatedCount = 0;
-    const processedAppointmentIds = new Set<number>(); // Track appointments already updated by Excel data
-    const processedBorrowerAppointmentIds = new Set<number>(); // Track borrower appointments already updated by Excel data
+    let createdLeadsCount = 0;
+    let createdAppointmentsCount = 0;
+    let movedAppointmentsCount = 0;
+    
     const results: Array<{
       appointmentId: string;
       leadId: string;
@@ -289,296 +581,699 @@ export async function POST(request: NextRequest) {
       reason: string;
       appointmentTime: string;
       timeDiffHours: string;
+      action: string;
       error?: string;
     }> = [];
 
-    // Use fallback userId for updates (since auth is commented out)
-    const fallbackUserId = "system-update";
+    // LIVE MODE: Process Excel data and live updates (removed end-of-day mode)
+    console.log('⚡ Running live processing with Excel code updates...');
 
-    // First, process Excel rows for new loan cases
-    if (excelData?.rows) {
-      console.log(`📊 Processing ${excelData.rows.length} Excel rows...`);
+    if (!excelData?.rows || excelData.rows.length === 0) {
+      return NextResponse.json({
+        error: "No Excel data provided for live processing",
+        help: "Live mode requires Excel data with 'New Loan - 新贷款' appointment information and codes (P, PRS, RS, R)"
+      }, { status: 400 });
+    }
+
+    console.log(`📊 Total Excel rows received: ${excelData.rows.length}`);
+
+    // Filter Excel data to only process today's appointments (avoid processing future appointments)
+    const filteredRows = excelData.rows.filter(row => {
+      try {
+        // Parse the timestamp from Excel (which is in GMT+8)
+        const timestampStr = row.col_Date;
+        if (!timestampStr) return false;
+
+        // Handle DD/MM/YY or DD/MM/YYYY format
+        let excelDate: string;
+        if (timestampStr.includes('/') || timestampStr.includes('-')) {
+          const parts = timestampStr.split(/[\/-]/);
+          if (parts.length !== 3) return false;
+
+          const [day, month, yearTime] = parts;
+          if (!day || !month || !yearTime) return false;
+
+          const [yearPart] = yearTime.split(' ');
+          if (!yearPart) return false;
+
+          const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
+          excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        } else {
+          return false; // Unsupported date format
+        }
+
+        // Only process today's appointments 
+        return excelDate === todaySingapore;
+      } catch (error) {
+        console.error(`❌ Error parsing date for row ${row.row_number}:`, error);
+        return false; // Skip rows with invalid dates
+      }
+    });
+
+    // Count how many are "New Loan - 新贷款" vs other types
+    const newLoanRows = filteredRows.filter(row => row["col_New or Reloan? "]?.toString().trim() === "New Loan - 新贷款");
+    const otherLoanRows = filteredRows.filter(row => row["col_New or Reloan? "]?.toString().trim() !== "New Loan - 新贷款");
+    
+    // Sort rows to prioritize UW-filled rows (attendance confirmed) over empty ones
+    // This prevents duplicate phone numbers from flipping between statuses
+    const sortedFilteredRows = filteredRows.sort((a, b) => {
+      const aHasUW = !!(a.col_UW?.toString().trim());
+      const bHasUW = !!(b.col_UW?.toString().trim());
       
-      for (const row of excelData.rows) {
+      // UW-filled rows come first (true > false)
+      if (aHasUW !== bHasUW) {
+        return bHasUW ? 1 : -1;
+      }
+      return 0;
+    });
+
+    // Track processed phone numbers to prevent duplicate processing
+    const processedPhoneNumbers = new Set<string>();
+    
+    console.log(`📅 Filtered: ${sortedFilteredRows.length} today's rows (${todaySingapore}) | New Loans:${newLoanRows.length} Other:${otherLoanRows.length} Future skipped:${excelData.rows.length - sortedFilteredRows.length}`);
+
+    // Process each filtered Excel row (only today's appointments)
+    for (const row of sortedFilteredRows) {
         processedCount++;
         
-        // Skip if not a new loan case
-        // if (row["col_New or Reloan? "]?.trim() !== "New Loan - 新贷款") {
-        //   // console.log(`⏭️ Skipping non-new loan case: ${row["col_New or Reloan? "]}`);
-        //   continue;
-        // }
-
-        // Parse the timestamp from Excel (which is in GMT+8)
-        let excelDate: string;
-        try {
-          const timestampStr = row.col_Date;
-          if (!timestampStr) {
-            throw new Error('Empty timestamp');
-          }
-
-          // Handle DD/MM/YY or DD/MM/YYYY format
-          if (timestampStr.includes('/') || timestampStr.includes('-')) {
-            // Split by either / or -
-            const parts = timestampStr.split(/[\/-]/);
-            if (parts.length !== 3) {
-              throw new Error('Invalid date format: expected DD/MM/YY or DD/MM/YYYY');
-            }
-
-            const [day, month, yearTime] = parts;
-            if (!day || !month || !yearTime) {
-              throw new Error('Invalid date format: missing day, month, or year');
-            }
-
-            // Split year and time if present
-            const [yearPart] = yearTime.split(' ');
-            if (!yearPart) {
-              throw new Error('Invalid date format: missing year');
-            }
-
-            // Handle both 2-digit and 4-digit years
-            const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
-
-            // Create YYYY-MM-DD format for comparison
-            excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-            // console.log(`📅 Parsed date: ${timestampStr} → ${excelDate}`);
-          } else {
-            throw new Error('Unsupported date format');
-          }
-        } catch (error) {
-          console.error(`❌ Error parsing timestamp for row ${row.row_number}:`, error);
-          console.error(`📝 Raw timestamp value: "${row.col_Date}"`);
-          continue;
-        }
-
-        // Only process if the Excel row is from today
-        if (excelDate !== todaySingapore) {
-          // console.log(`⏭️ Skipping row ${row.row_number} - not from today (${excelDate} vs ${todaySingapore})`);
-          continue;
-        }
+      try {
+        // Since we already filtered for today's appointments, we know this is today
+        const excelDate = todaySingapore;
+        const isExcelToday = true;
+        const targetAppointmentDate = todaySingapore;
 
         // Clean and format the phone number from Excel
         const cleanExcelPhone = row["col_Mobile Number"]?.toString().replace(/\D/g, '');
         if (!cleanExcelPhone) {
-          // console.log(`⚠️ No phone number found in row ${row.row_number}`);
+          console.log(`⚠️ No phone number found in row ${row.row_number}`);
           continue;
         }
 
-        // Find matching appointment
-        // console.log(`🔍 Finding matching appointment for phone "${cleanExcelPhone}"`);
-        const matchingAppointment = upcomingAppointments.find(record => {
-          const leadPhone = record.lead?.phone_number?.replace(/\+65/g, '');
-          console.log(`🔍 Found lead phone "${leadPhone}"`);
-          return leadPhone === cleanExcelPhone;
-        });
+        const formattedPhone = `+65${cleanExcelPhone}`;
+        const fullName = row["col_Full Name"]?.toString().trim() || '';
+        const loanType = row["col_New or Reloan? "]?.toString().trim() || '';
 
-        if (!matchingAppointment) {
-          console.log(`❌ No matching appointment found for phone "${cleanExcelPhone}"`);
+        // Check if we've already processed this phone number to prevent duplicates
+        if (processedPhoneNumbers.has(formattedPhone)) {
+          console.log(`🔄 [DUPLICATE] Skipping row ${row.row_number} for ${fullName} (${formattedPhone}) - already processed`);
           continue;
         }
 
-        const { appointment, lead } = matchingAppointment;
+        // Mark this phone number as processed
+        processedPhoneNumbers.add(formattedPhone);
         
-        if (!lead) {
-          console.warn(`⚠️ No lead found for appointment ${appointment.id}`);
+        // Check if this is a new loan case for lead appointments (filter out other types)
+        if (loanType !== "New Loan - 新贷款") {
+          console.log(`⏭️ [SKIP ROW] Skipping non-new-loan case: "${loanType}" (row ${row.row_number})`);
           continue;
         }
-
-        // Update appointment status based on code
-        const code = row.col_Code?.trim().toUpperCase();
-        let newAppointmentStatus = 'upcoming';
-        let newLeadStatus = lead.status;
-        let newLeadLoanStatus = lead.loan_status;
-        let newLeadLoanNotes = lead.loan_notes;
-        let newAppointmentLoanStatus = appointment.loan_status;
-        let newAppointmentLoanNotes = appointment.loan_notes;
-        let updateReason = '';
-
-        // Format eligibility notes based on code
-        let eligibilityNotes = '';
-        let additionalLeadNotes = '';
         
-        if (code === 'RS') {
-          const rsDetailed = row["col_RS -Detailed"]?.trim() ?? '';
-          const rsReason = row.col_RS?.trim() ?? '';
-          eligibilityNotes = `RS - ${rsReason}`;
+        // Check if appointment turned up (UW field filled)
+        const appointmentTurnedUp = checkAppointmentAttendance(row);
+        
+        // Find existing lead by phone number with validation
+        console.log(`\n🔍 [ROW ${row.row_number}] ${fullName} (${formattedPhone}) NEW LOAN | UW:"${row.col_UW}" Code:"${row.col_Code}" Attended:${appointmentTurnedUp}`);
+        
+        let existingLead;
+        try {
+          existingLead = await findLeadByPhone(formattedPhone);
+        } catch (leadError) {
+          console.error(`❌ Lead validation failed for ${fullName} (${formattedPhone}):`, leadError);
+          results.push({
+            appointmentId: 'validation_failed',
+            leadId: 'validation_failed',
+            leadName: fullName,
+            oldAppointmentStatus: 'N/A',
+            newAppointmentStatus: 'N/A',
+            oldLeadStatus: 'N/A',
+            newLeadStatus: 'N/A',
+            reason: `Lead validation failed: ${(leadError as Error).message}`,
+            appointmentTime: 'N/A',
+            timeDiffHours: 'N/A',
+            action: 'validation_error',
+            error: (leadError as Error).message
+          });
+          continue; // Skip this record and continue with next
+        }
+        
+        if (!existingLead) {
+          // Case A: Lead doesn't exist - BUT only create if UW field is filled (attended)
+          if (!appointmentTurnedUp) {
+            console.log(`⏭️ Skipping new lead creation for ${fullName} - UW field not filled (no attendance)`);
+            results.push({
+              appointmentId: 'skipped',
+              leadId: 'skipped',
+              leadName: fullName,
+              oldAppointmentStatus: 'none',
+              newAppointmentStatus: 'none',
+              oldLeadStatus: 'none',
+              newLeadStatus: 'none',
+              reason: 'Live: Skipped - UW field not filled (no attendance recorded)',
+              appointmentTime: 'N/A',
+              timeDiffHours: 'N/A',
+              action: 'skip_no_attendance'
+            });
+            continue;
+          }
           
-          // Add detailed reason to lead notes if it has content
-          if (rsDetailed) {
-            additionalLeadNotes = `RS Details: ${rsDetailed}`;
-          }
-        } else if (code === 'R') {
-          eligibilityNotes = 'R - Rejected';
-        } else if (code === 'PRS') {
-          eligibilityNotes = 'PRS - Customer Rejected';
-        } else if (code === 'P') {
-          eligibilityNotes = 'P - Done';
-        }
+          console.log(`🆕 Creating new lead for phone ${cleanExcelPhone} - UW field filled (attended)`);
+          
+          const createLeadResult = await createLead({
+            phone_number: formattedPhone,
+            full_name: fullName,
+            source: 'SEO',
+            status: 'new',
+            lead_type: 'new', // Always 'new' since we only process "New Loan - 新贷款"
+            amount: row["col_Loan Amount Applying?"]?.toString() || '',
+            email: row["col_Email Address"]?.toString() || '',
+            employment_status: row["col_Employment Type"]?.toString() || '',
+            loan_purpose: row["col_What is the purpose of the Loan?"]?.toString() || '',
+                          created_by: safeUserId,
+              updated_by: safeUserId,
+            bypassEligibility: false // Check eligibility for new leads
+          });
 
-        // Update eligibility notes
-        if (eligibilityNotes) {
-          try {
-            await db
-              .update(leads)
-              .set({
-                eligibility_notes: eligibilityNotes,
-                updated_at: new Date(),
-                updated_by: fallbackUserId
-              })
-              .where(eq(leads.id, lead.id));
-            console.log(`📝 Added eligibility notes to lead ${lead.id}: ${eligibilityNotes}`);
-          } catch (error) {
-            console.error(`❌ Error updating eligibility notes for lead ${lead.id}:`, error);
-          }
-        }
-
-        switch (code) {
-          case 'P':
-            newAppointmentStatus = 'done';
-            newLeadStatus = 'done';
-            newLeadLoanStatus = 'P';
-            newLeadLoanNotes = 'P - Done';
-            newAppointmentLoanStatus = 'P';
-            newAppointmentLoanNotes = 'P - Done';
-            break;
-          case 'PRS':
-            newAppointmentStatus = 'done';
-            newLeadStatus = 'done';
-            newLeadLoanStatus = 'PRS';
-            newLeadLoanNotes = 'PRS - Customer Rejected';
-            newAppointmentLoanStatus = 'PRS';
-            newAppointmentLoanNotes = 'PRS - Customer Rejected';
-            break;
-          case 'RS':
-            newAppointmentStatus = 'done';
-            newLeadStatus = 'missed/RS';
-            newLeadLoanStatus = 'RS';
-            newLeadLoanNotes = additionalLeadNotes ? `RS - Rejected. ${additionalLeadNotes}` : 'RS - Rejected';
-            newAppointmentLoanStatus = 'RS';
-            newAppointmentLoanNotes = additionalLeadNotes ? `RS - Rejected. ${additionalLeadNotes}` : 'RS - Rejected';
-            break;
-          case 'R':
-            newAppointmentStatus = 'done';
-            newLeadStatus = 'done';
-            newLeadLoanStatus = 'R';
-            newLeadLoanNotes = 'R - Rejected';
-            newAppointmentLoanStatus = 'R';
-            newAppointmentLoanNotes = 'R - Rejected';
+          if (createLeadResult.success && createLeadResult.lead) {
+            createdLeadsCount++;
             
-            // Call rejection webhook for R codes
-            try {
-              const cleanPhoneNumber = lead.phone_number?.replace(/^\+65/, '').replace(/[^\d]/g, '') ?? '';
-              if (cleanPhoneNumber) {
-                console.log(`📞 Calling RS rejection webhook for ${cleanPhoneNumber}`);
-                
-                const rejectionWebhookUrl = process.env.WORKATO_SEND_REJECTION_WEBHOOK_URL;
+            // Create appointment for today
+            const nearestTimeslot = await findNearestTimeslot(todaySingapore);
+            console.log('🔄 Creating appointment for today');
+            if (nearestTimeslot) {
+              const appointmentResult = await createAppointment({
+                leadId: createLeadResult.lead.id,
+                timeslotId: nearestTimeslot.id,
+                notes: `Auto-created from Google Sheets - ${fullName} (Today: ${todaySingapore})`,
+                isUrgent: false,
+                overrideUserId: authenticatedUserId
+              });
 
-                if(!rejectionWebhookUrl) {
-                  console.error('❌ WORKATO_SEND_REJECTION_WEBHOOK_URL is not set');
-                  return;
+              if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
+                console.log('✅ Appointment created successfully:', appointmentResult.appointment.id);
+                createdAppointmentsCount++;
+                
+                // Update appointment status based on attendance
+                const appointmentStatus = appointmentTurnedUp ? 'done' : 'upcoming';
+                const leadStatus = appointmentTurnedUp ? 'done' : 'booked';
+                
+                if (appointmentTurnedUp) {
+                  await db.update(appointments)
+                    .set({ 
+                      status: appointmentStatus,
+                      updated_by: safeUserId
+                    })
+                    .where(eq(appointments.id, appointmentResult.appointment.id));
+                    
+                  await updateLead(createLeadResult.lead.id, {
+                    status: leadStatus,
+                    updated_by: safeUserId
+                  });
                 }
-
-                const webhookResponse = await fetch(rejectionWebhookUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    phone_number: cleanPhoneNumber,
-                    lead_id: lead.id,
-                    lead_name: lead.full_name,
-                    appointment_id: appointment.id,
-                    code: code,
-                    timestamp: new Date().toISOString()
-                  })
+                results.push({
+                  appointmentId: appointmentResult.appointment.id.toString(),
+                  leadId: createLeadResult.lead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: 'none',
+                  newAppointmentStatus: appointmentTurnedUp ? 'done' : 'upcoming',
+                  oldLeadStatus: 'none',
+                  newLeadStatus: appointmentTurnedUp ? 'done' : 'booked',
+                  reason: `New lead created and appointment scheduled for today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
+                  appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
+                  timeDiffHours: 'N/A',
+                  action: 'create_lead_and_appointment'
                 });
+              } else {
+                console.error('❌ Failed to create appointment for new lead:', appointmentResult);
+                results.push({
+                  appointmentId: 'failed',
+                  leadId: createLeadResult.lead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: 'none',
+                  newAppointmentStatus: 'failed',
+                  oldLeadStatus: 'new',
+                  newLeadStatus: 'new',
+                  reason: `Failed to create appointment: ${appointmentResult.success === false ? 'Creation failed' : 'Unknown error'}`,
+                  appointmentTime: 'N/A',
+                  timeDiffHours: 'N/A',
+                  action: 'create_appointment_failed',
+                  error: appointmentResult.success === false ? 'Creation failed' : 'Unknown error'
+                });
+              }
+            }
+          }
+        } else {
+          // Lead exists - validate appointments with error handling
+          let todayAppointments, anyUpcomingAppointments;
+          
+          try {
+            // Check for NON-CANCELLED appointments today
+            todayAppointments = await db
+              .select()
+              .from(appointments)
+              .where(
+                and(
+                  eq(appointments.lead_id, existingLead.id),
+                  not(eq(appointments.status, 'cancelled')),
+                  gte(appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
+                  lte(appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
+                )
+              );
+
+            // Validate single appointment constraint for today
+            if (todayAppointments.length > 1) {
+              console.log(`❌ [MULTIPLE APPOINTMENTS] Lead ${existingLead.id} has ${todayAppointments.length} non-cancelled appointments today: ${todayAppointments.map(a => `ID:${a.id}(${a.status})`).join(', ')}`);
+              throw new Error(`Multiple non-cancelled appointments found for lead ${existingLead.id} today. Found ${todayAppointments.length} appointments: ${todayAppointments.map(a => `ID:${a.id}(${a.status})`).join(', ')}`);
+            }
+
+            // Also check for any upcoming appointments on other dates (upcoming status already excludes cancelled)
+            anyUpcomingAppointments = await db
+              .select()
+              .from(appointments)
+              .where(
+                and(
+                  eq(appointments.lead_id, existingLead.id),
+                  eq(appointments.status, 'upcoming')
+                )
+              );
+
+            // Validate single upcoming appointment constraint
+            if (anyUpcomingAppointments.length > 1) {
+              console.log(`❌ [MULTIPLE UPCOMING] Lead ${existingLead.id} has ${anyUpcomingAppointments.length} upcoming appointments: ${anyUpcomingAppointments.map(a => `ID:${a.id}(${format(new Date(a.start_datetime), 'MM-dd HH:mm')})`).join(', ')}`);
+              throw new Error(`Multiple upcoming appointments found for lead ${existingLead.id}. Found ${anyUpcomingAppointments.length} appointments: ${anyUpcomingAppointments.map(a => `ID:${a.id}(${format(new Date(a.start_datetime), 'MM-dd HH:mm')})`).join(', ')}`);
+            }
+          } catch (appointmentError) {
+            console.error(`❌ Appointment validation failed for lead ${existingLead.id} (${fullName}):`, appointmentError);
+            results.push({
+              appointmentId: 'validation_failed',
+              leadId: existingLead.id.toString(),
+              leadName: fullName,
+              oldAppointmentStatus: 'N/A',
+              newAppointmentStatus: 'N/A',
+              oldLeadStatus: existingLead.status,
+              newLeadStatus: existingLead.status,
+              reason: `Appointment validation failed: ${(appointmentError as Error).message}`,
+              appointmentTime: 'N/A',
+              timeDiffHours: 'N/A',
+              action: 'validation_error',
+              error: (appointmentError as Error).message
+            });
+            continue; // Skip this record and continue with next
+          }
+
+          console.log(`📅 [APPOINTMENTS] Lead ${existingLead.id} (${existingLead.full_name}) | Today:${todayAppointments.length} Future:${anyUpcomingAppointments.length}`);
+
+          if (todayAppointments.length === 0) {
+            // No appointment for today
+            if (anyUpcomingAppointments.length > 0) {
+              // Case C: Has appointment on different date - BUT only move if UW field is filled (attended)
+              const appointmentToMove = anyUpcomingAppointments[0];
+              const futureDate = format(new Date(appointmentToMove!.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'MM-dd HH:mm');
+              
+              if (!appointmentTurnedUp) {
+                console.log(`⏭️ [SKIP MOVE] Lead ${existingLead.id} has ${anyUpcomingAppointments.length} future appts (${futureDate}) but UW not filled - skipping move`);
+                results.push({
+                  appointmentId: 'skipped',
+                  leadId: existingLead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: 'none',
+                  newAppointmentStatus: 'none',
+                  oldLeadStatus: existingLead.status,
+                  newLeadStatus: existingLead.status,
+                  reason: 'Live: Skipped appointment move - UW field not filled (no attendance recorded)',
+                  appointmentTime: 'N/A',
+                  timeDiffHours: 'N/A',
+                  action: 'skip_move_no_attendance'
+                });
+                continue;
+              }
+              
+              if (appointmentToMove) {
+                console.log(`🚀 [MOVE] Appt ${appointmentToMove.id} from ${futureDate} to today - UW filled`);
                 
-                if (webhookResponse.ok) {
-                  const webhookResult = await webhookResponse.json();
-                  console.log(`✅ Lead rejection webhook called successfully for ${cleanPhoneNumber}:`, webhookResult);
-                  updateReason += ` + Webhook called`;
+                const nearestTimeslot = await findNearestTimeslot(todaySingapore);
+                if (nearestTimeslot) {
+                  const moveResult = await moveAppointmentToTimeslot(
+                    appointmentToMove.id, 
+                    nearestTimeslot.id, 
+                    authenticatedUserId
+                  );
+
+                  if (moveResult.success) {
+                    movedAppointmentsCount++;
+                    
+                    // Update status based on attendance
+                    const appointmentStatus = appointmentTurnedUp ? 'done' : 'upcoming';
+                    const leadStatus = appointmentTurnedUp ? 'done' : 'booked';
+                    
+                    if (appointmentTurnedUp) {
+                      await db.update(appointments)
+                        .set({ 
+                          status: appointmentStatus,
+                          updated_by: authenticatedUserId
+                        })
+                        .where(eq(appointments.id, appointmentToMove.id));
+                        
+                      await updateLead(existingLead.id, {
+                        status: leadStatus,
+                        updated_by: authenticatedUserId
+                      });
+                    }
+
+                    console.log(`✅ [MOVED] Appt ${appointmentToMove.id} → timeslot ${nearestTimeslot.id} (${nearestTimeslot.start_time}) | Status: ${appointmentStatus}`);
+
+                    results.push({
+                      appointmentId: appointmentToMove.id.toString(),
+                      leadId: existingLead.id.toString(),
+                      leadName: fullName,
+                      oldAppointmentStatus: appointmentToMove.status,
+                      newAppointmentStatus: appointmentStatus,
+                      oldLeadStatus: existingLead.status,
+                      newLeadStatus: leadStatus,
+                      reason: `Appointment moved from ${format(new Date(appointmentToMove.start_datetime), 'yyyy-MM-dd')} to today${appointmentTurnedUp ? ' and marked as attended' : ''}`,
+                      appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
+                      timeDiffHours: 'N/A',
+                      action: 'move_appointment'
+                    });
+                  } else {
+                    console.error(`❌ [MOVE FAILED] Appt ${appointmentToMove.id}: ${JSON.stringify(moveResult)}`);
+                  }
                 } else {
-                  console.error(`❌ Lead rejection webhook failed for ${cleanPhoneNumber}:`, webhookResponse.status, webhookResponse.statusText);
-                  updateReason += ` + Webhook failed`;
+                  console.error(`❌ [NO TIMESLOT] No available timeslot for ${todaySingapore}`);
+                }
+              }
+            } else {
+              // Case B: Lead exists but no appointment at all - BUT only create if UW field is filled (attended)
+              if (!appointmentTurnedUp) {
+                console.log(`⏭️ [SKIP CREATE] Lead ${existingLead.id} has no appointments but UW not filled - skipping creation`);
+                results.push({
+                  appointmentId: 'skipped',
+                  leadId: existingLead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: 'none',
+                  newAppointmentStatus: 'none',
+                  oldLeadStatus: existingLead.status,
+                  newLeadStatus: existingLead.status,
+                  reason: 'Live: Skipped appointment creation - UW field not filled (no attendance recorded)',
+                  appointmentTime: 'N/A',
+                  timeDiffHours: 'N/A',
+                  action: 'skip_create_no_attendance'
+                });
+                continue;
+              }
+              
+              console.log(`🚀 [CREATE] Lead ${existingLead.id} has no appointments - creating today (UW filled)`);
+              
+              const nearestTimeslot = await findNearestTimeslot(todaySingapore);
+              if (nearestTimeslot) {
+                const appointmentResult = await createAppointment({
+                  leadId: existingLead.id,
+                  timeslotId: nearestTimeslot.id,
+                  notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Today: ${todaySingapore})`,
+                  isUrgent: false,
+                  overrideUserId: safeUserId
+                });
+
+                if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
+                  console.log('✅ Appointment created for existing lead:', appointmentResult.appointment.id);
+                  createdAppointmentsCount++;
+                  
+                  // Update appointment status based on attendance
+                  const appointmentStatus = appointmentTurnedUp ? 'done' : 'upcoming';
+                  const leadStatus = appointmentTurnedUp ? 'done' : 'booked';
+                  
+                  if (appointmentTurnedUp) {
+                    await db.update(appointments)
+                      .set({ 
+                        status: appointmentStatus,
+                        updated_by: safeUserId
+                      })
+                      .where(eq(appointments.id, appointmentResult.appointment.id));
+                      
+                    await updateLead(existingLead.id, {
+                      status: leadStatus,
+                      updated_by: safeUserId
+                    });
+                  }
+                  results.push({
+                    appointmentId: appointmentResult.appointment.id.toString(),
+                    leadId: existingLead.id.toString(),
+                    leadName: fullName,
+                    oldAppointmentStatus: 'none',
+                    newAppointmentStatus: appointmentTurnedUp ? 'done' : 'upcoming',
+                    oldLeadStatus: existingLead.status,
+                    newLeadStatus: appointmentTurnedUp ? 'done' : 'booked',
+                    reason: `Appointment created for existing lead today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
+                    appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
+                    timeDiffHours: 'N/A',
+                    action: 'create_appointment'
+                  });
+                } else {
+                  console.error('❌ Failed to create appointment for existing lead:', appointmentResult);
+                  results.push({
+                    appointmentId: 'failed',
+                    leadId: existingLead.id.toString(),
+                    leadName: fullName,
+                    oldAppointmentStatus: 'none',
+                    newAppointmentStatus: 'failed',
+                    oldLeadStatus: existingLead.status,
+                    newLeadStatus: existingLead.status,
+                                          reason: `Failed to create appointment: ${appointmentResult.success === false ? 'Creation failed' : 'Unknown error'}`,
+                      appointmentTime: 'N/A',
+                      timeDiffHours: 'N/A',
+                      action: 'create_appointment_failed',
+                      error: appointmentResult.success === false ? 'Creation failed' : 'Unknown error'
+                  });
+                }
+              }
+            }
+          } else {
+            // Case D: Lead has appointment today - LIVE update with Excel codes when UW filled
+            const todayAppointment = todayAppointments[0];
+            
+            if (todayAppointment) {
+              const apptTime = format(new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'HH:mm');
+              console.log(`📋 [TODAY APPT] ${todayAppointment.id} at ${apptTime} | Status:${todayAppointment.status} | UW:"${row.col_UW}" Code:"${row.col_Code}" Attended:${appointmentTurnedUp}`);
+              
+              const code = row.col_Code?.trim().toUpperCase();
+              let newAppointmentStatus = todayAppointment.status;
+              let newLeadStatus = existingLead.status;
+              let newLoanStatus = existingLead.loan_status;
+              let newLoanNotes = existingLead.loan_notes;
+              let newEligibilityNotes = existingLead.eligibility_notes;
+              
+              // Appointment fields to update
+              let newAppointmentNotes = todayAppointment.notes;
+              let newAppointmentLoanStatus = todayAppointment.loan_status;
+              let newAppointmentLoanNotes = todayAppointment.loan_notes;
+              let updateReason = '';
+
+              if (appointmentTurnedUp) {
+                // UW field filled - process Excel codes LIVE
+                if (code) {
+                  switch (code) {
+                    case 'P':
+                      newAppointmentStatus = 'done';
+                      newLeadStatus = 'done';
+                      newLoanStatus = 'P';
+                      newLoanNotes = 'P - Done';
+                      newEligibilityNotes = 'Loan Disbursed';
+                      
+                      // Update appointment fields
+                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: P - Completed`;
+                      newAppointmentLoanStatus = 'P';
+                      newAppointmentLoanNotes = 'P - Done';
+                      
+                      updateReason = 'Live: P (Completed) - UW field filled';
+                      break;
+                    case 'PRS':
+                      newAppointmentStatus = 'done';
+                      newLeadStatus = 'done';
+                      newLoanStatus = 'PRS';
+                      newLoanNotes = 'PRS - Customer Rejected';
+                      newEligibilityNotes = 'Loan approved but customer rejected';
+                      
+                      // Update appointment fields
+                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: PRS - Customer Rejected`;
+                      newAppointmentLoanStatus = 'PRS';
+                      newAppointmentLoanNotes = 'PRS - Customer Rejected';
+                      
+                      updateReason = 'Live: PRS (Customer Rejected) - UW field filled';
+                      break;
+                    case 'RS':
+                      newAppointmentStatus = 'done';
+                      newLeadStatus = 'missed/RS';
+                      newLoanStatus = 'RS';
+                      
+                      // Get RS type and details
+                      const rsType = row.col_RS?.toString().trim();
+                      const rsDetails = row["col_RS -Detailed"]?.toString().trim();
+                      
+                      newLoanNotes = `RS${rsType ? ` - ${rsType}` : ''}`;
+                      newEligibilityNotes = `Failed eligibility${rsType ? ` - ${rsType}` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
+                      
+                      // Update appointment fields
+                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: RS - Rejected by System${rsType ? ` - ${rsType}` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
+                      newAppointmentLoanStatus = 'RS';
+                      newAppointmentLoanNotes = `RS${rsType ? ` - ${rsType}` : ''}`;
+                      
+                      updateReason = `Live: RS (Rejected by System)${rsType ? ` - Type: ${rsType}` : ''}${rsDetails ? ` - Details: ${rsDetails}` : ''} - UW field filled`;
+                      break;
+                    case 'R':
+                      newAppointmentStatus = 'done';
+                      newLeadStatus = 'done';
+                      newLoanStatus = 'R';
+                      newLoanNotes = 'R - Rejected';
+                      newEligibilityNotes = 'Rejected';
+                      
+                      // Update appointment fields
+                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: R - Rejected`;
+                      newAppointmentLoanStatus = 'R';
+                      newAppointmentLoanNotes = 'R - Rejected';
+                      
+                      updateReason = 'Live: R (Rejected) - UW field filled';
+                      break;
+                    default:
+                      // No valid code, just mark as attended
+                      newAppointmentStatus = 'done';
+                      newLeadStatus = 'done';
+                      updateReason = 'Live: Marked as attended (UW field filled) - No valid code';
+                      break;
+                  }
+                } else {
+                  // No code, just mark as attended
+                  newAppointmentStatus = 'done';
+                  newLeadStatus = 'done';
+                  updateReason = 'Live: Marked as attended (UW field filled) - No code provided';
                 }
               } else {
-                console.warn(`⚠️ No valid phone number found for Lead rejection webhook (Lead ID: ${lead.id})`);
+                // Not attended - check if appointment should be marked as missed based on time threshold
+                const appointmentTimeSGT = new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000));
+                const timeDiffMs = singaporeTime.getTime() - appointmentTimeSGT.getTime();
+                const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
+
+                if (timeDiffHours >= thresholdHours) {
+                  newAppointmentStatus = 'missed';
+                  newLeadStatus = 'missed/RS';
+                  updateReason = `Time threshold exceeded (${timeDiffHours.toFixed(2)}h late) - No attendance`;
+                  console.log(`⏰ [MISSED] ${timeDiffHours.toFixed(2)}h late > ${thresholdHours}h threshold${code ? ` | Code:${code} (ignored - no UW)` : ''}`);
+                } else {
+                  // Still within threshold, keep as upcoming
+                  updateReason = `No attendance recorded yet (${timeDiffHours.toFixed(2)}h since appointment)`;
+                  console.log(`⏰ [UPCOMING] ${timeDiffHours.toFixed(2)}h since appt < ${thresholdHours}h threshold${code ? ` | Code:${code} (ignored - no UW)` : ''}`);
+                }
               }
-            } catch (webhookError) {
-              console.error(`❌ Error calling Lead rejection webhook:`, webhookError);
-              updateReason += ` + Webhook error`;
+
+              // Apply updates if status changed or new fields need updating
+              const hasLeadChanges = newLeadStatus !== existingLead.status || 
+                                    newLoanStatus !== existingLead.loan_status || 
+                                    newLoanNotes !== existingLead.loan_notes || 
+                                    newEligibilityNotes !== existingLead.eligibility_notes;
+
+              const hasAppointmentChanges = newAppointmentStatus !== todayAppointment.status ||
+                                          newAppointmentNotes !== todayAppointment.notes ||
+                                          newAppointmentLoanStatus !== todayAppointment.loan_status ||
+                                          newAppointmentLoanNotes !== todayAppointment.loan_notes;
+
+              if (hasLeadChanges || hasAppointmentChanges) {
+                // Update lead
+                if (hasLeadChanges) {
+                  await updateLead(existingLead.id, {
+                    status: newLeadStatus,
+                    loan_status: newLoanStatus,
+                    loan_notes: newLoanNotes,
+                    eligibility_notes: newEligibilityNotes,
+                    updated_by: authenticatedUserId
+                  });
+                }
+
+                // Update appointment
+                if (hasAppointmentChanges) {
+                await db.update(appointments)
+                  .set({ 
+                    status: newAppointmentStatus,
+                      notes: newAppointmentNotes,
+                      loan_status: newAppointmentLoanStatus,
+                      loan_notes: newAppointmentLoanNotes,
+                      updated_at: new Date(),
+                    updated_by: authenticatedUserId
+                  })
+                  .where(eq(appointments.id, todayAppointment.id));
+                }
+                  
+                console.log(`✅ [UPDATED] Lead:${existingLead.status}→${newLeadStatus} Appt:${todayAppointment.status}→${newAppointmentStatus} | Loan:${newLoanStatus ?? 'none'}`);
+
+                results.push({
+                  appointmentId: todayAppointment.id.toString(),
+                  leadId: existingLead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: todayAppointment.status,
+                  newAppointmentStatus: newAppointmentStatus,
+                  oldLeadStatus: existingLead.status,
+                  newLeadStatus: newLeadStatus,
+                  reason: updateReason,
+                  appointmentTime: format(new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
+                  timeDiffHours: appointmentTurnedUp ? 'N/A' : `${((singaporeTime.getTime() - new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)).getTime()) / (1000 * 60 * 60)).toFixed(2)}`,
+                  action: 'update_existing_appointment_live'
+                });
+
+                updatedCount++;
+              } else {
+                console.log(`⏭️ [NO CHANGE] Lead ${existingLead.id} | Lead:${existingLead.status} Appt:${todayAppointment.status} (no updates needed)`);
+              }
             }
-            break;
-          default:
-            console.log(`⚠️ Unknown code "${code}" for appointment ${appointment.id}`);
-            continue;
+          }
         }
-
-        // Update appointment status
-        console.log(`🔍 Updating appointment ${appointment.id} to ${newAppointmentStatus}`);
-        await db
-          .update(appointments)
-          .set({ 
-            status: newAppointmentStatus,
-            loan_status: newAppointmentLoanStatus,
-            loan_notes: newAppointmentLoanNotes,
-            updated_at: new Date(),
-            updated_by: fallbackUserId
-          })
-          .where(eq(appointments.id, appointment.id));
-        console.log(`✅ Updated appointment ${appointment.id} to ${newAppointmentStatus}`);
-
-        // Update lead status if it changed
-        console.log(`🔍 Updating lead ${lead.id} to ${newLeadStatus}`);
-        await updateLead(lead.id, { 
-          status: newLeadStatus,
-          loan_status: newLeadLoanStatus,
-          loan_notes: newLeadLoanNotes,
-          updated_at: new Date(),
-          updated_by: fallbackUserId
-        });
-        console.log(`✅ Updated lead ${lead.id} to ${newLeadStatus}`);
-
-        // Add to results array
-        const appointmentTimeUTC = new Date(appointment.start_datetime);
-        const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
-        
-        results.push({
-          appointmentId: appointment.id.toString(),
-          leadId: lead.id.toString(),
-          leadName: lead.full_name ?? 'Unknown',
-          oldAppointmentStatus: appointment.status,
-          newAppointmentStatus: newAppointmentStatus,
-          oldLeadStatus: lead.status,
-          newLeadStatus: newLeadStatus,
-          reason: `Excel Code: ${code} - ${eligibilityNotes}${updateReason}`,
-          appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
-          timeDiffHours: 'N/A (Excel Update)'
-        });
-
-        // Mark this appointment as processed to avoid duplicate updates
-        processedAppointmentIds.add(appointment.id);
-
-        updatedCount++;
-        console.log(`✅ Updated appointment ${appointment.id} to ${newAppointmentStatus} (Code: ${code}) - ${updateReason}`);
-      }
-      
-      console.log(`📊 Excel processing for lead appointments completed: ${processedAppointmentIds.size} appointments updated from Excel data`);
+        } catch (error) {
+        console.error(`❌ Error processing row ${row.row_number}:`, error);
+          results.push({
+          appointmentId: 'N/A',
+          leadId: 'N/A',
+          leadName: row["col_Full Name"]?.toString() || 'Unknown',
+          oldAppointmentStatus: 'N/A',
+          newAppointmentStatus: 'N/A',
+          oldLeadStatus: 'N/A',
+          newLeadStatus: 'N/A',
+          reason: `Error: ${(error as Error).message}`,
+          appointmentTime: 'N/A',
+          timeDiffHours: 'N/A',
+          action: 'error',
+            error: (error as Error).message
+          });
+        }
     }
 
-    // Process Excel rows for borrower appointments (Re Loan - 再贷款)
+    // BORROWER APPOINTMENTS: Use the exact old processing logic from test.ts (proven working)
+    const upcomingBorrowerAppointments = await db
+      .select({
+        appointment: borrower_appointments,
+        borrower: borrowers
+      })
+              .from(borrower_appointments)
+      .leftJoin(borrowers, eq(borrower_appointments.borrower_id, borrowers.id))
+              .where(
+                and(
+          eq(borrower_appointments.status, 'upcoming'),
+                  gte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
+                  lte(borrower_appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
+                )
+              );
+
+    console.log(`🏦 [BORROWERS] Processing ${upcomingBorrowerAppointments.length} upcoming borrower appointments | Using old logic for "Re Loan - 再贷款" rows`);
+
+    // Track processed borrower appointment IDs to avoid duplicates (OLD LOGIC)
+    const processedBorrowerAppointmentIds = new Set<number>();
+
+    // Process Excel rows for borrower appointments (Re Loan - 再贷款) - EXACT OLD LOGIC FROM TEST.TS
     if (excelData?.rows) {
-      console.log(`📊 Processing ${excelData.rows.length} Excel rows for borrower appointments...`);
-      
       for (const row of excelData.rows) {
         processedCount++;
         
         // Check if this is a reloan case for borrower appointments
         if (row["col_New or Reloan? "]?.trim() !== "Re Loan - 再贷款") {
-          // console.log(`⏭️ Skipping non-reloan case: ${row["col_New or Reloan? "]}`);
           continue;
         }
 
-        // Parse the timestamp from Excel (which is in GMT+8)
+        // Parse the timestamp from Excel (which is in GMT+8) - EXACT OLD LOGIC
         let excelDate: string;
         try {
           const timestampStr = row.col_Date;
@@ -611,7 +1306,7 @@ export async function POST(request: NextRequest) {
             // Create YYYY-MM-DD format for comparison
             excelDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             // console.log(`📅 Parsed borrower appointment date: ${timestampStr} → ${excelDate}`);
-          } else {
+            } else {
             throw new Error('Unsupported date format');
           }
         } catch (error) {
@@ -633,16 +1328,13 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Find matching borrower appointment
-        console.log(`🔍 Finding matching borrower appointment for phone "${cleanExcelPhone}"`);
+        // Find matching borrower appointment - EXACT OLD LOGIC
         const matchingBorrowerAppointment = upcomingBorrowerAppointments.find(record => {
           const borrowerPhone = record.borrower?.phone_number?.replace(/^\+65/, '').replace(/\D/g, '');
-          console.log(`🔍 Found borrower phone "${borrowerPhone}"`);
           return borrowerPhone === cleanExcelPhone;
         });
 
         if (!matchingBorrowerAppointment) {
-          console.log(`❌ No matching borrower appointment found for phone "${cleanExcelPhone}"`);
           continue;
         }
 
@@ -653,7 +1345,7 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Update borrower appointment status based on code
+        // Update borrower appointment status based on code - EXACT OLD LOGIC
         const code = row.col_Code?.trim().toUpperCase();
         let newAppointmentStatus = 'upcoming';
         let newBorrowerStatus = borrower.status;
@@ -661,9 +1353,9 @@ export async function POST(request: NextRequest) {
         let newBorrowerLoanNotes = borrower.loan_notes;
         let newAppointmentLoanStatus = borrowerAppointment.loan_status;
         let newAppointmentLoanNotes = borrowerAppointment.loan_notes;
-        let updateReason = '';
+                let updateReason = '';
 
-        // Format eligibility notes based on code (for borrower)
+        // Format eligibility notes based on code (for borrower) - EXACT OLD LOGIC
         let eligibilityNotes = '';
         let additionalBorrowerNotes = '';
         
@@ -686,7 +1378,7 @@ export async function POST(request: NextRequest) {
 
         switch (code) {
           case 'P':
-            newAppointmentStatus = 'done';
+                  newAppointmentStatus = 'done';
             newBorrowerStatus = 'done';
             newBorrowerLoanStatus = 'P';
             newBorrowerLoanNotes = 'P - Done';
@@ -721,7 +1413,7 @@ export async function POST(request: NextRequest) {
             newAppointmentLoanNotes = 'R - Rejected';
             updateReason = 'Rejected (R)';
             
-            // Call rejection webhook for R codes for borrowers too
+            // Call rejection webhook for R codes for borrowers too - EXACT OLD LOGIC
             try {
               const cleanPhoneNumber = borrower.phone_number?.replace(/^\+65/, '').replace(/[^\d]/g, '') ?? '';
               if (cleanPhoneNumber) {
@@ -771,22 +1463,19 @@ export async function POST(request: NextRequest) {
             continue;
         }
 
-        // Update borrower appointment status
-        console.log(`🔍 Updating borrower appointment ${borrowerAppointment.id} to ${newAppointmentStatus}`);
+        // Update borrower appointment status - EXACT OLD LOGIC
         await db
           .update(borrower_appointments)
-          .set({ 
-            status: newAppointmentStatus,
+                    .set({ 
+                      status: newAppointmentStatus,
             loan_status: newAppointmentLoanStatus,
             loan_notes: newAppointmentLoanNotes,
             updated_at: new Date(),
-            // updated_by: fallbackUserId
+            // updated_by: fallbackUserId  // KEEP COMMENTED AS IN ORIGINAL
           })
           .where(eq(borrower_appointments.id, borrowerAppointment.id));
-        console.log(`✅ Updated borrower appointment ${borrowerAppointment.id} to ${newAppointmentStatus}`);
 
-        // Update borrower status if it changed
-        console.log(`🔍 Updating borrower ${borrower.id} to ${newBorrowerStatus}`);
+        // Update borrower status if it changed - EXACT OLD LOGIC
         await db
           .update(borrowers)
           .set({
@@ -794,133 +1483,37 @@ export async function POST(request: NextRequest) {
             loan_status: newBorrowerLoanStatus,
             loan_notes: newBorrowerLoanNotes,
             updated_at: new Date(),
-            // updated_by: fallbackUserId
+            // updated_by: fallbackUserId  // KEEP COMMENTED AS IN ORIGINAL
           })
           .where(eq(borrowers.id, borrower.id));
-        console.log(`✅ Updated borrower ${borrower.id} to ${newBorrowerStatus}`);
 
-        // Add to results array
+        console.log(`✅ [BORROWER] Appt ${borrowerAppointment.id} → ${newAppointmentStatus} | Borrower ${borrower.id} → ${newBorrowerStatus} | Code: ${code}`);
+
+        // Add to results array - EXACT OLD LOGIC
         const appointmentTimeUTC = new Date(borrowerAppointment.start_datetime);
         const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
-        
-        results.push({
+
+                  results.push({
           appointmentId: `B${borrowerAppointment.id}`, // Prefix with 'B' for borrower appointments
           leadId: `B${borrower.id}`, // Use borrower ID with 'B' prefix
           leadName: borrower.full_name ?? 'Unknown',
           oldAppointmentStatus: borrowerAppointment.status,
-          newAppointmentStatus: newAppointmentStatus,
+                    newAppointmentStatus: newAppointmentStatus,
           oldLeadStatus: borrower.status,
           newLeadStatus: newBorrowerStatus,
           reason: `Excel Code: ${code} - ${eligibilityNotes} (Borrower)${updateReason ? ' - ' + updateReason : ''}`,
           appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
-          timeDiffHours: 'N/A (Excel Update)'
+          timeDiffHours: 'N/A (Excel Update)',
+          action: 'update_borrower_appointment_old_logic'
         });
 
         // Mark this borrower appointment as processed to avoid duplicate updates
         processedBorrowerAppointmentIds.add(borrowerAppointment.id);
 
-        updatedCount++;
-        console.log(`✅ Updated borrower appointment ${borrowerAppointment.id} to ${newAppointmentStatus} (Code: ${code}) - ${updateReason}`);
-      }
-      
-      console.log(`📊 Excel processing for borrower appointments completed: ${processedBorrowerAppointmentIds.size} borrower appointments updated from Excel data`);
-    }
+                  updatedCount++;
+                }
 
-    // Then, check remaining appointments for time threshold
-    console.log(`🕐 Starting time threshold check for ${upcomingAppointments.length} total appointments (${processedAppointmentIds.size} already processed by Excel)`);
-    
-    for (const record of upcomingAppointments) {
-      const appointment = record.appointment;
-      const lead = record.lead;
-      
-      if (!lead) {
-        console.warn(`⚠️ No lead found for appointment ${appointment.id}`);
-        continue;
-      }
-
-      // Skip if this appointment was already processed by Excel data
-      if (processedAppointmentIds.has(appointment.id)) {
-        // console.log(`⏭️ Skipping appointment ${appointment.id} - already processed by Excel data`);
-        continue;
-      }
-
-      // Skip if appointment status is no longer 'upcoming' (safety check)
-      if (appointment.status !== 'upcoming') {
-        // console.log(`⏭️ Skipping appointment ${appointment.id} - status is ${appointment.status}, not upcoming`);
-        continue;
-      }
-
-      // Convert appointment time to Singapore timezone for comparison
-      const appointmentTimeUTC = new Date(appointment.start_datetime);
-      const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
-      const currentTimeSGT = singaporeTime;
-
-      // Calculate time difference in hours
-      const timeDiffMs = currentTimeSGT.getTime() - appointmentTimeSGT.getTime();
-      const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
-
-      console.log(`🕐 Appointment ${appointment.id}: ${format(appointmentTimeSGT, 'HH:mm')} | Current: ${format(currentTimeSGT, 'HH:mm')} | Diff: ${timeDiffHours.toFixed(2)}h`);
-
-      // If appointment is late by threshold hours, mark as missed
-      if (timeDiffHours >= thresholdHours) {
-        try {
-          // Update appointment status
-          await db
-            .update(appointments)
-            .set({
-              status: 'missed',
-              updated_at: new Date(),
-              updated_by: fallbackUserId
-            })
-            .where(eq(appointments.id, appointment.id));
-
-          // Update lead status
-          await updateLead(lead.id, {
-            status: 'missed/RS',
-            updated_at: new Date(),
-            updated_by: fallbackUserId
-          });
-
-          // Add to results array
-          results.push({
-            appointmentId: appointment.id.toString(),
-            leadId: lead.id.toString(),
-            leadName: lead.full_name ?? 'Unknown',
-            oldAppointmentStatus: appointment.status,
-            newAppointmentStatus: 'missed',
-            oldLeadStatus: lead.status,
-            newLeadStatus: 'missed/RS',
-            reason: `Time threshold exceeded (${timeDiffHours.toFixed(2)}h late, threshold: ${thresholdHours}h)`,
-            appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
-            timeDiffHours: timeDiffHours.toFixed(2)
-          });
-
-          updatedCount++;
-          console.log(`✅ Marked appointment ${appointment.id} as missed (${timeDiffHours.toFixed(2)}h late)`);
-        } catch (error) {
-          console.error(`❌ Error updating appointment ${appointment.id}:`, error);
-          
-          // Add error to results array
-          results.push({
-            appointmentId: appointment.id.toString(),
-            leadId: lead.id.toString(),
-            leadName: lead.full_name ?? 'Unknown',
-            oldAppointmentStatus: appointment.status,
-            newAppointmentStatus: appointment.status,
-            oldLeadStatus: lead.status,
-            newLeadStatus: lead.status,
-            reason: `Failed to update: ${(error as Error).message}`,
-            appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
-            timeDiffHours: timeDiffHours.toFixed(2),
-            error: (error as Error).message
-          });
-        }
-      } else {
-        console.log(`ℹ️ No update needed for appointment ${appointment.id}: Time diff ${timeDiffHours.toFixed(2)}h < ${thresholdHours}h`);
-      }
-    }
-
-    // Then, check remaining borrower appointments for time threshold
+    // Then, check remaining borrower appointments for time threshold - EXACT OLD LOGIC
     // console.log(`🕐 Starting time threshold check for ${upcomingBorrowerAppointments.length} total borrower appointments (${processedBorrowerAppointmentIds.size} already processed by Excel)`);
     
     for (const record of upcomingBorrowerAppointments) {
@@ -964,7 +1557,7 @@ export async function POST(request: NextRequest) {
             .set({
               status: 'missed',
               updated_at: new Date(),
-              // updated_by: fallbackUserId
+              // updated_by: fallbackUserId  // KEEP COMMENTED AS IN ORIGINAL
             })
             .where(eq(borrower_appointments.id, borrowerAppointment.id));
 
@@ -974,22 +1567,23 @@ export async function POST(request: NextRequest) {
             .set({
               status: 'missed/RS',
               updated_at: new Date(),
-              // updated_by: fallbackUserId
+              // updated_by: fallbackUserId  // KEEP COMMENTED AS IN ORIGINAL
             })
             .where(eq(borrowers.id, borrower.id));
 
           // Add to results array
-          results.push({
+            results.push({
             appointmentId: `B${borrowerAppointment.id}`, // Prefix with 'B' for borrower appointments
             leadId: `B${borrower.id}`, // Use borrower ID with 'B' prefix
             leadName: borrower.full_name ?? 'Unknown',
             oldAppointmentStatus: borrowerAppointment.status,
             newAppointmentStatus: 'missed',
             oldLeadStatus: borrower.status,
-            newLeadStatus: 'follow_up',
+            newLeadStatus: 'follow_up',  // EXACT AS ORIGINAL (follow_up not missed/RS)
             reason: `Time threshold exceeded (${timeDiffHours.toFixed(2)}h late, threshold: ${thresholdHours}h) - Borrower`,
             appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
-            timeDiffHours: timeDiffHours.toFixed(2)
+            timeDiffHours: timeDiffHours.toFixed(2),
+            action: 'time_based_missed_borrower_old_logic'
           });
 
           updatedCount++;
@@ -1009,6 +1603,7 @@ export async function POST(request: NextRequest) {
             reason: `Failed to update: ${(error as Error).message} - Borrower`,
             appointmentTime: format(appointmentTimeSGT, 'yyyy-MM-dd HH:mm'),
             timeDiffHours: timeDiffHours.toFixed(2),
+            action: 'borrower_error_old_logic',
             error: (error as Error).message
           });
         }
@@ -1017,32 +1612,55 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`📊 Final Summary:`);
-    console.log(`   Total Excel rows processed: ${processedCount}`);
-    console.log(`   Total appointments updated: ${updatedCount}`);
-    console.log(`   Lead appointments processed by Excel: ${processedAppointmentIds.size}`);
-    console.log(`   Borrower appointments processed by Excel: ${processedBorrowerAppointmentIds.size}`);
-    console.log(`   Results entries: ${results.length}`);
-    console.log(`   Today (Singapore): ${todaySingapore}`);
-    console.log(`   Threshold hours: ${thresholdHours}`);
+    // Removed old commented borrower logic since it's handled above in the new implementation
+
+      console.log(`📊 Excel processing for borrower appointments completed: ${processedBorrowerAppointmentIds.size} borrower appointments updated from Excel data`);
+    }
+
+    console.log(`📊 COMPLETED | Total:${excelData.rows.length} Today:${sortedFilteredRows.length} NewLoans:${newLoanRows.length} Processed:${processedPhoneNumbers.size} | Updated:${updatedCount} Created:${createdLeadsCount}/${createdAppointmentsCount} Moved:${movedAppointmentsCount} Borrowers:${processedBorrowerAppointmentIds.size}`);
 
     return NextResponse.json({
       success: true,
-      message: `Appointment status update completed. Processed ${processedCount} Excel rows, updated ${updatedCount} appointments.`,
-      processed: processedCount,
+      message: `Live processing completed. Processed ${processedPhoneNumbers.size} unique phone numbers from ${newLoanRows.length} 'New Loan' appointments with Excel codes (P, PRS, RS, R), skipped ${excelData.rows.length - sortedFilteredRows.length} future appointments and duplicates.`,
+      mode: processingMode,
+      totalReceived: excelData.rows.length,
+      todayProcessed: sortedFilteredRows.length,
+      uniquePhoneNumbersProcessed: processedPhoneNumbers.size,
+      futureSkipped: excelData.rows.length - sortedFilteredRows.length,
       updated: updatedCount,
+      created: {
+        leads: createdLeadsCount,
+        appointments: createdAppointmentsCount
+      },
+      moved: movedAppointmentsCount,
       todaySingapore,
       thresholdHours,
       results,
+      authentication: {
+        authenticated: isAuthenticated,
+        userId: authenticatedUserId,
+        apiKeyProvided: !!apiKey
+      },
       summary: {
-        excelDataProvided: !!excelData,
-        excelRowsProcessed: excelData?.rows?.length ?? 0,
-        upcomingLeadAppointmentsFound: upcomingAppointments.length,
-        upcomingBorrowerAppointmentsFound: upcomingBorrowerAppointments.length,
-        leadAppointmentStatusUpdates: results.filter(r => r.reason.includes('Excel Code') && !r.reason.includes('Borrower')).length,
-        borrowerAppointmentStatusUpdates: results.filter(r => r.reason.includes('Excel Code') && r.reason.includes('Borrower')).length,
-        timeBasedMissedUpdates: results.filter(r => r.reason.includes('Time threshold')).length,
-        errorCount: results.filter(r => r.error).length
+        mode: 'live',
+        description: 'Live processing with Excel codes (P, PRS, RS, R) - New Loan only',
+        excelDataProvided: true,
+        totalExcelRows: excelData.rows.length,
+        todayRowsProcessed: sortedFilteredRows.length,
+        uniquePhoneNumbersProcessed: processedPhoneNumbers.size,
+        newLoanRowsProcessed: newLoanRows.length,
+        futureRowsSkipped: excelData.rows.length - sortedFilteredRows.length,
+        leadAppointmentStatusUpdates: results.filter(r => !r.appointmentId.startsWith('B') && !r.action.includes('skip')).length,
+        borrowerAppointmentStatusUpdates: results.filter(r => r.appointmentId.startsWith('B') && r.action.includes('old_logic')).length,
+        liveCodeUpdates: results.filter(r => r.action === 'update_existing_appointment_live').length,
+        leadsCreated: createdLeadsCount,
+        appointmentsCreated: createdAppointmentsCount,
+        appointmentsMoved: movedAppointmentsCount,
+        skippedActions: results.filter(r => r.action.includes('skip')).length,
+        totalUpdated: updatedCount,
+        errorCount: results.filter(r => r.error).length,
+        authenticatedUser: authenticatedUserId,
+        isAuthenticated: isAuthenticated
       }
     });
 
@@ -1050,7 +1668,7 @@ export async function POST(request: NextRequest) {
     console.error("❌ Error in appointment status update:", error);
     return NextResponse.json(
       { 
-        error: "Failed to process appointment status updates",
+        error: "Failed to process live appointment status updates with Excel codes",
         details: (error as Error).message
       },
       { status: 500 }
@@ -1058,23 +1676,36 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint for testing/manual trigger without Excel data
+// GET endpoint for testing/manual trigger
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
     const { searchParams } = new URL(request.url);
     const thresholdHours = parseFloat(searchParams.get('thresholdHours') ?? '3');
+    const mode = (searchParams.get('mode') as ProcessingMode) ?? 'realtime';
+    const apiKey = searchParams.get('api_key');
+    const agentUserId = searchParams.get('agent_user_id');
 
-    console.log('🔄 Manual trigger: Processing appointments without Excel data');
+    console.log(`🔄 Manual trigger: Processing appointments in live mode`);
 
-    // Call the POST method without Excel data
+    // Validate API key for GET requests too
+    const envApiKey = process.env.API_KEY;
+    if (apiKey && envApiKey && apiKey !== envApiKey) {
+      return NextResponse.json({
+        error: "Invalid API key",
+        message: "The provided API key is not valid"
+      }, { status: 401 });
+    }
+
+    // Call the POST method 
     const response = await POST(new NextRequest(request.url, {
       method: 'POST',
-      body: JSON.stringify({ thresholdHours }),
+      body: JSON.stringify({ 
+        thresholdHours,
+        mode,
+        api_key: apiKey,
+        agent_user_id: agentUserId,
+        excelData: { rows: [], spreadsheet_id: 'manual', spreadsheet_name: 'Manual Test', sheet: 'Test' }
+      }),
       headers: {
         'Content-Type': 'application/json'
       }
@@ -1086,7 +1717,7 @@ export async function GET(request: NextRequest) {
     console.error("❌ Error in manual appointment status update:", error);
     return NextResponse.json(
       { 
-        error: "Failed to process manual appointment status updates",
+        error: "Failed to process manual appointment status updates in live mode",
         details: (error as Error).message
       },
       { status: 500 }
