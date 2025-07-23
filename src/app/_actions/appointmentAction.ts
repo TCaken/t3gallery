@@ -205,6 +205,7 @@ export async function createAppointment(data: {
     
     // Check if the timeslot is already at capacity
     const occupiedCount = selectedSlot.occupied_count ?? 0;
+    console.log('🔍 Occupied count:', occupiedCount);
     // const maxCapacity = selectedSlot.max_capacity ?? 1;
     // if (occupiedCount >= maxCapacity) {
     //   return { success: false, message: "This timeslot is already fully booked" };
