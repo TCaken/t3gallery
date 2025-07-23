@@ -891,13 +891,6 @@ export async function POST(request: NextRequest) {
             const nearestTimeslot = await findNearestTimeslot(todaySingapore);
             console.log('🔄 Creating appointment for today');
             if (nearestTimeslot) {
-              console.log('Input data:', {
-                leadId: createLeadResult.lead.id,
-                timeslotId: nearestTimeslot.id,
-                notes: `Auto-created from Google Sheets - ${fullName} (Today: ${todaySingapore})`,
-                isUrgent: false,
-                overrideUserId: authenticatedUserId
-              });
               const appointmentResult = await createAppointment({
                 leadId: createLeadResult.lead.id,
                 timeslotId: nearestTimeslot.id,
@@ -907,6 +900,7 @@ export async function POST(request: NextRequest) {
               });
 
               if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
+                console.log('✅ Appointment created successfully:', appointmentResult.appointment.id);
                 createdAppointmentsCount++;
                 
                 // Update appointment status based on attendance
@@ -917,28 +911,43 @@ export async function POST(request: NextRequest) {
                   await db.update(appointments)
                     .set({ 
                       status: appointmentStatus,
-                      updated_by: authenticatedUserId
+                      updated_by: safeUserId
                     })
                     .where(eq(appointments.id, appointmentResult.appointment.id));
                     
-                                      await updateLead(createLeadResult.lead.id, {
-                      status: leadStatus,
-                                    updated_by: safeUserId
-            });
+                  await updateLead(createLeadResult.lead.id, {
+                    status: leadStatus,
+                    updated_by: safeUserId
+                  });
                 }
-
                 results.push({
                   appointmentId: appointmentResult.appointment.id.toString(),
                   leadId: createLeadResult.lead.id.toString(),
                   leadName: fullName,
                   oldAppointmentStatus: 'none',
-                  newAppointmentStatus: appointmentStatus,
+                  newAppointmentStatus: appointmentTurnedUp ? 'done' : 'upcoming',
                   oldLeadStatus: 'none',
-                  newLeadStatus: leadStatus,
+                  newLeadStatus: appointmentTurnedUp ? 'done' : 'booked',
                   reason: `New lead created and appointment scheduled for today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
                   appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
                   timeDiffHours: 'N/A',
                   action: 'create_lead_and_appointment'
+                });
+              } else {
+                console.error('❌ Failed to create appointment for new lead:', appointmentResult);
+                results.push({
+                  appointmentId: 'failed',
+                  leadId: createLeadResult.lead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: 'none',
+                  newAppointmentStatus: 'failed',
+                  oldLeadStatus: 'new',
+                  newLeadStatus: 'new',
+                  reason: `Failed to create appointment: ${appointmentResult.success === false ? appointmentResult.message : 'Unknown error'}`,
+                  appointmentTime: 'N/A',
+                  timeDiffHours: 'N/A',
+                  action: 'create_appointment_failed',
+                  error: appointmentResult.success === false ? appointmentResult.message : 'Unknown error'
                 });
               }
             }
@@ -1027,22 +1036,16 @@ export async function POST(request: NextRequest) {
               
               const nearestTimeslot = await findNearestTimeslot(todaySingapore);
               if (nearestTimeslot) {
-                console.log('Input data:', {
-                  leadId: existingLead.id,
-                  timeslotId: nearestTimeslot.id,
-                  notes: `Auto-created from Google Sheets - ${fullName} (Today: ${todaySingapore})`,
-                  isUrgent: false,
-                  overrideUserId: authenticatedUserId
-                });
                 const appointmentResult = await createAppointment({
                   leadId: existingLead.id,
                   timeslotId: nearestTimeslot.id,
-                                  notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Today: ${todaySingapore})`,
-                isUrgent: false,
-                overrideUserId: safeUserId
-              });
+                  notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Today: ${todaySingapore})`,
+                  isUrgent: false,
+                  overrideUserId: safeUserId
+                });
 
                 if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
+                  console.log('✅ Appointment created for existing lead:', appointmentResult.appointment.id);
                   createdAppointmentsCount++;
                   
                   // Update appointment status based on attendance
@@ -1053,15 +1056,45 @@ export async function POST(request: NextRequest) {
                     await db.update(appointments)
                       .set({ 
                         status: appointmentStatus,
-                        updated_by: authenticatedUserId
+                        updated_by: safeUserId
                       })
                       .where(eq(appointments.id, appointmentResult.appointment.id));
                       
                     await updateLead(existingLead.id, {
                       status: leadStatus,
-                      updated_by: authenticatedUserId
+                      updated_by: safeUserId
                     });
                   }
+                  results.push({
+                    appointmentId: appointmentResult.appointment.id.toString(),
+                    leadId: existingLead.id.toString(),
+                    leadName: fullName,
+                    oldAppointmentStatus: 'none',
+                    newAppointmentStatus: appointmentTurnedUp ? 'done' : 'upcoming',
+                    oldLeadStatus: existingLead.status,
+                    newLeadStatus: appointmentTurnedUp ? 'done' : 'booked',
+                    reason: `Appointment created for existing lead today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
+                    appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
+                    timeDiffHours: 'N/A',
+                    action: 'create_appointment'
+                  });
+                } else {
+                  console.error('❌ Failed to create appointment for existing lead:', appointmentResult);
+                  results.push({
+                    appointmentId: 'failed',
+                    leadId: existingLead.id.toString(),
+                    leadName: fullName,
+                    oldAppointmentStatus: 'none',
+                    newAppointmentStatus: 'failed',
+                    oldLeadStatus: existingLead.status,
+                    newLeadStatus: existingLead.status,
+                    reason: `Failed to create appointment: ${appointmentResult.success === false ? appointmentResult.message : 'Unknown error'}`,
+                    appointmentTime: 'N/A',
+                    timeDiffHours: 'N/A',
+                    action: 'create_appointment_failed',
+                    error: appointmentResult.success === false ? appointmentResult.message : 'Unknown error'
+                  });
+                }
 
                   results.push({
                     appointmentId: appointmentResult.appointment.id.toString(),
