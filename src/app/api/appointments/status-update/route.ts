@@ -611,6 +611,12 @@ export async function POST(request: NextRequest) {
           let newLoanStatus = lead.loan_status;
           let newLoanNotes = lead.loan_notes;
           let newEligibilityNotes = lead.eligibility_notes;
+          
+          // Appointment fields to update
+          let newAppointmentNotes = appointment.notes;
+          let newAppointmentLoanStatus = appointment.loan_status;
+          let newAppointmentLoanNotes = appointment.loan_notes;
+          
           let updateReason = '';
 
           // END-OF-DAY MODE: Process Excel codes for done appointments
@@ -621,6 +627,12 @@ export async function POST(request: NextRequest) {
                 newLoanStatus = 'P';
                 newLoanNotes = 'P - Done';
                 newEligibilityNotes = 'Loan Disbursed';
+                
+                // Update appointment fields
+                newAppointmentNotes = `${appointment.notes ? appointment.notes + ' | ' : ''}End-of-day: P - Completed`;
+                newAppointmentLoanStatus = 'P';
+                newAppointmentLoanNotes = 'P - Done';
+                
                 updateReason = 'End-of-day: P (Completed)';
                 break;
               case 'PRS':
@@ -628,6 +640,12 @@ export async function POST(request: NextRequest) {
                 newLoanStatus = 'PRS';
                 newLoanNotes = 'PRS - Customer Rejected';
                 newEligibilityNotes = 'Loan approved but customer rejected';
+                
+                // Update appointment fields
+                newAppointmentNotes = `${appointment.notes ? appointment.notes + ' | ' : ''}End-of-day: PRS - Customer Rejected`;
+                newAppointmentLoanStatus = 'PRS';
+                newAppointmentLoanNotes = 'PRS - Customer Rejected';
+                
                 updateReason = 'End-of-day: PRS (Customer Rejected)';
                 break;
               case 'RS':
@@ -640,6 +658,12 @@ export async function POST(request: NextRequest) {
                 
                 newLoanNotes = `RS${rsType ? ` - ${rsType}` : ''}`;
                 newEligibilityNotes = `Failed eligibility - ${rsType ? ` (${rsType})` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
+                
+                // Update appointment fields
+                newAppointmentNotes = `${appointment.notes ? appointment.notes + ' | ' : ''}End-of-day: RS - Rejected by System${rsType ? ` - ${rsType}` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
+                newAppointmentLoanStatus = 'RS';
+                newAppointmentLoanNotes = `RS${rsType ? ` - ${rsType}` : ''}`;
+                
                 updateReason = `End-of-day: RS (Rejected by System)${rsType ? ` - Type: ${rsType}` : ''}${rsDetails ? ` - Details: ${rsDetails}` : ''}`;
                 break;
               case 'R':
@@ -647,6 +671,12 @@ export async function POST(request: NextRequest) {
                 newLoanStatus = 'R';
                 newLoanNotes = 'R - Rejected';
                 newEligibilityNotes = 'Rejected';
+                
+                // Update appointment fields
+                newAppointmentNotes = `${appointment.notes ? appointment.notes + ' | ' : ''}End-of-day: R - Rejected`;
+                newAppointmentLoanStatus = 'R';
+                newAppointmentLoanNotes = 'R - Rejected';
+                
                 updateReason = 'End-of-day: R (Rejected)';
                 break;
               default:
@@ -655,21 +685,41 @@ export async function POST(request: NextRequest) {
                 continue;
             }
 
-            // Apply the comprehensive update
-            const hasChanges = newLeadStatus !== lead.status || 
-                              newLoanStatus !== lead.loan_status || 
-                              newLoanNotes !== lead.loan_notes || 
-                              newEligibilityNotes !== lead.eligibility_notes;
+            // Apply the comprehensive update for both lead and appointment
+            const hasLeadChanges = newLeadStatus !== lead.status || 
+                                  newLoanStatus !== lead.loan_status || 
+                                  newLoanNotes !== lead.loan_notes || 
+                                  newEligibilityNotes !== lead.eligibility_notes;
 
-            if (hasChanges) {
+            const hasAppointmentChanges = newAppointmentNotes !== appointment.notes ||
+                                        newAppointmentLoanStatus !== appointment.loan_status ||
+                                        newAppointmentLoanNotes !== appointment.loan_notes;
+
+            if (hasLeadChanges || hasAppointmentChanges) {
               try {
-                await updateLead(lead.id, {
-                  status: newLeadStatus,
-                  loan_status: newLoanStatus,
-                  loan_notes: newLoanNotes,
-                  eligibility_notes: newEligibilityNotes,
-                  updated_by: fallbackUserId ?? 'system-update'
-                });
+                // Update lead
+                if (hasLeadChanges) {
+                  await updateLead(lead.id, {
+                    status: newLeadStatus,
+                    loan_status: newLoanStatus,
+                    loan_notes: newLoanNotes,
+                    eligibility_notes: newEligibilityNotes,
+                    updated_by: fallbackUserId ?? 'system-update'
+                  });
+                }
+
+                // Update appointment
+                if (hasAppointmentChanges) {
+                  await db.update(appointments)
+                    .set({
+                      notes: newAppointmentNotes,
+                      loan_status: newAppointmentLoanStatus,
+                      loan_notes: newAppointmentLoanNotes,
+                      updated_at: new Date(),
+                      updated_by: fallbackUserId ?? 'system-update'
+                    })
+                    .where(eq(appointments.id, appointment.id));
+                }
 
                 results.push({
                   appointmentId: appointment.id.toString(),
