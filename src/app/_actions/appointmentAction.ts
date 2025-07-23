@@ -927,8 +927,15 @@ export async function findNearestAvailableTimeslot(targetDate: string) {
   if (!userId) throw new Error("Not authenticated");
   
   try {
+    // Get current time in Singapore timezone (UTC+8)
+    const now = new Date();
+    const singaporeTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+    const currentTimeString = singaporeTime.toTimeString().split(' ')[0]; // HH:mm:ss format
+    
+    console.log(`🕐 Finding nearest timeslot for ${targetDate} at current time: ${currentTimeString}`);
+    
     // Try to find timeslots for the target date first
-    let availableSlots = await db
+    const availableSlots = await db
       .select()
       .from(timeslots)
       .where(
@@ -939,13 +946,40 @@ export async function findNearestAvailableTimeslot(targetDate: string) {
       )
       .orderBy(asc(timeslots.start_time));
 
-    // Filter slots with available capacity
-    availableSlots = availableSlots.filter(slot => 
-      (slot.occupied_count ?? 0) < (slot.max_capacity ?? 1)
-    );
+    // Filter slots with available capacity (allow overbooking by commenting out)
+    // availableSlots = availableSlots.filter(slot => 
+    //   (slot.occupied_count ?? 0) < (slot.max_capacity ?? 1)
+    // );
 
     if (availableSlots.length > 0) {
-      return { success: true, timeslot: availableSlots[0] };
+      // Check if target date is today
+      const todayStr = singaporeTime.toISOString().split('T')[0];
+      
+      if (targetDate === todayStr) {
+        // For today, find the nearest timeslot to current time
+        const futureSlots = availableSlots.filter(slot => {
+          return slot.start_time >= currentTimeString;
+        });
+        
+        if (futureSlots.length > 0) {
+          // Return the earliest future slot
+          console.log(`✅ Found ${futureSlots.length} future slots, returning earliest: ${futureSlots[0]?.start_time}`);
+          return { success: true, timeslot: futureSlots[0] };
+        } else {
+          // No future slots today, find the closest past slot (for testing/debugging)
+          const pastSlots = availableSlots.filter(slot => slot.start_time < currentTimeString);
+          if (pastSlots.length > 0) {
+            // Return the latest past slot (closest to current time)
+            const closestPastSlot = pastSlots[pastSlots.length - 1];
+            console.log(`⚠️ No future slots today, returning closest past slot: ${closestPastSlot?.start_time}`);
+            return { success: true, timeslot: closestPastSlot };
+          }
+        }
+      } else {
+        // For future dates, return the earliest slot
+        console.log(`📅 Future date (${targetDate}), returning earliest slot: ${availableSlots[0]?.start_time}`);
+        return { success: true, timeslot: availableSlots[0] };
+      }
     }
 
     // If no slots available today, try next few days
