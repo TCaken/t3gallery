@@ -335,7 +335,7 @@ export async function createAppointment(data: {
     });
   } catch (error) {
     console.error("Error creating appointment:", error);
-    return { success: false, message: "Failed to create appointment" };
+    return { success: false, message: "Failed to create appointment - " + JSON.stringify(error) };
   }
 }
 
