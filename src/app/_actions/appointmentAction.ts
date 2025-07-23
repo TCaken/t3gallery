@@ -148,6 +148,8 @@ export async function createAppointment(data: {
   // Support API key authentication
   let userId: string;
   
+  // console.log('🔍 Creating appointment with overrideUserId:', data.overrideUserId);
+  console.log("Input data:", data);
   if (data.overrideUserId) {
     userId = data.overrideUserId;
   } else {
