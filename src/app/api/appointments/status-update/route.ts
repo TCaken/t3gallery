@@ -1088,26 +1088,11 @@ export async function POST(request: NextRequest) {
                     newAppointmentStatus: 'failed',
                     oldLeadStatus: existingLead.status,
                     newLeadStatus: existingLead.status,
-                    reason: `Failed to create appointment: ${appointmentResult.success === false ? appointmentResult.message : 'Unknown error'}`,
+                    reason: `Failed to create appointment: ${!appointmentResult.success && 'message' in appointmentResult ? appointmentResult.message : 'Unknown error'}`,
                     appointmentTime: 'N/A',
                     timeDiffHours: 'N/A',
                     action: 'create_appointment_failed',
-                    error: appointmentResult.success === false ? appointmentResult.message : 'Unknown error'
-                  });
-                }
-
-                  results.push({
-                    appointmentId: appointmentResult.appointment.id.toString(),
-                    leadId: existingLead.id.toString(),
-                    leadName: fullName,
-                    oldAppointmentStatus: 'none',
-                    newAppointmentStatus: appointmentStatus,
-                    oldLeadStatus: existingLead.status,
-                    newLeadStatus: leadStatus,
-                    reason: `Appointment created for existing lead today${appointmentTurnedUp ? ' - Marked as attended' : ''}`,
-                    appointmentTime: format(new Date(nearestTimeslot.date + 'T' + nearestTimeslot.start_time), 'yyyy-MM-dd HH:mm'),
-                    timeDiffHours: 'N/A',
-                    action: 'create_appointment'
+                    error: !appointmentResult.success && 'message' in appointmentResult ? appointmentResult.message : 'Unknown error'
                   });
                 }
               }
