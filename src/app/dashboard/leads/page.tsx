@@ -1244,18 +1244,41 @@ export default function LeadsPage() {
     }
   };
 
-  const handleSaveLead = async (updatedLead: Partial<Lead>) => {
+  const handleSaveLead = async (updatedLead: Partial<Lead>, leadNotes?: string) => {
     try {
       if (!selectedLead?.id) return;
 
       console.log('updatedLead', updatedLead);
+      console.log('leadNotes', leadNotes);
+
+      // Handle special logic for give_up and blacklisted statuses
+      const finalUpdatedLead = { ...updatedLead };
       
-      const result = await updateLead(selectedLead.id, updatedLead);
+      
+      const result = await updateLead(selectedLead.id, finalUpdatedLead);
       if (result.success) {
+        // Create lead note if leadNotes is provided
+        if (leadNotes?.trim()) {
+          try {
+            const { addLeadNote } = await import('~/app/_actions/leadActions');
+            const noteResult = await addLeadNote(selectedLead.id, leadNotes.trim());
+            if (noteResult.success) {
+              console.log('Lead note created successfully');
+              showNotification('Lead note added successfully', 'success');
+            } else {
+              console.error('Failed to create lead note:', noteResult.message);
+              showNotification('Failed to save lead note', 'error');
+            }
+          } catch (error) {
+            console.error('Error creating lead note:', error);
+            showNotification('Failed to save lead note', 'error');
+          }
+        }
+
         // Update the lead in allLoadedLeads
         setAllLoadedLeads(prevLeads => 
           prevLeads.map(lead => 
-            lead.id === selectedLead.id ? { ...lead, ...updatedLead } : lead
+            lead.id === selectedLead.id ? { ...lead, ...finalUpdatedLead } : lead
           )
         );
         
@@ -2471,6 +2494,7 @@ export default function LeadsPage() {
           leadId={whatsAppLeadData.leadId}
         />
       )}
+
 
       {/* Status Reason Modal */}
       {statusReasonLeadData && (

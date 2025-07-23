@@ -9,6 +9,7 @@ import {
   noAnswerWorkflow,
   sendManualWhatsAppWorkflow
 } from './transactionOrchestrator';
+import { ascendAppointmentReminder } from './whatsappActions';
 
 /**
  * CLIENT USAGE EXAMPLES
@@ -148,6 +149,38 @@ export async function sendManualWhatsAppExample(
     console.log('Message result:', result.results[0]?.result?.data);
   } else {
     console.log('❌ Failed to send WhatsApp:', result.error);
+  }
+
+  return result;
+}
+
+/**
+ * Example 7: Send Ascend Appointment Reminder
+ */
+export async function sendAscendAppointmentReminderExample(
+  customerName: string,
+  phoneNumber: string,
+  appointmentDate: string,
+  timeSlot: string,
+  app: string = 'workflow-example'
+) {
+  console.log('📬 Sending Ascend appointment reminder...');
+  
+  const result = await ascendAppointmentReminder(
+    customerName,
+    phoneNumber,
+    appointmentDate,
+    timeSlot,
+    app
+  );
+
+  if (result.success) {
+    console.log('✅ Ascend appointment reminder sent successfully');
+    console.log('Message:', result.message);
+    console.log('Log ID:', result.logId);
+    console.log('API Response:', result.data);
+  } else {
+    console.log('❌ Failed to send Ascend appointment reminder:', result.error);
   }
 
   return result;

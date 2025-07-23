@@ -1097,7 +1097,7 @@ export default function AppointmentsPage() {
                         <div className="flex items-baseline">
                           <p className="text-2xl font-bold text-gray-900">{missedAppointments.length}</p>
                           <p className="ml-2 text-sm font-medium text-orange-600">
-                            {filteredAppointments.length > 0 ? Math.round(missedAppointments.length/filteredAppointments.length) * 100 : 0} %
+                            {filteredAppointments.length > 0 ? Math.round((missedAppointments.length / filteredAppointments.length) * 100)  : 0} %
                           </p>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">of total appointments</p>
