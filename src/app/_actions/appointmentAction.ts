@@ -75,9 +75,18 @@ export type EnhancedAppointment = {
 /**
  * Check if a lead has an active appointment
  */
-export async function checkExistingAppointment(leadId: number) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function checkExistingAppointment(leadId: number, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     const existingAppointments = await db
@@ -167,7 +176,7 @@ export async function createAppointment(data: {
   
   try {
     // First check if lead already has an active appointment
-    const { hasAppointment } = await checkExistingAppointment(data.leadId);
+    const { hasAppointment } = await checkExistingAppointment(data.leadId, data.overrideUserId);
     if (hasAppointment) {
       return { 
         success: false, 
@@ -324,9 +333,18 @@ export async function createAppointment(data: {
 /**
  * Cancel an appointment and update lead status
  */
-export async function cancelAppointment(appointmentId: number) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function cancelAppointment(appointmentId: number, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Get the appointment to be cancelled along with its associated timeslot
@@ -401,9 +419,18 @@ export async function cancelAppointment(appointmentId: number) {
 /**
  * Update appointment status
  */
-export async function updateAppointmentStatus(appointmentId: number, newStatus: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Not authenticated");
+export async function updateAppointmentStatus(appointmentId: number, newStatus: string, overrideUserId?: string) {
+  // Support API key authentication
+  let userId: string;
+  
+  if (overrideUserId) {
+    userId = overrideUserId;
+  } else {
+    // Fall back to Clerk authentication if no override provided
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) throw new Error("Not authenticated");
+    userId = clerkUserId;
+  }
   
   try {
     // Get the appointment to be updated
