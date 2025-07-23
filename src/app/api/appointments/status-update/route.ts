@@ -866,8 +866,26 @@ export async function POST(request: NextRequest) {
         const existingLead = await findLeadByPhone(formattedPhone);
         
         if (!existingLead) {
-          // Case A: Lead doesn't exist - create new lead and assign to SEO
-          console.log(`🆕 Creating new lead for phone ${cleanExcelPhone}`);
+          // Case A: Lead doesn't exist - BUT only create if UW field is filled (attended)
+          if (!appointmentTurnedUp) {
+            console.log(`⏭️ Skipping new lead creation for ${fullName} - UW field not filled (no attendance)`);
+            results.push({
+              appointmentId: 'skipped',
+              leadId: 'skipped',
+              leadName: fullName,
+              oldAppointmentStatus: 'none',
+              newAppointmentStatus: 'none',
+              oldLeadStatus: 'none',
+              newLeadStatus: 'none',
+              reason: 'Real-time: Skipped - UW field not filled (no attendance recorded)',
+              appointmentTime: 'N/A',
+              timeDiffHours: 'N/A',
+              action: 'skip_no_attendance'
+            });
+            continue;
+          }
+          
+          console.log(`🆕 Creating new lead for phone ${cleanExcelPhone} - UW field filled (attended)`);
           
           const createLeadResult = await createLead({
             phone_number: formattedPhone,
@@ -980,10 +998,28 @@ export async function POST(request: NextRequest) {
             // No appointment for today
             
             if (anyUpcomingAppointments.length > 0) {
-              // Case C: Has appointment on different date - move it to today
+              // Case C: Has appointment on different date - BUT only move if UW field is filled (attended)
+              if (!appointmentTurnedUp) {
+                console.log(`⏭️ Skipping appointment move for ${fullName} - UW field not filled (no attendance)`);
+                results.push({
+                  appointmentId: 'skipped',
+                  leadId: existingLead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: 'none',
+                  newAppointmentStatus: 'none',
+                  oldLeadStatus: existingLead.status,
+                  newLeadStatus: existingLead.status,
+                  reason: 'Real-time: Skipped appointment move - UW field not filled (no attendance recorded)',
+                  appointmentTime: 'N/A',
+                  timeDiffHours: 'N/A',
+                  action: 'skip_move_no_attendance'
+                });
+                continue;
+              }
+              
               const appointmentToMove = anyUpcomingAppointments[0];
               if (appointmentToMove) {
-                console.log(`📅 Moving existing appointment for lead ${existingLead.id} to today`);
+                console.log(`📅 Moving existing appointment for lead ${existingLead.id} to today - UW field filled (attended)`);
                 
                 const nearestTimeslot = await findNearestTimeslot(todaySingapore);
                 if (nearestTimeslot) {
@@ -1031,8 +1067,26 @@ export async function POST(request: NextRequest) {
                 }
               }
             } else {
-              // Case B: Lead exists but no appointment at all - create appointment for today
-              console.log(`📅 Creating appointment for existing lead ${existingLead.id} today`);
+              // Case B: Lead exists but no appointment at all - BUT only create if UW field is filled (attended)
+              if (!appointmentTurnedUp) {
+                console.log(`⏭️ Skipping appointment creation for existing lead ${fullName} - UW field not filled (no attendance)`);
+                results.push({
+                  appointmentId: 'skipped',
+                  leadId: existingLead.id.toString(),
+                  leadName: fullName,
+                  oldAppointmentStatus: 'none',
+                  newAppointmentStatus: 'none',
+                  oldLeadStatus: existingLead.status,
+                  newLeadStatus: existingLead.status,
+                  reason: 'Real-time: Skipped appointment creation - UW field not filled (no attendance recorded)',
+                  appointmentTime: 'N/A',
+                  timeDiffHours: 'N/A',
+                  action: 'skip_create_no_attendance'
+                });
+                continue;
+              }
+              
+              console.log(`📅 Creating appointment for existing lead ${existingLead.id} today - UW field filled (attended)`);
               
               const nearestTimeslot = await findNearestTimeslot(todaySingapore);
               if (nearestTimeslot) {
