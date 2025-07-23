@@ -204,11 +204,11 @@ export async function createAppointment(data: {
     }
     
     // Check if the timeslot is already at capacity
-    const occupiedCount = selectedSlot.occupied_count ?? 0;
-    const maxCapacity = selectedSlot.max_capacity ?? 1;
-    if (occupiedCount >= maxCapacity) {
-      return { success: false, message: "This timeslot is already fully booked" };
-    }
+    // const occupiedCount = selectedSlot.occupied_count ?? 0;
+    // const maxCapacity = selectedSlot.max_capacity ?? 1;
+    // if (occupiedCount >= maxCapacity) {
+    //   return { success: false, message: "This timeslot is already fully booked" };
+    // }
 
     // Use a transaction to ensure all operations succeed or fail together
     return await db.transaction(async (tx) => {
