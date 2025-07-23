@@ -204,7 +204,7 @@ export async function createAppointment(data: {
     }
     
     // Check if the timeslot is already at capacity
-    // const occupiedCount = selectedSlot.occupied_count ?? 0;
+    const occupiedCount = selectedSlot.occupied_count ?? 0;
     // const maxCapacity = selectedSlot.max_capacity ?? 1;
     // if (occupiedCount >= maxCapacity) {
     //   return { success: false, message: "This timeslot is already fully booked" };
@@ -335,7 +335,7 @@ export async function createAppointment(data: {
     });
   } catch (error) {
     console.error("Error creating appointment:", error);
-    return { success: false, message: "Failed to create appointment - " + JSON.stringify(error) };
+    return { success: false, message: "Failed to create appointment" };
   }
 }
 
