@@ -150,6 +150,12 @@ export async function createAppointment(data: {
   
   // console.log('🔍 Creating appointment with overrideUserId:', data.overrideUserId);
   console.log("Input data:", data);
+  if(data.overrideUserId) {
+    console.log("Override user ID:", data.overrideUserId);
+  }
+  else{
+    console.log("No override user ID");
+  }
   if (data.overrideUserId) {
     userId = data.overrideUserId;
   } else {
