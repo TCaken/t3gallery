@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
 import { appointments, leads, borrower_appointments, borrowers, timeslots, appointment_timeslots, borrower_appointment_timeslots } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq, and, gte, lte, isNull, desc, asc, or } from "drizzle-orm";
+import { eq, and, gte, lte, isNull, desc, asc, or, not } from "drizzle-orm";
 import { format, addHours } from 'date-fns';
 import { updateLead, createLead } from "~/app/_actions/leadActions";
 import { createAppointment } from "~/app/_actions/appointmentAction";
@@ -64,30 +64,37 @@ async function findLeadByPhone(phoneNumber: string) {
   const cleanPhone = phoneNumber.replace(/^\+65/, '').replace(/\D/g, '');
   const formattedPhone = `+65${cleanPhone}`;
   
-  const foundLead = await db
+  const foundLeads = await db
     .select()
     .from(leads)
     .where(
-      or(
-        eq(leads.phone_number, formattedPhone),
-        eq(leads.phone_number_2, formattedPhone),
-        eq(leads.phone_number_3, formattedPhone)
+      and(
+        not(eq(leads.status, 'unqualified')),
+        or(
+          eq(leads.phone_number, formattedPhone),
+          eq(leads.phone_number_2, formattedPhone),
+          eq(leads.phone_number_3, formattedPhone)
+        )
       )
     )
-    .limit(1);
   
-  if (foundLead.length > 0) {
-    const lead = foundLead[0];
+  if (foundLeads.length > 1) {
+    console.log(`❌ [MULTIPLE LEADS] Found ${foundLeads.length} leads for ${formattedPhone}: ${foundLeads.map(l => `ID:${l.id}(${l.full_name})`).join(', ')}`);
+    throw new Error(`Multiple leads found for phone ${formattedPhone}. Found ${foundLeads.length} leads: ${foundLeads.map(l => `ID:${l.id}(${l.full_name})`).join(', ')}`);
+  }
+  
+  if (foundLeads.length === 1) {
+    const lead = foundLeads[0];
     let matchField = 'PRIMARY';
     if (lead?.phone_number_2 === formattedPhone) matchField = 'SECONDARY';
     else if (lead?.phone_number_3 === formattedPhone) matchField = 'TERTIARY';
     
     console.log(`✅ [PHONE SEARCH] Found lead ID:${lead?.id} (${lead?.full_name}) via ${matchField} phone | Phones: P:${lead?.phone_number} S:${lead?.phone_number_2} T:${lead?.phone_number_3}`);
+    return lead;
   } else {
     console.log(`❌ [PHONE SEARCH] No lead found for: ${formattedPhone}`);
+    return null;
   }
-  
-  return foundLead.length > 0 ? foundLead[0] : null;
 }
 
 // Helper function to find nearest available timeslot
@@ -142,17 +149,28 @@ function checkAppointmentAttendance(row: ExcelRow): boolean {
   return !!(uwField && uwField.length > 0 && uwField.toLowerCase() !== 'n/a');
 }
 
-// Helper function to find borrower by phone number
+// Helper function to find borrower by phone number with validation
 async function findBorrowerByPhone(phoneNumber: string) {
   const cleanPhone = phoneNumber.replace(/^\+65/, '').replace(/\D/g, '');
   
-  const foundBorrower = await db
+  const foundBorrowers = await db
     .select()
     .from(borrowers)
-    .where(eq(borrowers.phone_number, `${cleanPhone}`))
-    .limit(1);
+    .where(eq(borrowers.phone_number, `${cleanPhone}`));
   
-  return foundBorrower.length > 0 ? foundBorrower[0] : null;
+  if (foundBorrowers.length > 1) {
+    console.log(`❌ [MULTIPLE BORROWERS] Found ${foundBorrowers.length} borrowers for ${cleanPhone}: ${foundBorrowers.map(b => `ID:${b.id}(${b.full_name})`).join(', ')}`);
+    throw new Error(`Multiple borrowers found for phone ${cleanPhone}. Found ${foundBorrowers.length} borrowers: ${foundBorrowers.map(b => `ID:${b.id}(${b.full_name})`).join(', ')}`);
+  }
+  
+  if (foundBorrowers.length === 1) {
+    const borrower = foundBorrowers[0];
+    console.log(`✅ [BORROWER SEARCH] Found borrower ID:${borrower?.id} (${borrower?.full_name}) for phone ${cleanPhone}`);
+    return borrower;
+  } else {
+    console.log(`❌ [BORROWER SEARCH] No borrower found for: ${cleanPhone}`);
+    return null;
+  }
 }
 
 // Helper function to move appointment to new timeslot
@@ -684,9 +702,30 @@ export async function POST(request: NextRequest) {
         // Check if appointment turned up (UW field filled)
         const appointmentTurnedUp = checkAppointmentAttendance(row);
         
-                  // Find existing lead by phone number
+        // Find existing lead by phone number with validation
         console.log(`\n🔍 [ROW ${row.row_number}] ${fullName} (${formattedPhone}) NEW LOAN | UW:"${row.col_UW}" Code:"${row.col_Code}" Attended:${appointmentTurnedUp}`);
-        const existingLead = await findLeadByPhone(formattedPhone);
+        
+        let existingLead;
+        try {
+          existingLead = await findLeadByPhone(formattedPhone);
+        } catch (leadError) {
+          console.error(`❌ Lead validation failed for ${fullName} (${formattedPhone}):`, leadError);
+          results.push({
+            appointmentId: 'validation_failed',
+            leadId: 'validation_failed',
+            leadName: fullName,
+            oldAppointmentStatus: 'N/A',
+            newAppointmentStatus: 'N/A',
+            oldLeadStatus: 'N/A',
+            newLeadStatus: 'N/A',
+            reason: `Lead validation failed: ${(leadError as Error).message}`,
+            appointmentTime: 'N/A',
+            timeDiffHours: 'N/A',
+            action: 'validation_error',
+            error: (leadError as Error).message
+          });
+          continue; // Skip this record and continue with next
+        }
         
         if (!existingLead) {
           // Case A: Lead doesn't exist - BUT only create if UW field is filled (attended)
@@ -794,28 +833,63 @@ export async function POST(request: NextRequest) {
             }
           }
         } else {
-          // Lead exists - check for appointments today
-          const todayAppointments = await db
-            .select()
-            .from(appointments)
-            .where(
-              and(
-                eq(appointments.lead_id, existingLead.id),
-                gte(appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
-                lte(appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
-              )
-            );
+          // Lead exists - validate appointments with error handling
+          let todayAppointments, anyUpcomingAppointments;
+          
+          try {
+            // Check for NON-CANCELLED appointments today
+            todayAppointments = await db
+              .select()
+              .from(appointments)
+              .where(
+                and(
+                  eq(appointments.lead_id, existingLead.id),
+                  not(eq(appointments.status, 'cancelled')),
+                  gte(appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
+                  lte(appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
+                )
+              );
 
-          // Also check for any upcoming appointments on other dates
-          const anyUpcomingAppointments = await db
-            .select()
-            .from(appointments)
-            .where(
-              and(
-                eq(appointments.lead_id, existingLead.id),
-                eq(appointments.status, 'upcoming')
-              )
-            );
+            // Validate single appointment constraint for today
+            if (todayAppointments.length > 1) {
+              console.log(`❌ [MULTIPLE APPOINTMENTS] Lead ${existingLead.id} has ${todayAppointments.length} non-cancelled appointments today: ${todayAppointments.map(a => `ID:${a.id}(${a.status})`).join(', ')}`);
+              throw new Error(`Multiple non-cancelled appointments found for lead ${existingLead.id} today. Found ${todayAppointments.length} appointments: ${todayAppointments.map(a => `ID:${a.id}(${a.status})`).join(', ')}`);
+            }
+
+            // Also check for any upcoming appointments on other dates (upcoming status already excludes cancelled)
+            anyUpcomingAppointments = await db
+              .select()
+              .from(appointments)
+              .where(
+                and(
+                  eq(appointments.lead_id, existingLead.id),
+                  eq(appointments.status, 'upcoming')
+                )
+              );
+
+            // Validate single upcoming appointment constraint
+            if (anyUpcomingAppointments.length > 1) {
+              console.log(`❌ [MULTIPLE UPCOMING] Lead ${existingLead.id} has ${anyUpcomingAppointments.length} upcoming appointments: ${anyUpcomingAppointments.map(a => `ID:${a.id}(${format(new Date(a.start_datetime), 'MM-dd HH:mm')})`).join(', ')}`);
+              throw new Error(`Multiple upcoming appointments found for lead ${existingLead.id}. Found ${anyUpcomingAppointments.length} appointments: ${anyUpcomingAppointments.map(a => `ID:${a.id}(${format(new Date(a.start_datetime), 'MM-dd HH:mm')})`).join(', ')}`);
+            }
+          } catch (appointmentError) {
+            console.error(`❌ Appointment validation failed for lead ${existingLead.id} (${fullName}):`, appointmentError);
+            results.push({
+              appointmentId: 'validation_failed',
+              leadId: existingLead.id.toString(),
+              leadName: fullName,
+              oldAppointmentStatus: 'N/A',
+              newAppointmentStatus: 'N/A',
+              oldLeadStatus: existingLead.status,
+              newLeadStatus: existingLead.status,
+              reason: `Appointment validation failed: ${(appointmentError as Error).message}`,
+              appointmentTime: 'N/A',
+              timeDiffHours: 'N/A',
+              action: 'validation_error',
+              error: (appointmentError as Error).message
+            });
+            continue; // Skip this record and continue with next
+          }
 
           console.log(`📅 [APPOINTMENTS] Lead ${existingLead.id} (${existingLead.full_name}) | Today:${todayAppointments.length} Future:${anyUpcomingAppointments.length}`);
 
