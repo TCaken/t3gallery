@@ -487,7 +487,7 @@ export async function POST(request: NextRequest) {
 
     // Validate API key and determine user ID to use
     const envApiKey = process.env.API_KEY;
-    let authenticatedUserId = process.env.AGENT_USER_ID; // Default fallback
+    let authenticatedUserId = process.env.AGENT_USER_ID ?? 'system-update'; // Default fallback
     let isAuthenticated = false;
 
     if (apiKey && envApiKey && apiKey === envApiKey) {
@@ -515,6 +515,9 @@ export async function POST(request: NextRequest) {
     console.log('⏰ Threshold hours:', thresholdHours);
     console.log(`👤 Using user ID: ${authenticatedUserId} (Authenticated: ${isAuthenticated})`);
 
+    // Ensure we always have a valid user ID
+    const safeUserId = authenticatedUserId ?? 'system-update';
+
     // Get today's date in Singapore timezone (UTC+8)
     const now = new Date();
     const singaporeOffset = 8 * 60; // 8 hours in minutes
@@ -529,7 +532,7 @@ export async function POST(request: NextRequest) {
     console.log('📅 Today (Singapore):', todaySingapore);
 
     // Use authenticated user ID for updates
-    const fallbackUserId = authenticatedUserId;
+    const fallbackUserId = authenticatedUserId ?? 'system-update';
 
     let processedCount = 0;
     let updatedCount = 0;
@@ -554,8 +557,15 @@ export async function POST(request: NextRequest) {
 
     // Process based on mode
     if (processingMode === 'end_of_day') {
-      // END OF DAY MODE: Process all done appointments
+      // END OF DAY MODE: Process all done appointments and match with Excel codes
       console.log('🌅 Running end-of-day processing...');
+      
+      if (!excelData?.rows || excelData.rows.length === 0) {
+        return NextResponse.json({
+          error: "Excel data required for end-of-day processing",
+          help: "End-of-day mode requires Excel data to check codes for done appointments"
+        }, { status: 400 });
+      }
       
       // Get all done appointments for today
       const startOfDaySGT = new Date(`${todaySingapore}T00:00:00.000Z`);
@@ -580,38 +590,127 @@ export async function POST(request: NextRequest) {
 
       console.log(`📋 Found ${doneAppointments.length} done appointments for end-of-day processing`);
 
+      // Process each done appointment and match with Excel data
       for (const record of doneAppointments) {
         const appointment = record.appointment;
         const lead = record.lead;
         
         if (!lead) continue;
 
-        // Update lead status based on loan status
-        if (appointment.loan_status === 'RS') {
-          try {
-            await updateLead(lead.id, {
-              status: 'missed/RS',
-              updated_by: fallbackUserId
-            });
+        // Find matching Excel row by phone number
+        const leadPhone = lead.phone_number.replace(/^\+65/, '').replace(/\D/g, '');
+        const matchingExcelRow = excelData.rows.find(row => {
+          const excelPhone = row["col_Mobile Number"]?.toString().replace(/\D/g, '');
+          return excelPhone === leadPhone;
+        });
 
-            results.push({
-              appointmentId: appointment.id.toString(),
-              leadId: lead.id.toString(),
-              leadName: lead.full_name ?? 'Unknown',
-              oldAppointmentStatus: appointment.status,
-              newAppointmentStatus: appointment.status,
-              oldLeadStatus: lead.status,
-              newLeadStatus: 'missed/RS',
-              reason: 'End-of-day: RS status converted to missed/RS',
-              appointmentTime: format(new Date(appointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
-              timeDiffHours: 'N/A',
-              action: 'end_of_day_update'
-            });
+        if (matchingExcelRow) {
+          // Found matching Excel row - check code
+          const code = matchingExcelRow.col_Code?.toString().trim().toUpperCase();
+          let newLeadStatus = lead.status;
+          let newLoanStatus = lead.loan_status;
+          let newLoanNotes = lead.loan_notes;
+          let newEligibilityNotes = lead.eligibility_notes;
+          let updateReason = '';
 
-            updatedCount++;
-          } catch (error) {
-            console.error(`❌ Error updating lead ${lead.id} in end-of-day processing:`, error);
+          // END-OF-DAY MODE: Process Excel codes for done appointments
+          if (code) {
+            switch (code) {
+              case 'P':
+                newLeadStatus = 'done';
+                newLoanStatus = 'P';
+                newLoanNotes = 'P - Done';
+                newEligibilityNotes = 'Loan Disbursed';
+                updateReason = 'End-of-day: P (Completed)';
+                break;
+              case 'PRS':
+                newLeadStatus = 'done';
+                newLoanStatus = 'PRS';
+                newLoanNotes = 'PRS - Customer Rejected';
+                newEligibilityNotes = 'Loan approved but customer rejected';
+                updateReason = 'End-of-day: PRS (Customer Rejected)';
+                break;
+              case 'RS':
+                newLeadStatus = 'missed/RS';
+                newLoanStatus = 'RS';
+                
+                // Get RS type and details
+                const rsType = matchingExcelRow.col_RS?.toString().trim();
+                const rsDetails = matchingExcelRow["col_RS -Detailed"]?.toString().trim();
+                
+                newLoanNotes = `RS${rsType ? ` - ${rsType}` : ''}`;
+                newEligibilityNotes = `Failed eligibility - ${rsType ? ` (${rsType})` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
+                updateReason = `End-of-day: RS (Rejected by System)${rsType ? ` - Type: ${rsType}` : ''}${rsDetails ? ` - Details: ${rsDetails}` : ''}`;
+                break;
+              case 'R':
+                newLeadStatus = 'done';
+                newLoanStatus = 'R';
+                newLoanNotes = 'R - Rejected';
+                newEligibilityNotes = 'Rejected';
+                updateReason = 'End-of-day: R (Rejected)';
+                break;
+              default:
+                // Unknown code, keep current status
+                updateReason = `End-of-day: Unknown code ${code} - no status change`;
+                continue;
+            }
+
+            // Apply the comprehensive update
+            const hasChanges = newLeadStatus !== lead.status || 
+                              newLoanStatus !== lead.loan_status || 
+                              newLoanNotes !== lead.loan_notes || 
+                              newEligibilityNotes !== lead.eligibility_notes;
+
+            if (hasChanges) {
+              try {
+                await updateLead(lead.id, {
+                  status: newLeadStatus,
+                  loan_status: newLoanStatus,
+                  loan_notes: newLoanNotes,
+                  eligibility_notes: newEligibilityNotes,
+                  updated_by: fallbackUserId ?? 'system-update'
+                });
+
+                results.push({
+                  appointmentId: appointment.id.toString(),
+                  leadId: lead.id.toString(),
+                  leadName: lead.full_name ?? 'Unknown',
+                  oldAppointmentStatus: appointment.status,
+                  newAppointmentStatus: appointment.status,
+                  oldLeadStatus: lead.status,
+                  newLeadStatus: newLeadStatus,
+                  reason: updateReason,
+                  appointmentTime: format(new Date(appointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
+                  timeDiffHours: 'N/A',
+                  action: 'end_of_day_code_update'
+                });
+
+                updatedCount++;
+              } catch (error) {
+                console.error(`❌ Error updating lead ${lead.id} in end-of-day processing:`, error);
+                results.push({
+                  appointmentId: appointment.id.toString(),
+                  leadId: lead.id.toString(),
+                  leadName: lead.full_name ?? 'Unknown',
+                  oldAppointmentStatus: appointment.status,
+                  newAppointmentStatus: appointment.status,
+                  oldLeadStatus: lead.status,
+                  newLeadStatus: lead.status,
+                  reason: `Error: ${(error as Error).message}`,
+                  appointmentTime: format(new Date(appointment.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
+                  timeDiffHours: 'N/A',
+                  action: 'end_of_day_error',
+                  error: (error as Error).message
+                });
+              }
+            }
+          } else {
+            // No code in Excel, skip
+            console.log(`⏭️ No code found for lead ${lead.id} in Excel data`);
           }
+        } else {
+          // No matching Excel row found
+          console.log(`⏭️ No matching Excel row found for lead ${lead.id} (phone: ${lead.phone_number})`);
         }
       }
       
@@ -730,8 +829,8 @@ export async function POST(request: NextRequest) {
             email: row["col_Email Address"]?.toString() || '',
             employment_status: row["col_Employment Type"]?.toString() || '',
             loan_purpose: row["col_What is the purpose of the Loan?"]?.toString() || '',
-            created_by: authenticatedUserId,
-            updated_by: authenticatedUserId,
+                          created_by: safeUserId,
+              updated_by: safeUserId,
             bypassEligibility: false // Check eligibility for new leads
           });
 
@@ -772,10 +871,10 @@ export async function POST(request: NextRequest) {
                     })
                     .where(eq(appointments.id, appointmentResult.appointment.id));
                     
-                  await updateLead(createLeadResult.lead.id, {
-                    status: leadStatus,
-                    updated_by: authenticatedUserId
-                  });
+                                      await updateLead(createLeadResult.lead.id, {
+                      status: leadStatus,
+                                    updated_by: safeUserId
+            });
                 }
 
                 results.push({
@@ -888,10 +987,10 @@ export async function POST(request: NextRequest) {
                 const appointmentResult = await createAppointment({
                   leadId: existingLead.id,
                   timeslotId: nearestTimeslot.id,
-                  notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Today: ${todaySingapore})`,
-                  isUrgent: false,
-                  overrideUserId: authenticatedUserId
-                });
+                                  notes: `Auto-created from Google Sheets for existing lead - ${fullName} (Today: ${todaySingapore})`,
+                isUrgent: false,
+                overrideUserId: safeUserId
+              });
 
                 if (appointmentResult.success && 'appointment' in appointmentResult && appointmentResult.appointment) {
                   createdAppointmentsCount++;
@@ -940,35 +1039,13 @@ export async function POST(request: NextRequest) {
               let newLeadStatus = existingLead.status;
               let updateReason = '';
 
-              // Determine status based on attendance and codes
+              // REAL-TIME MODE: Only check attendance (UW field), no code processing
               if (appointmentTurnedUp) {
                 newAppointmentStatus = 'done';
                 newLeadStatus = 'done';
                 updateReason = 'Marked as attended (UW field filled)';
-                
-                // Update based on code if provided
-                if (code) {
-                  switch (code) {
-                    case 'P':
-                      newLeadStatus = 'done';
-                      updateReason += ' - P (Completed)';
-                      break;
-                    case 'PRS':
-                      newLeadStatus = 'done';
-                      updateReason += ' - PRS (Customer Rejected)';
-                      break;
-                    case 'RS':
-                      newLeadStatus = 'missed/RS';
-                      updateReason += ' - RS (Rejected by System)';
-                      break;
-                    case 'R':
-                      newLeadStatus = 'done';
-                      updateReason += ' - R (Rejected)';
-                      break;
-                  }
-                }
               } else {
-                // Check if appointment should be marked as missed based on time threshold
+                // Not attended - check if appointment should be marked as missed based on time threshold
                 const appointmentTimeSGT = new Date(todayAppointment.start_datetime.getTime() + (8 * 60 * 60 * 1000));
                 const timeDiffMs = singaporeTime.getTime() - appointmentTimeSGT.getTime();
                 const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
@@ -976,7 +1053,10 @@ export async function POST(request: NextRequest) {
                 if (timeDiffHours >= thresholdHours) {
                   newAppointmentStatus = 'missed';
                   newLeadStatus = 'missed/RS';
-                  updateReason = `Time threshold exceeded (${timeDiffHours.toFixed(2)}h late)`;
+                  updateReason = `Time threshold exceeded (${timeDiffHours.toFixed(2)}h late) - No attendance`;
+                } else {
+                  // Still within threshold, keep as upcoming
+                  updateReason = `No attendance recorded yet (${timeDiffHours.toFixed(2)}h since appointment)`;
                 }
               }
 
