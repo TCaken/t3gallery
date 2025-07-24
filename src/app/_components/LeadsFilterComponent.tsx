@@ -186,7 +186,7 @@ export default function LeadsFilterComponent({
     }
   };
 
-  // Handle multi-select change
+  // Update handleMultiSelectChange to handle immediate application for assigned leads and other multi-select filters
   const handleMultiSelectChange = (
     field: keyof FilterOptions,
     value: string,
@@ -201,18 +201,30 @@ export default function LeadsFilterComponent({
       newValues = currentValues.filter(v => v !== value);
     }
     
-    onFilterChange({
+    const newFilterOptions = {
       ...filterOptions,
       [field]: field === 'status' ? newValues as FilterOptions['status'] : newValues
-    });
+    };
+    
+    // Update parent state
+    onFilterChange(newFilterOptions);
+    
+    // Return the new filter options so callers can use them immediately
+    return newFilterOptions;
   };
 
-  // Handle boolean filter change
+  // Update handleBooleanChange similarly
   const handleBooleanChange = (field: keyof FilterOptions, checked: boolean) => {
-    onFilterChange({
+    const newFilterOptions = {
       ...filterOptions,
       [field]: checked
-    });
+    };
+    
+    // Update parent state
+    onFilterChange(newFilterOptions);
+    
+    // Return the new filter options so callers can use them immediately
+    return newFilterOptions;
   };
 
   // Apply date changes immediately with new values (NO async state issues!)
@@ -369,8 +381,8 @@ export default function LeadsFilterComponent({
                       type="checkbox"
                       checked={filterOptions.status?.some(s => s === status.value) ?? false}
                       onChange={(e) => {
-                        handleMultiSelectChange('status', status.value, e.target.checked);
-                        onApplyFilters();
+                        const newFilters = handleMultiSelectChange('status', status.value, e.target.checked);
+                        onApplyFilters(newFilters);
                       }}
                       className="rounded border-gray-300"
                     />
@@ -394,21 +406,22 @@ export default function LeadsFilterComponent({
                     type="checkbox"
                     checked={filterOptions.includeUnassigned && filterOptions.assignedTo?.length === availableAgents.length}
                     onChange={(e) => {
+                      let newFilterOptions;
                       if (e.target.checked) {
-                        onFilterChange({ 
+                        newFilterOptions = { 
                           ...filterOptions, 
                           includeUnassigned: true,
                           assignedTo: availableAgents.map(a => a.id)
-                        });
-                        onApplyFilters();
+                        };
                       } else {
-                        onFilterChange({ 
+                        newFilterOptions = { 
                           ...filterOptions, 
                           includeUnassigned: false,
                           assignedTo: []
-                        });
-                        onApplyFilters();
+                        };
                       }
+                      onFilterChange(newFilterOptions);
+                      onApplyFilters(newFilterOptions);
                     }}
                     className="rounded border-gray-300"
                   />
@@ -420,8 +433,8 @@ export default function LeadsFilterComponent({
                     type="checkbox"
                     checked={filterOptions.includeUnassigned ?? false}
                     onChange={(e) => {
-                      handleBooleanChange('includeUnassigned', e.target.checked);
-                      onApplyFilters();
+                      const newFilters = handleBooleanChange('includeUnassigned', e.target.checked);
+                      onApplyFilters(newFilters);
                     }}
                     className="rounded border-gray-300"
                   />
@@ -434,8 +447,8 @@ export default function LeadsFilterComponent({
                       type="checkbox"
                       checked={filterOptions.assignedTo?.includes(agent.id) ?? false}
                       onChange={(e) => {
-                        handleMultiSelectChange('assignedTo', agent.id, e.target.checked);
-                        onApplyFilters();
+                        const newFilters = handleMultiSelectChange('assignedTo', agent.id, e.target.checked);
+                        onApplyFilters(newFilters);
                       }}
                       className="rounded border-gray-300"
                     />
@@ -486,8 +499,8 @@ export default function LeadsFilterComponent({
                           type="checkbox"
                           checked={filterOptions.bookedBy?.includes(agent.id) ?? false}
                           onChange={(e) => {
-                            handleMultiSelectChange('bookedBy', agent.id, e.target.checked);
-                            onApplyFilters();
+                            const newFilters = handleMultiSelectChange('bookedBy', agent.id, e.target.checked);
+                            onApplyFilters(newFilters);
                           }}
                           className="rounded border-gray-300"
                         />
