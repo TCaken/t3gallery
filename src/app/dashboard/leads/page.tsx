@@ -23,7 +23,7 @@ import {
 } from '@heroicons/react/24/outline';
 import LeadCard  from '~/app/_components/LeadCard';
 import { hasPermission } from '~/server/rbac/queries';
-import { updateLead,updateLeadStatus, fetchFilteredLeads, getLeadCountsByStatus } from '~/app/_actions/leadActions';
+import { updateLead,updateLeadStatus, fetchFilteredLeads, getLeadCountsByStatus, getAvailableAgents, getFilterOptions } from '~/app/_actions/leadActions';
 import { type InferSelectModel } from 'drizzle-orm';
 import { type leads, type leadStatusEnum } from "~/server/db/schema";
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
@@ -37,7 +37,9 @@ import { makeCall } from '~/app/_actions/callActions';
 import LeadEditSlideOver from '~/app/_components/LeadEditSlideOver';
 import CustomWhatsAppModal from '~/app/_components/CustomWhatsAppModal';
 import LeadStatusReasonModal from '~/app/_components/LeadStatusReasonModal';
+import LeadsFilterComponent, { type FilterOptions, type SortOptions } from '~/app/_components/LeadsFilterComponent';
 import { type Lead } from '~/app/types';
+import { getTodaySGT } from '~/lib/timezone';
 
 // Update the StatusInfo type to use the schema's lead status enum
 type StatusInfo = {
@@ -100,45 +102,99 @@ const getStatusColor = (status: string) => {
   return statusMap[status] ?? "bg-gray-100 text-gray-800";
 };
 
-
-
-// Helper component to safely display dates
-const SafeDate = ({ date }: { date: Date | string | null }) => {
-  if (!date) return <span>Unknown date</span>;
-  try {
-    return <span>{new Date(date).toLocaleDateString()}</span>;
-  } catch (e) {
-    return <span>Invalid date</span>;
-  }
-};
-
 // Enhanced filter interface
 interface LeadFilters {
   status?: LeadStatus;
   search?: string;
-  sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number' | 'employment_salary' | 'lead_score';
+  sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number' | 'employment_salary' | 'lead_score' | 'follow_up_date';
   sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
-  // Frontend filters
-  amountRange?: [number, number];
+  // Backend filters - these will be sent to fetchFilteredLeads
+  amountMin?: number;
+  amountMax?: number;
   source?: string[];
   employmentStatus?: string[];
   loanPurpose?: string[];
   residentialStatus?: string[];
-  dateRange?: [Date, Date];
   assignedTo?: string[];
+  dateFrom?: string;
+  dateTo?: string;
+  leadType?: string[];
+  eligibilityStatus?: string[];
 }
 
-// Helper interface for dynamic filter options
-interface FilterOptions {
-  sources: string[];
-  employmentStatuses: string[];
-  loanPurposes: string[];
-  residentialStatuses: string[];
-  assignedUsers: string[];
-  amountRange: [number, number];
-  dateRange: [Date, Date];
+// Interface for fetchFilteredLeads parameters
+interface FetchLeadsParams {
+  searchQuery?: string;
+  searchOptions?: {
+    status?: LeadStatus[];
+    assignedTo?: string[];
+    includeUnassigned?: boolean;
+    bookedBy?: string[];
+    sources?: string[];
+    employmentStatuses?: string[];
+    loanPurposes?: string[];
+    residentialStatuses?: string[];
+    leadTypes?: string[];
+    eligibilityStatuses?: string[];
+    amountMin?: number;
+    amountMax?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    followUpDateFrom?: string;
+    followUpDateTo?: string;
+    assignedInLastDays?: number;
+  };
+  sortOptions?: {
+    sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number' | 'employment_salary' | 'lead_score' | 'follow_up_date';
+    sortOrder?: 'asc' | 'desc';
+  };
+  page?: number;
+  limit?: number;
+}
+
+// Sorting options type
+type SortingOption = {
+  value: string;
+  label: string;
+  sortBy: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number' | 'employment_salary' | 'lead_score' | 'follow_up_date';
+  sortOrder: 'asc' | 'desc';
+};
+
+// Sorting options
+const SORTING_OPTIONS: SortingOption[] = [
+  { value: 'updated_at_desc', label: 'Recently Updated', sortBy: 'updated_at', sortOrder: 'desc' },
+  { value: 'updated_at_asc', label: 'Oldest Updated', sortBy: 'updated_at', sortOrder: 'asc' },
+  { value: 'created_at_desc', label: 'Recently Created', sortBy: 'created_at', sortOrder: 'desc' },
+  { value: 'created_at_asc', label: 'Oldest Created', sortBy: 'created_at', sortOrder: 'asc' },
+  { value: 'full_name_asc', label: 'Name A-Z', sortBy: 'full_name', sortOrder: 'asc' },
+  { value: 'full_name_desc', label: 'Name Z-A', sortBy: 'full_name', sortOrder: 'desc' },
+  { value: 'amount_desc', label: 'Amount High-Low', sortBy: 'amount', sortOrder: 'desc' },
+  { value: 'amount_asc', label: 'Amount Low-High', sortBy: 'amount', sortOrder: 'asc' },
+  { value: 'follow_up_date_asc', label: 'Follow Up Date (Soonest)', sortBy: 'follow_up_date', sortOrder: 'asc' },
+  { value: 'follow_up_date_desc', label: 'Follow Up Date (Latest)', sortBy: 'follow_up_date', sortOrder: 'desc' },
+  { value: 'lead_score_desc', label: 'Lead Score High-Low', sortBy: 'lead_score', sortOrder: 'desc' },
+  { value: 'lead_score_asc', label: 'Lead Score Low-High', sortBy: 'lead_score', sortOrder: 'asc' },
+  { value: 'id_desc', label: 'ID High-Low', sortBy: 'id', sortOrder: 'desc' },
+  { value: 'id_asc', label: 'ID Low-High', sortBy: 'id', sortOrder: 'asc' }
+];
+
+// Default filter configuration for agents and admins
+interface DefaultFilters {
+  showAllStatuses: boolean;
+  showAssignedToMe: boolean;
+  showUnassigned: boolean;
+  showDateRange: boolean;
+  showAmountRange: boolean;
+  showSources: boolean;
+  showEmploymentStatus: boolean;
+  showLoanPurpose: boolean;
+  showResidentialStatus: boolean;
+  showLeadType: boolean;
+  showEligibilityStatus: boolean;
+  // Fine-grained status control
+  visibleStatuses: Record<LeadStatus, boolean>;
 }
 
 export default function LeadsPage() {
@@ -256,17 +312,16 @@ export default function LeadsPage() {
   });
 
   // New state for advanced filtering
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
-    sources: [],
-    employmentStatuses: [],
-    loanPurposes: [],
-    residentialStatuses: [],
-    assignedUsers: [],
-    amountRange: [0, 0],
-    dateRange: [new Date(), new Date()]
-  });
   const [activeFilters, setActiveFilters] = useState<LeadFilters>({});
+  
+  // New filter component state
+  const [componentFilterOptions, setComponentFilterOptions] = useState<FilterOptions>({});
+  const [componentSortOptions, setComponentSortOptions] = useState<SortOptions>({
+    sortBy: 'updated_at',
+    sortOrder: 'desc'
+  });
+  const [componentSearchQuery, setComponentSearchQuery] = useState('');
+  const [showAdvancedFiltersPanel, setShowAdvancedFiltersPanel] = useState(false);
 
   // Add WhatsApp modal state at page level
   const [isPageWhatsAppModalOpen, setIsPageWhatsAppModalOpen] = useState(false);
@@ -296,6 +351,27 @@ export default function LeadsPage() {
   // Add state for search-based auto-loading
   const [isSearchAutoLoading, setIsSearchAutoLoading] = useState(false);
   const [searchAutoLoadingAttempts, setSearchAutoLoadingAttempts] = useState(0);
+
+  // Add state for available agents and filter options
+  const [availableAgents, setAvailableAgents] = useState<{id: string, name: string, email: string}[]>([]);
+  const [filterOptions, setFilterOptions] = useState<{
+    sources: string[];
+    employmentStatuses: string[];
+    loanPurposes: string[];
+    residentialStatuses: string[];
+    leadTypes: string[];
+    eligibilityStatuses: string[];
+  }>({
+    sources: [],
+    employmentStatuses: [],
+    loanPurposes: [],
+    residentialStatuses: [],
+    leadTypes: [],
+    eligibilityStatuses: []
+  });
+
+  // Add state for selected sorting option
+  const [selectedSortingOption, setSelectedSortingOption] = useState('updated_at_desc');
 
   // Function to filter leads based on search query
   const filterLeads = (leads: Lead[], query: string) => {
@@ -334,10 +410,11 @@ export default function LeadsPage() {
     // }
 
     // Apply amount range filter
-    if (activeFilters.amountRange) {
-      const [min, max] = activeFilters.amountRange;
+    if (activeFilters.amountMin !== undefined || activeFilters.amountMax !== undefined) {
       filteredLeads = filteredLeads.filter(lead => {
         const amount = parseFloat(lead.amount ?? '0');
+        const min = activeFilters.amountMin ?? 0;
+        const max = activeFilters.amountMax ?? Infinity;
         return amount >= min && amount <= max;
       });
     }
@@ -378,10 +455,11 @@ export default function LeadsPage() {
     }
 
     // Apply date range filter
-    if (activeFilters.dateRange) {
-      const [startDate, endDate] = activeFilters.dateRange;
+    if (activeFilters.dateFrom || activeFilters.dateTo) {
       filteredLeads = filteredLeads.filter(lead => {
         const createdDate = new Date(lead.created_at);
+        const startDate = activeFilters.dateFrom ? new Date(activeFilters.dateFrom) : new Date('1900-01-01');
+        const endDate = activeFilters.dateTo ? new Date(activeFilters.dateTo) : new Date('2100-12-31');
         return createdDate >= startDate && createdDate <= endDate;
       });
     }
@@ -390,34 +468,7 @@ export default function LeadsPage() {
     return filteredLeads;
   };
 
-  // Function to extract filter options from loaded leads
-  const updateFilterOptions = (leads: Lead[]) => {
-    const sources: string[] = [...new Set(leads.map(lead => lead.source).filter((s): s is string => Boolean(s)))];
-    const employmentStatuses: string[] = [...new Set(leads.map(lead => lead.employment_status).filter((s): s is string => Boolean(s)))];
-    const loanPurposes: string[] = [...new Set(leads.map(lead => lead.loan_purpose).filter((s): s is string => Boolean(s)))];
-    const residentialStatuses: string[] = [...new Set(leads.map(lead => lead.residential_status).filter((s): s is string => Boolean(s)))];
-    const assignedUsers: string[] = [...new Set(leads.map(lead => lead.assigned_to).filter((s): s is string => Boolean(s)))];
-    
-    const amounts = leads.map(lead => parseFloat(lead.amount ?? '0')).filter(amount => amount > 0);
-    const amountRange: [number, number] = amounts.length > 0 
-      ? [Math.min(...amounts), Math.max(...amounts)]
-      : [0, 0];
-    
-    const dates = leads.map(lead => new Date(lead.created_at));
-    const dateRange: [Date, Date] = dates.length > 0
-      ? [new Date(Math.min(...dates.map(d => d.getTime()))), new Date(Math.max(...dates.map(d => d.getTime())))]
-      : [new Date(), new Date()];
-
-    setFilterOptions({
-      sources,
-      employmentStatuses,
-      loanPurposes,
-      residentialStatuses,
-      assignedUsers,
-      amountRange,
-      dateRange
-    });
-  };
+  // This function was removed - filter options are now managed differently
 
   // Function to refresh data with new filter parameters - simplified without sort params
   const refreshDataWithFilters = async () => {
@@ -445,7 +496,7 @@ export default function LeadsPage() {
     setPage(1);
     
     try {
-      await fetchLeadsWithFilters(1, true); // isSearch = true
+      await fetchLeadsWithFilters(1);
     } finally {
       setIsSearchAutoLoading(false);
     }
@@ -475,34 +526,181 @@ export default function LeadsPage() {
     setPage(nextPage);
     
     setTimeout(() => {
-      void fetchLeadsWithFilters(nextPage, true).finally(() => { // isSearch = true
+      void fetchLeadsWithFilters(nextPage).finally(() => {
         setIsSearchAutoLoading(false);
       });
     }, 500);
   };
 
-  // Enhanced fetchLeadsWithFilters with controlled auto-loading
-  const fetchLeadsWithFilters = async (pageNum = 1, isSearch = false) => {
+    // Quick action filter functions
+  const handleMyLeadsAll = () => {
+    if (!userId) return;
+    const newFilters = {
+      status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
+      assignedTo: [userId],
+      includeUnassigned: false,
+      bookedBy: []
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleMyLeadsAssigned = () => {
+    if (!userId) return;
+    const newFilters = {
+      status: ['assigned'] as FilterOptions['status'],
+      assignedTo: [userId],
+      includeUnassigned: false,
+      bookedBy: []
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleTodaysBookings = () => {
+    if (!userId) return;
+    // Use Singapore timezone for "today"
+    const today = getTodaySGT();
+    const newFilters = {
+      status: ['booked'] as FilterOptions['status'],
+      bookedBy: [userId],
+      dateFrom: today,
+      dateTo: today,
+      includeUnassigned: false,
+      assignedTo: []
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleGiveUpPool = () => {
+    const newFilters = {
+      status: ['give_up'] as FilterOptions['status'],
+      includeUnassigned: true,
+      assignedTo: availableAgents.map(a => a.id), // Show all assigned give up leads
+      bookedBy: [] // Don't filter by bookedBy for give up pool
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleMyFollowUpToday = () => {
+    if (!userId) return;
+    // Use Singapore timezone for "today"
+    const today = getTodaySGT();
+    const newFilters = {
+      status: ['follow_up'] as FilterOptions['status'],
+      assignedTo: [userId],
+      followUpDateFrom: today,
+      followUpDateTo: today,
+      includeUnassigned: false,
+      bookedBy: []
+    };
+    const newSortOptions = {
+      sortBy: 'follow_up_date' as const,
+      sortOrder: 'asc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleAllLeads = () => {
+    const newFilters = {
+      status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+      includeUnassigned: true,
+      assignedTo: availableAgents.map(a => a.id), // All agents
+      bookedBy: [] // Don't filter by bookedBy for "All Leads"
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  // Enhanced fetchLeadsWithFilters with new component integration
+  const fetchLeadsWithFilters = async (pageNum = 1, customFilters?: FilterOptions, customSearchQuery?: string, customSortOptions?: SortOptions) => {
     console.log(`📥 [Fetch Leads] Starting fetch:`, {
       pageNum,
-      isSearch,
       isLoadingMore,
       isSearchAutoLoading,
       hasMore,
-      searchQuery: filters.search
+      componentSearchQuery,
+      componentFilterOptions
     });
 
     try {
       setIsLoadingMore(true);
       
-      const result = await fetchFilteredLeads({
-        search: isSearch ? filters.search : '', // Send search to server when in search mode
-        sortBy: "updated_at", // Always sort by updated_at from server
-        sortOrder: "desc", // Always descending from server
+      // Use custom filters if provided, otherwise use component state
+      const filtersToUse = customFilters ?? componentFilterOptions;
+      const searchToUse = customSearchQuery ?? componentSearchQuery;
+      const sortToUse = customSortOptions ?? componentSortOptions;
+      
+      // Build filter parameters from filters
+      const filterParams: FetchLeadsParams = {
+        searchQuery: searchToUse,
+        searchOptions: {
+          status: filtersToUse.status,
+          assignedTo: filtersToUse.assignedTo,
+          includeUnassigned: filtersToUse.includeUnassigned,
+          bookedBy: filtersToUse.bookedBy,
+          sources: filtersToUse.sources,
+          employmentStatuses: filtersToUse.employmentStatuses,
+          loanPurposes: filtersToUse.loanPurposes,
+          residentialStatuses: filtersToUse.residentialStatuses,
+          leadTypes: filtersToUse.leadTypes,
+          eligibilityStatuses: filtersToUse.eligibilityStatuses,
+          amountMin: filtersToUse.amountMin,
+          amountMax: filtersToUse.amountMax,
+          dateFrom: filtersToUse.dateFrom,
+          dateTo: filtersToUse.dateTo,
+          followUpDateFrom: filtersToUse.followUpDateFrom,
+          followUpDateTo: filtersToUse.followUpDateTo,
+          assignedInLastDays: filtersToUse.assignedInLastDays
+        },
+        sortOptions: sortToUse,
         page: pageNum,
-        limit: 100,
-        isSearchMode: isSearch // Enable search mode
-      });
+        limit: 100
+      };
+
+      const result = await fetchFilteredLeads(filterParams);
       
       console.log(`📥 [Fetch Leads] Result:`, {
         success: result.success,
@@ -515,7 +713,6 @@ export default function LeadsPage() {
         const newLeads = [...(pageNum === 1 ? [] : allLoadedLeads), ...result.leads] as Lead[];
         setAllLoadedLeads(newLeads);
         setHasMore(result.hasMore ?? false);
-        // console.log("result.leads", result.leads);
         
         // Reset auto-loading state when starting fresh  
         if (pageNum === 1) {
@@ -524,50 +721,13 @@ export default function LeadsPage() {
           setSearchAutoLoadingAttempts(0);
           setIsSearchAutoLoading(false);
         }
-        
-        // Update filter options based on all loaded leads
-        updateFilterOptions(newLeads);
-        
-        // 🎯 Smart Auto-loading for Agents: CONTROLLED VERSION (but not during search)
-        // if (userRole === 'agent' && result.hasMore && pageNum < 5 && !isAutoLoading && autoLoadingAttempts < 3 && !isSearch && !isSearchAutoLoading) {
-        //   // Note: The backend transforms assigned_to to user's full name, but sorts by userId
-        //   // So we need to get the current user's name to filter properly
-        //   // For now, let's use a different approach - count all leads and check if agent gets any
-        //   const agentLeads = newLeads; // Use all leads since backend handles sorting
-          
-        //   // Group leads by status to check each column
-        //   const leadsByStatus = agentLeads.reduce((acc, lead) => {
-        //     acc[lead.status] = (acc[lead.status] ?? 0) + 1;
-        //     return acc;
-        //   }, {} as Record<string, number>);
-          
-        //   // Check if any important statuses have zero leads
-        //   const importantStatuses = ['assigned', 'no_answer', 'follow_up'];
-        //   const emptyStatuses = importantStatuses.filter(status => (leadsByStatus[status] ?? 0) === 0);
-          
-        //   // More restrictive conditions: only auto-load if ALL important statuses are empty
-        //   if (emptyStatuses.length === importantStatuses.length && newLeads.length < 100) {
-        //     console.log(`🔄 Auto-loading attempt ${autoLoadingAttempts + 1}: All important statuses empty, loading page ${pageNum + 1}...`);
-        //     setIsAutoLoading(true);
-        //     setAutoLoadingAttempts(prev => prev + 1);
-            
-        //     setTimeout(() => {
-        //       void fetchLeadsWithFilters(pageNum + 1).finally(() => {
-        //         setIsAutoLoading(false);
-        //       });
-        //     }, 1000); // Increased to 1 second delay
-        //   } else {
-        //     console.log(`✅ Auto-loading stopped: Found leads in statuses or reached limits. Empty: [${emptyStatuses.join(', ')}]`);
-        //     setAutoLoadingAttempts(0); // Reset counter when stopping
-        //   }
-        // }
       } else {
         throw new Error(result.error ?? 'Failed to fetch leads');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
-      setIsAutoLoading(false); // Reset flag on error
-      setIsSearchAutoLoading(false); // Reset search auto-loading flag on error
+      setIsAutoLoading(false);
+      setIsSearchAutoLoading(false);
     } finally {
       setIsLoadingMore(false);
     }
@@ -585,9 +745,11 @@ export default function LeadsPage() {
       // Fetch all pages from 1 to current page
       for (let pageNum = 1; pageNum <= currentPageNum; pageNum++) {
         const result = await fetchFilteredLeads({
-          search: '',
+          searchQuery: '',
+          sortOptions: {
           sortBy: "updated_at",
-          sortOrder: "desc",
+            sortOrder: "desc"
+          },
           page: pageNum,
           limit: 50
         });
@@ -601,7 +763,7 @@ export default function LeadsPage() {
       }
       
       setAllLoadedLeads(allRefreshedLeads);
-      updateFilterOptions(allRefreshedLeads);
+      // Filter options are now managed by backend
       
       // Reset auto-loading state
       setAutoLoadingAttempts(0);
@@ -870,25 +1032,64 @@ export default function LeadsPage() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        // Load first page of leads
-        await fetchLeadsWithFilters(1);
-        
-        // Load total lead counts by status
-        await loadTotalLeadCounts();
-        
-        // Load pinned leads
-        const pinnedResult = await getPinnedLeads();
-        if (pinnedResult.success && pinnedResult.pinnedLeads) {
-          const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
-          // Get pinned leads from all columns
-          const allLeads = Object.values(leads).flat();
-          const pinnedLeadsData = allLeads.filter(lead => pinnedLeadIds.includes(lead.id));
-          setPinnedLeads(pinnedLeadsData);
+        // FIRST: Load available agents and filter options before anything else
+        const [agentsResult, filterOptionsResult] = await Promise.all([
+          getAvailableAgents(),
+          getFilterOptions()
+        ]);
+
+        let validAgents: {id: string, name: string, email: string}[] = [];
+        if (agentsResult.success && agentsResult.agents) {
+          // Filter out agents with null email
+          validAgents = agentsResult.agents.filter(agent => agent.email !== null) as {id: string, name: string, email: string}[];
+          setAvailableAgents(validAgents);
+        }
+
+        if (filterOptionsResult.success && filterOptionsResult.options) {
+          // Filter out null values from filter options
+          const cleanedOptions = {
+            sources: filterOptionsResult.options.sources.filter(Boolean) as string[],
+            employmentStatuses: filterOptionsResult.options.employmentStatuses.filter(Boolean) as string[],
+            loanPurposes: filterOptionsResult.options.loanPurposes.filter(Boolean) as string[],
+            residentialStatuses: filterOptionsResult.options.residentialStatuses.filter(Boolean) as string[],
+            leadTypes: filterOptionsResult.options.leadTypes.filter(Boolean) as string[],
+            eligibilityStatuses: filterOptionsResult.options.eligibilityStatuses.filter(Boolean) as string[]
+          };
+          setFilterOptions(cleanedOptions);
         }
         
-        // Load user role
+        // SECOND: Load user role and initialize default filters with loaded agents
         if (userRole && userRole.length > 0) {
           console.log('Setting userRole to:', userRole); // Debug log
+
+          // Initialize filter component based on user role and auto-apply
+          let initialFilters: FilterOptions = {};
+          
+          if (userRole === 'admin') {
+            // Admin sees ALL leads by default (all statuses, all assigned, no bookedBy filter)
+            initialFilters = {
+              status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+              includeUnassigned: true,
+              assignedTo: validAgents.map(a => a.id), // Use loaded agents
+              bookedBy: [] // Don't filter by bookedBy for admin default
+            };
+          } else if (userRole === 'agent' && userId) {
+            // Agent sees "My Leads" by default (same as handleMyLeadsAll)
+            initialFilters = {
+              status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
+              assignedTo: [userId],
+              includeUnassigned: false,
+              bookedBy: []
+            };
+          }
+          
+          // Set the filters in state
+          setComponentFilterOptions(initialFilters);
+          setComponentSearchQuery('');
+          
+          // THIRD: Now fetch leads with the properly configured filters
+          console.log('Fetching leads with initial filters:', initialFilters);
+          await fetchLeadsWithFilters(1, initialFilters, '');
 
           // If user is an agent, check their check-in status
           if (userRole === 'agent') {
@@ -905,6 +1106,19 @@ export default function LeadsPage() {
           }
         } else {
           console.log('No roles found, defaulting to user'); // Debug log
+        }
+        
+        // FOURTH: Load total lead counts and pinned leads
+        await loadTotalLeadCounts();
+        
+        // Load pinned leads
+        const pinnedResult = await getPinnedLeads();
+        if (pinnedResult.success && pinnedResult.pinnedLeads) {
+          const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
+          // Get pinned leads from all columns
+          const allLeads = Object.values(leads).flat();
+          const pinnedLeadsData = allLeads.filter(lead => pinnedLeadIds.includes(lead.id));
+          setPinnedLeads(pinnedLeadsData);
         }
       } catch (err) {
         console.error('Error in loadInitialData:', err);
@@ -926,16 +1140,16 @@ export default function LeadsPage() {
       
       return () => clearTimeout(timeoutId);
     } else {
-      // Reset search auto-loading when search is cleared and reload normal data
+      // Reset search auto-loading when search is cleared
       setSearchAutoLoadingAttempts(0);
       setIsSearchAutoLoading(false);
       
       // Always reload normal data when search is cleared (regardless of current leads)
       if (!searchQuery) {
-        console.log('🔄 Search cleared, reloading original leads...');
+        console.log('🔄 Search cleared, reloading original leads with visible statuses only...');
         setAllLoadedLeads([]);
         setPage(1);
-        void fetchLeadsWithFilters(1, false); // isSearch = false
+        void fetchLeadsWithFilters(1);
       }
     }
   }, [filters.search]);
@@ -968,7 +1182,7 @@ export default function LeadsPage() {
           // Normal pagination
           const nextPage = page + 1;
           setPage(nextPage);
-          void fetchLeadsWithFilters(nextPage, false);
+          void fetchLeadsWithFilters(nextPage);
         }
       }
     };
@@ -1170,7 +1384,7 @@ export default function LeadsPage() {
             const newLeads = { ...prevLeads };
             const oldStatus = lead.status as LeadStatus;
             // Remove from old status
-            newLeads[oldStatus] = newLeads[oldStatus]?.filter(l => l.id !== leadId) ?? [];
+            newLeads[oldStatus] = newLeads[oldStatus]?.filter(l => l.id !== lead.id) ?? [];
             // Add to new status
             newLeads[newStatus] = [...(newLeads[newStatus] ?? []), { ...lead, status: newStatus }];
             return newLeads;
@@ -1502,32 +1716,20 @@ export default function LeadsPage() {
   // State to track stable column visibility during search
   const [stableVisibleStatuses, setStableVisibleStatuses] = useState<(typeof allStatuses[number])[]>([]);
 
-  // Update the visibleStatuses definition based on user role and search state
+  // Update the visibleStatuses definition based on component filter status configuration
   const getVisibleStatuses = () => {
-    let statuses;
+    // Get statuses based on component filter configuration
+    let statuses = allStatuses.filter(status => 
+      componentFilterOptions.status?.includes(status.id) ?? false
+    );
     
-    if (userRole === 'agent') {
-      if (filters.search && filters.search.trim() !== '') {
-        // During search: use stable statuses, don't change columns until search is done
-        if (isSearchAutoLoading || isLoadingMore) {
-          return stableVisibleStatuses.length > 0 ? stableVisibleStatuses : allStatuses;
-        }
-        statuses = allStatuses; // Show all statuses when searching is complete
-      } else {
-        statuses = allStatuses.filter(col => agentAllowedStatuses.includes(col.id)); // Show only allowed statuses when not searching
-      }
-    } else {
-      if (filters.search && filters.search.trim() !== '') {
-        // During search: use stable statuses for admins too
-        if (isSearchAutoLoading || isLoadingMore) {
-          return stableVisibleStatuses.length > 0 ? stableVisibleStatuses : allStatuses;
-        }
-      }
-      statuses = allStatuses;
+    // During search loading: use stable statuses, don't change columns until search is done
+    if (componentSearchQuery && componentSearchQuery.trim() !== '' && (isSearchAutoLoading || isLoadingMore)) {
+      return stableVisibleStatuses.length > 0 ? stableVisibleStatuses : statuses;
     }
     
     // In search mode, only show columns that have leads (only when search is completely finished)
-    if (filters.search && filters.search.trim() !== '' && !isSearchAutoLoading && !isLoadingMore) {
+    if (componentSearchQuery && componentSearchQuery.trim() !== '' && !isSearchAutoLoading && !isLoadingMore) {
       statuses = statuses.filter(status => {
         const statusLeads = getLeadsForStatus(status.id);
         return statusLeads.length > 0;
@@ -1691,7 +1893,7 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* Enhanced Search and Filter Bar */}
+            {/* Quick Search and Action Buttons */}
       <div className="mb-6 space-y-4">
         {/* Search Bar */}
         <div className="flex gap-2 items-center">
@@ -1700,16 +1902,50 @@ export default function LeadsPage() {
               type="text"
               placeholder="Search by phone, ID, or name..."
               className="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 focus:border-blue-500 focus:outline-none"
-              value={filters.search ?? ''}
+              value={componentSearchQuery}
               onChange={(e) => {
-                const value = e.target.value;
-                setFilters(prev => ({
-                  ...prev,
-                  search: value,
-                  page: 1
-                }));
+                const newSearchQuery = e.target.value;
+                setComponentSearchQuery(newSearchQuery);
                 
-                setTimeout(() => scrollToResults(value), 100);
+                // Apply search behavior
+                let searchFilters: FilterOptions | undefined = undefined;
+                
+                if (newSearchQuery.trim() !== '') {
+                  // Use "All Leads" behavior when searching
+                  searchFilters = {
+                    status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+                    assignedTo: availableAgents.map(a => a.id), // All agents
+                    includeUnassigned: true,
+                    bookedBy: [] // Don't filter by bookedBy when searching
+                  };
+                } else {
+                  // Restore role-based defaults when search is cleared
+                  if (userRole === 'admin') {
+                    searchFilters = {
+                      status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+                      includeUnassigned: true,
+                      assignedTo: availableAgents.map(a => a.id), // All agents
+                      bookedBy: [] // Don't filter by bookedBy for admin default
+                    };
+                  } else if (userRole === 'agent' && userId) {
+                    searchFilters = {
+                      status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
+                      assignedTo: [userId],
+                      includeUnassigned: false,
+                      bookedBy: []
+                    };
+                  }
+                }
+                
+                if (searchFilters) {
+                  setComponentFilterOptions(searchFilters);
+                }
+                
+                setTimeout(() => {
+                  setAllLoadedLeads([]);
+                  setPage(1);
+                  void fetchLeadsWithFilters(1, searchFilters, newSearchQuery);
+                }, 500);
               }}
             />
             <SearchIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
@@ -1717,250 +1953,91 @@ export default function LeadsPage() {
           
           {/* Toggle Advanced Filters */}
           <button
-            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            onClick={() => setShowAdvancedFiltersPanel(!showAdvancedFiltersPanel)}
             className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${
-              showAdvancedFilters 
+              showAdvancedFiltersPanel 
                 ? 'bg-blue-500 text-white border-blue-500' 
                 : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
             }`}
           >
             <AdjustmentsHorizontalIcon className="h-5 w-5" />
-            Filters
-            <ChevronDownIcon className={`h-4 w-4 transform transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} />
+            Advanced
+            <ChevronDownIcon className={`h-4 w-4 transform transition-transform ${showAdvancedFiltersPanel ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        {/* Quick Action Buttons */}
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleMyLeadsAll}
+            className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 flex items-center gap-2"
+          >
+            <UserGroupIcon className="h-4 w-4" />
+            My Leads (All)
           </button>
           
-          {/* Search Results Count */}
-          {filters.search && (
-            <div className="text-sm text-gray-500 space-x-4">
-              <span>
-                {getFilteredLeadsForDisplay().length} results
-                {(isLoadingMore || isSearchAutoLoading) && ' (loading more...)'}
-                {isSearchAutoLoading && ` - searching..`}
-              </span>
-              {activeTab === 'kanban' && (
-                <span className="text-xs text-gray-400">
-                  • {visibleStatuses.length} of {allStatuses.length} columns shown
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Basic Filters Row */}
-        <div className="flex flex-wrap gap-4 items-center">
-          {/* Status Filter */}
-          {/* <select
-            value={filters.status ?? 'new'}
-            onChange={(e) => {
-              setFilters(prev => ({
-                ...prev,
-                status: e.target.value as LeadStatus
-              }));
-              void refreshDataWithFilters();
-            }}
-            className="rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
-          >
-            {LEAD_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
-              </option>
-            ))}
-          </select> */}
-
-          {/* Remove sort options since we're using automatic three-layer sorting */}
-
-          {/* Clear Filters Button */}
-          {Object.keys(activeFilters).length > 0 && (
             <button
-              onClick={clearAllFilters}
-              className="px-4 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+            onClick={handleMyLeadsAssigned}
+            className="px-4 py-2 bg-cyan-100 text-cyan-800 rounded-lg hover:bg-cyan-200 flex items-center gap-2"
             >
-              Clear Filters ({Object.keys(activeFilters).length})
+            <UserGroupIcon className="h-4 w-4" />
+            My Leads (Assigned)
             </button>
-          )}
-        </div>
-
-        {/* Advanced Filters Panel */}
-        {showAdvancedFilters && (
-          <div className="bg-gray-50 rounded-lg p-4 space-y-4">
-            <h3 className="font-medium text-gray-900 mb-3">Advanced Filters</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Amount Range Filter */}
-              {filterOptions.amountRange[1] > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Amount Range (${filterOptions.amountRange[0]} - ${filterOptions.amountRange[1]})
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      placeholder="Min"
-                      className="flex-1 rounded border border-gray-300 px-3 py-1 text-sm"
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        const min = isNaN(value) ? filterOptions.amountRange[0] : value;
-                        setActiveFilters(prev => ({
-                          ...prev,
-                          amountRange: [min, activeFilters.amountRange?.[1] ?? filterOptions.amountRange[1]]
-                        }));
-                      }}
-                    />
-                    <input
-                      type="number"
-                      placeholder="Max"
-                      className="flex-1 rounded border border-gray-300 px-3 py-1 text-sm"
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        const max = isNaN(value) ? filterOptions.amountRange[1] : value;
-                        setActiveFilters(prev => ({
-                          ...prev,
-                          amountRange: [activeFilters.amountRange?.[0] ?? filterOptions.amountRange[0], max]
-                        }));
-                      }}
-                    />
-                  </div>
+          
+          <button
+            onClick={handleMyFollowUpToday}
+            className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 flex items-center gap-2"
+          >
+            <ClockIcon className="h-4 w-4" />
+            My Follow Up Today
+          </button>
+          
+          <button
+            onClick={handleTodaysBookings}
+            className="px-4 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200 flex items-center gap-2"
+          >
+            <CalendarIcon className="h-4 w-4" />
+            My Bookings
+          </button>
+          
+          <button
+            onClick={handleGiveUpPool}
+            className="px-4 py-2 bg-red-100 text-red-800 rounded-lg hover:bg-red-200 flex items-center gap-2"
+          >
+            <XMarkIcon className="h-4 w-4" />
+            Give Up Pool
+          </button>
+          
+          <button
+            onClick={handleAllLeads}
+            className="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-lg hover:bg-indigo-200 flex items-center gap-2"
+          >
+            <BookmarkIcon className="h-4 w-4" />
+            All Leads
+          </button>
                 </div>
-              )}
 
-              {/* Source Filter */}
-              {filterOptions.sources.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Source</label>
-                  <select
-                    multiple
-                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
-                      setActiveFilters(prev => ({ ...prev, source: selected }));
-                    }}
-                  >
-                    {filterOptions.sources.map(source => (
-                      <option key={source} value={source}>{source}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Employment Status Filter */}
-              {filterOptions.employmentStatuses.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Employment Status</label>
-                  <select
-                    multiple
-                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
-                      setActiveFilters(prev => ({ ...prev, employmentStatus: selected }));
-                    }}
-                  >
-                    {filterOptions.employmentStatuses.map(status => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Loan Purpose Filter */}
-              {filterOptions.loanPurposes.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Loan Purpose</label>
-                  <select
-                    multiple
-                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
-                      setActiveFilters(prev => ({ ...prev, loanPurpose: selected }));
-                    }}
-                  >
-                    {filterOptions.loanPurposes.map(purpose => (
-                      <option key={purpose} value={purpose}>{purpose}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Residential Status Filter */}
-              {filterOptions.residentialStatuses.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Residential Status</label>
-                  <select
-                    multiple
-                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
-                      setActiveFilters(prev => ({ ...prev, residentialStatus: selected }));
-                    }}
-                  >
-                    {filterOptions.residentialStatuses.map(status => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Assigned User Filter */}
-              {filterOptions.assignedUsers.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Assigned To</label>
-                  <select
-                    multiple
-                    className="w-full rounded border border-gray-300 px-3 py-1 text-sm h-20"
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
-                      setActiveFilters(prev => ({ ...prev, assignedTo: selected }));
-                    }}
-                  >
-                    {filterOptions.assignedUsers.map(user => (
-                      <option key={user} value={user}>{user}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {/* Active Filters Summary */}
-            {Object.keys(activeFilters).length > 0 && (
-              <div className="border-t pt-3 mt-4">
-                <div className="flex flex-wrap gap-2">
-                  <span className="text-sm font-medium text-gray-700">Active filters:</span>
-                  {Object.entries(activeFilters).map(([key, value]) => {
-                    if (!value || (Array.isArray(value) && value.length === 0)) return null;
-                    
-                    let displayValue = '';
-                    if (Array.isArray(value)) {
-                      displayValue = value.join(', ');
-                    } else if (key === 'amountRange') {
-                      const range = value as [number, number];
-                      displayValue = `$${range[0]} - $${range[1]}`;
-                    } else {
-                      displayValue = String(value);
-                    }
-                    
-                    return (
-                      <span
-                        key={key}
-                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
-                      >
-                        {key}: {displayValue}
-                        <button
-                          onClick={() => {
-                            setActiveFilters(prev => {
-                              const newFilters = { ...prev };
-                              delete newFilters[key as keyof LeadFilters];
-                              return newFilters;
-                            });
-                          }}
-                          className="ml-1 text-blue-600 hover:text-blue-800"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+        {/* Advanced Filter Panel (Hidden by Default) */}
+        {showAdvancedFiltersPanel && (
+          <div className="bg-gray-50 rounded-lg p-4">
+            <LeadsFilterComponent
+              filterOptions={componentFilterOptions}
+              sortOptions={componentSortOptions}
+              searchQuery={componentSearchQuery}
+              onFilterChange={setComponentFilterOptions}
+              onSortChange={setComponentSortOptions}
+              onSearchChange={setComponentSearchQuery}
+              onApplyFilters={(customFilters?: FilterOptions, customSortOptions?: SortOptions) => {
+                setAllLoadedLeads([]);
+                setPage(1);
+                // Use custom values if provided, otherwise use current state
+                const filtersToUse = customFilters ?? componentFilterOptions;
+                const sortToUse = customSortOptions ?? componentSortOptions;
+                void fetchLeadsWithFilters(1, filtersToUse, componentSearchQuery, sortToUse);
+              }}
+              userRole={userRole}
+              userId={userId ?? undefined}
+            />
           </div>
         )}
       </div>
@@ -2024,8 +2101,8 @@ export default function LeadsPage() {
             <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
               {visibleStatuses.map((status) => {
               const statusLeads = getLeadsForStatus(status.id);
-              const totalLeads = getTotalLeadsForStatus(status.id);
-              const isFiltered = statusLeads.length !== totalLeads;
+              // const totalLeads = getTotalLeadsForStatus(status.id);
+              // const isFiltered = statusLeads.length !== totalLeads;
               
               return (
                 <div 
@@ -2040,14 +2117,10 @@ export default function LeadsPage() {
                   <div className={`p-3 rounded-t-lg ${status.color} flex justify-between items-center`}>
                     <h3 className="font-medium">{status.name}</h3>
                     <span 
-                      className={`px-2 py-1 rounded-full text-sm font-mono ${
-                        isFiltered 
-                          ? 'bg-yellow-100 bg-opacity-90 text-yellow-800 border border-yellow-300' 
-                          : 'bg-white bg-opacity-80'
-                      }`}
-                      title={isFiltered ? `Showing ${statusLeads.length} of ${totalLeads} total leads (filtered)` : `${totalLeads} total leads`}
+                      className={`px-2 py-1 rounded-full text-sm font-mono bg-white bg-opacity-80`}
+                      title={`${statusLeads.length} total leads`}
                     >
-                      {isFiltered ? `${totalLeads}` : statusLeads.length}
+                      {statusLeads.length}
                     </span>
                   </div>
                   <div 
@@ -2074,7 +2147,7 @@ export default function LeadsPage() {
                                   } else {
                                     const nextPage = page + 1;
                                     setPage(nextPage);
-                                    void fetchLeadsWithFilters(nextPage, false);
+                                    void fetchLeadsWithFilters(nextPage);
                                   }
                                 }
                               }}
@@ -2127,7 +2200,7 @@ export default function LeadsPage() {
                                     } else {
                                       const nextPage = page + 1;
                                       setPage(nextPage);
-                                      void fetchLeadsWithFilters(nextPage, false);
+                                      void fetchLeadsWithFilters(nextPage);
                                     }
                                   }
                                 }}
@@ -2210,7 +2283,7 @@ export default function LeadsPage() {
                         } else {
                           const nextPage = page + 1;
                           setPage(nextPage);
-                          void fetchLeadsWithFilters(nextPage, false);
+                          void fetchLeadsWithFilters(nextPage);
                         }
                       }
                     }}
