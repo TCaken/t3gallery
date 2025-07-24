@@ -7,7 +7,7 @@ import { db } from "~/server/db";
 import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs, appointments } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import type { InferSelectModel } from "drizzle-orm";
-import { eq, desc, like, or, and, SQL, asc, sql, ilike, not } from "drizzle-orm";
+import { eq, desc, like, or, and, SQL, asc, sql, ilike, not, isNotNull } from "drizzle-orm";
 import { getCurrentUserId } from "~/app/_actions/userActions";
 import { checkLeadEligibility } from "./leadEligibility";
 import { getUserRoles } from "~/server/rbac/queries";
@@ -973,21 +973,38 @@ export async function getLeadCountsByStatus() {
 }
 
 export async function fetchFilteredLeads({
-  status,
-  search,
-  sortBy = 'updated_at',
-  sortOrder = 'desc',
+  searchQuery,
+  searchOptions = {},
+  sortOptions = {},
   page = 1,
-  limit = 200,
-  isSearchMode = false
+  limit = 200
 }: {
-  status?: typeof leadStatusEnum.enumValues[number];
-  search?: string;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  searchQuery?: string;
+  searchOptions?: {
+    status?: typeof leadStatusEnum.enumValues[number][];
+    assignedTo?: string[];
+    includeUnassigned?: boolean;
+    bookedBy?: string[];
+    sources?: string[];
+    employmentStatuses?: string[];
+    loanPurposes?: string[];
+    residentialStatuses?: string[];
+    leadTypes?: string[];
+    eligibilityStatuses?: string[];
+    amountMin?: number;
+    amountMax?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    followUpDateFrom?: string;
+    followUpDateTo?: string;
+    assignedInLastDays?: number;
+  };
+  sortOptions?: {
+    sortBy?: 'id' | 'created_at' | 'updated_at' | 'full_name' | 'amount' | 'phone_number' | 'employment_salary' | 'lead_score' | 'follow_up_date';
+    sortOrder?: 'asc' | 'desc';
+  };
   page?: number;
   limit?: number;
-  isSearchMode?: boolean;
 }) {
   try {
     const { userId } = await auth();
@@ -995,66 +1012,169 @@ export async function fetchFilteredLeads({
       return { success: false, error: 'Not authenticated' };
     }
 
-    // console.log('🔍 fetchFilteredLeads called with:', { 
-    //   userId, 
-    //   status, 
-    //   search, 
-    //   sortBy, 
-    //   sortOrder, 
-    //   page, 
-    //   limit, 
-    //   isSearchMode 
-    // });
-
-    // Get user's roles
-    const userRolesResult = await getUserRoles();
-    const isAdmin = userRolesResult.some(r => r.roleName.toLowerCase() === 'admin');
-    const isAgent = userRolesResult.some(r => r.roleName.toLowerCase() === 'agent');
-
-    // console.log('👤 User roles:', { isAdmin, isAgent, userRoles: userRolesResult.map(r => r.roleName) });
+    console.log('🔍 fetchFilteredLeads called with:', { 
+      userId, 
+      searchQuery, 
+      searchOptions, 
+      sortOptions, 
+      page, 
+      limit 
+    });
 
     const offset = (page - 1) * limit;
 
     // Build query conditions
     const conditions: SQL[] = [];
     
-    // In search mode, ignore role restrictions and status filters
-    // Otherwise maintain existing logic
-    if (!isSearchMode) {
-      // console.log('📋 NORMAL MODE - applying status and role filters');
-      // Normal mode: apply status filter if provided
-      if (status) {
-        // console.log('🎯 STATUS FILTER applied:', status);
-        conditions.push(eq(leads.status, status));
+    // Apply status filter
+    if (searchOptions.status && searchOptions.status.length > 0) {
+      const statusConditions = searchOptions.status.map(status => eq(leads.status, status));
+      const statusOr = or(...statusConditions);
+      if (statusOr) {
+        conditions.push(statusOr);
       }
-      
-      // For agents in normal mode: special logic for give_up vs other statuses
-      if (isAgent) {
-        // console.log('👨‍💼 AGENT MODE - applying agent-specific conditions');
-        // Agent can see:
-        // 1. All give_up leads (from any agent)
-        // 2. Only their own assigned leads for other statuses
-        const agentCondition = or(
-          eq(leads.status, 'give_up'), // Show all give_up leads
-          eq(leads.assigned_to, userId) // Show only assigned leads for other statuses
-        );
-        if (agentCondition) {
-          conditions.push(agentCondition);
+    }
+
+    // Apply assigned to filter
+    if (searchOptions.assignedTo && searchOptions.assignedTo.length > 0) {
+      if (searchOptions.includeUnassigned) {
+        // Include both assigned and unassigned leads
+        const assignedConditions = searchOptions.assignedTo.map(agentId => eq(leads.assigned_to, agentId));
+        const assignedOr = or(...assignedConditions, sql`${leads.assigned_to} IS NULL`);
+        if (assignedOr) {
+          conditions.push(assignedOr);
         }
       } else {
-        // console.log('👑 ADMIN MODE - no additional role restrictions');
+        // Only assigned leads
+        const assignedConditions = searchOptions.assignedTo.map(agentId => eq(leads.assigned_to, agentId));
+        const assignedOr = or(...assignedConditions);
+        if (assignedOr) {
+          conditions.push(assignedOr);
+        }
       }
-    } else {
-      // console.log('🔍 SEARCH MODE - ignoring role restrictions and status filters');
+    } else if (searchOptions.includeUnassigned) {
+      // Only unassigned leads
+      conditions.push(sql`${leads.assigned_to} IS NULL`);
+    }
+
+    // Apply booked by filter (filter by appointment creator)
+    if (searchOptions.bookedBy && searchOptions.bookedBy.length > 0) {
+      const bookedByConditions = searchOptions.bookedBy.map(agentId => eq(appointments.created_by, agentId));
+      const bookedByOr = or(...bookedByConditions);
+      if (bookedByOr) {
+        conditions.push(bookedByOr);
+        // Also ensure we only get leads that have appointments
+        conditions.push(sql`${appointments.id} IS NOT NULL`);
+      }
+    }
+
+    // Apply other filters
+    if (searchOptions.sources && searchOptions.sources.length > 0) {
+      const sourceConditions = searchOptions.sources.map(source => eq(leads.source, source));
+      const sourceOr = or(...sourceConditions);
+      if (sourceOr) {
+        conditions.push(sourceOr);
+      }
+    }
+
+    if (searchOptions.employmentStatuses && searchOptions.employmentStatuses.length > 0) {
+      const empConditions = searchOptions.employmentStatuses.map(status => eq(leads.employment_status, status));
+      const empOr = or(...empConditions);
+      if (empOr) {
+        conditions.push(empOr);
+      }
+    }
+
+    if (searchOptions.loanPurposes && searchOptions.loanPurposes.length > 0) {
+      const purposeConditions = searchOptions.loanPurposes.map(purpose => eq(leads.loan_purpose, purpose));
+      const purposeOr = or(...purposeConditions);
+      if (purposeOr) {
+        conditions.push(purposeOr);
+      }
+    }
+
+    if (searchOptions.residentialStatuses && searchOptions.residentialStatuses.length > 0) {
+      const resConditions = searchOptions.residentialStatuses.map(status => eq(leads.residential_status, status));
+      const resOr = or(...resConditions);
+      if (resOr) {
+        conditions.push(resOr);
+      }
+    }
+
+    if (searchOptions.leadTypes && searchOptions.leadTypes.length > 0) {
+      const typeConditions = searchOptions.leadTypes.map(type => eq(leads.lead_type, type));
+      const typeOr = or(...typeConditions);
+      if (typeOr) {
+        conditions.push(typeOr);
+      }
+    }
+
+    if (searchOptions.eligibilityStatuses && searchOptions.eligibilityStatuses.length > 0) {
+      const eligConditions = searchOptions.eligibilityStatuses.map(status => eq(leads.eligibility_status, status));
+      const eligOr = or(...eligConditions);
+      if (eligOr) {
+        conditions.push(eligOr);
+      }
+    }
+
+    // Amount range filter
+    if (searchOptions.amountMin !== undefined || searchOptions.amountMax !== undefined) {
+      const amountConditions: SQL[] = [];
+      if (searchOptions.amountMin !== undefined) {
+        amountConditions.push(sql`CAST(${leads.amount} AS DECIMAL) >= ${searchOptions.amountMin}`);
+      }
+      if (searchOptions.amountMax !== undefined) {
+        amountConditions.push(sql`CAST(${leads.amount} AS DECIMAL) <= ${searchOptions.amountMax}`);
+      }
+      if (amountConditions.length > 0) {
+        conditions.push(and(...amountConditions)!);
+      }
+    }
+
+    // Date range filter
+    if (searchOptions.dateFrom || searchOptions.dateTo) {
+      const dateConditions: SQL[] = [];
+      if (searchOptions.dateFrom) {
+        dateConditions.push(sql`DATE(${leads.created_at}) >= ${searchOptions.dateFrom}`);
+      }
+      if (searchOptions.dateTo) {
+        dateConditions.push(sql`DATE(${leads.created_at}) <= ${searchOptions.dateTo}`);
+      }
+      if (dateConditions.length > 0) {
+        conditions.push(and(...dateConditions)!);
+      }
+    }
+
+    // Follow-up date filter
+    if (searchOptions.followUpDateFrom || searchOptions.followUpDateTo) {
+      const followUpConditions: SQL[] = [];
+      if (searchOptions.followUpDateFrom) {
+        followUpConditions.push(sql`DATE(${leads.follow_up_date}) >= ${searchOptions.followUpDateFrom}`);
+      }
+      if (searchOptions.followUpDateTo) {
+        followUpConditions.push(sql`DATE(${leads.follow_up_date}) <= ${searchOptions.followUpDateTo}`);
+      }
+      if (followUpConditions.length > 0) {
+        conditions.push(and(...followUpConditions)!);
+      }
+    }
+
+    // Recently assigned filter (assigned in last X days)
+    if (searchOptions.assignedInLastDays) {
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - searchOptions.assignedInLastDays);
+      conditions.push(sql`${leads.updated_at} >= ${daysAgo.toISOString()}`);
+      conditions.push(sql`${leads.assigned_to} IS NOT NULL`);
     }
     
-    if (search) {
-      // console.log('🔎 SEARCH FILTER applied:', search);
-      const phoneSearchCondition = createLeadPhoneSearchConditions(search);
+    // Apply search query
+    if (searchQuery) {
+      console.log('🔎 SEARCH FILTER applied:', searchQuery);
+      const phoneSearchCondition = createLeadPhoneSearchConditions(searchQuery);
       const searchConditions = [
-        ilike(leads.full_name, `%${search}%`),
+        ilike(leads.full_name, `%${searchQuery}%`),
         phoneSearchCondition,
-        like(sql`${leads.id}::text`, `%${search}%`) // Allow searching by ID
+        like(sql`${leads.id}::text`, `%${searchQuery}%`) // Allow searching by ID
       ].filter((condition): condition is NonNullable<typeof condition> => Boolean(condition));
       
       if (searchConditions.length > 0) {
@@ -1065,7 +1185,7 @@ export async function fetchFilteredLeads({
       }
     }
 
-    // console.log('🔗 Total conditions applied:', conditions.length);
+    console.log('🔗 Total conditions applied:', conditions.length);
 
     // Build the base query with proper joins and selection
     const baseQuery = db.select({
@@ -1113,14 +1233,15 @@ export async function fetchFilteredLeads({
         email: users.email
       },
       follow_up_date: leads.follow_up_date,
-      // Latest appointment details
+      // Latest appointment details including creator info
       latest_appointment: {
         id: appointments.id,
         start_datetime: appointments.start_datetime,
         status: appointments.status,
         loan_status: appointments.loan_status,
         loan_notes: appointments.loan_notes,
-        notes: appointments.notes
+        notes: appointments.notes,
+        created_by: appointments.created_by
       },
       note : {
         desc : lead_notes.content
@@ -1145,130 +1266,63 @@ export async function fetchFilteredLeads({
       )`
     ));
     
-    // Apply ordering and pagination based on user role
+    // Apply ordering based on sortOptions
+    const getOrderClause = () => {
+      const sortBy = sortOptions.sortBy ?? 'updated_at';
+      const sortOrder = sortOptions.sortOrder ?? 'desc';
+      const orderDirection = sortOrder === 'asc' ? asc : desc;
+      
+      switch (sortBy) {
+        case 'id':
+          return orderDirection(leads.id);
+        case 'created_at':
+          return orderDirection(leads.created_at);
+        case 'updated_at':
+          return orderDirection(leads.updated_at);
+        case 'full_name':
+          return orderDirection(leads.full_name);
+        case 'amount':
+          return orderDirection(sql`CAST(${leads.amount} AS DECIMAL)`);
+        case 'phone_number':
+          return orderDirection(leads.phone_number);
+        case 'employment_salary':
+          return orderDirection(sql`CAST(${leads.employment_salary} AS DECIMAL)`);
+        case 'lead_score':
+          return orderDirection(leads.lead_score);
+        case 'follow_up_date':
+          return sortOrder === 'asc' ? asc(leads.follow_up_date) : desc(leads.follow_up_date);
+        default:
+          return orderDirection(leads.updated_at);
+      }
+    };
+
     let finalQuery;
-    
-    if (isSearchMode) {
-      // console.log('🔍 SEARCH MODE QUERY PATH');
-      // Search mode: Simple sorting by relevance and updated_at, no role restrictions
-      if (conditions.length > 0) {
-        // console.log('🔍 Search mode WITH conditions');
-        finalQuery = baseQuery
-          .where(and(...conditions))
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date),
-            sql`${appointments.created_at} DESC NULLS LAST`,
-            sql`${lead_notes.created_at} DESC NULLS LAST`
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      } else {
-        // console.log('🔍 Search mode WITHOUT conditions');
-        finalQuery = baseQuery
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date),
-            sql`${appointments.created_at} DESC NULLS LAST`,
-            sql`${lead_notes.created_at} DESC NULLS LAST`
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      }
-    } else if (isAgent) {
-      // console.log('👨‍💼 AGENT MODE QUERY PATH');
-      // For agents: Priority ordering with give_up before done
-      if (conditions.length > 0) {
-        // console.log('👨‍💼 Agent mode WITH conditions');
-        finalQuery = baseQuery
-          .where(and(...conditions))
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date),
-            sql`${appointments.created_at} DESC NULLS LAST`,
-            sql`${lead_notes.created_at} DESC NULLS LAST`,
-            sql`CASE 
-              WHEN ${leads.status} = 'assigned' THEN 1
-              WHEN ${leads.status} = 'follow_up' THEN 2
-              WHEN ${leads.status} = 'missed/RS' THEN 3
-              WHEN ${leads.status} = 'give_up' THEN 4
-              WHEN ${leads.status} = 'done' THEN 5
-              ELSE 6
-            END`
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      } else {
-        // console.log('👨‍💼 Agent mode WITHOUT conditions');
-        finalQuery = baseQuery
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date),
-            sql`${appointments.created_at} DESC NULLS LAST`,
-            sql`${lead_notes.created_at} DESC NULLS LAST`,
-            sql`CASE 
-              WHEN ${leads.status} = 'assigned' THEN 1
-              WHEN ${leads.status} = 'follow_up' THEN 2
-              WHEN ${leads.status} = 'missed/RS' THEN 3
-              WHEN ${leads.status} = 'give_up' THEN 4
-              WHEN ${leads.status} = 'done' THEN 5
-              ELSE 6
-            END`
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      }
+    if (conditions.length > 0) {
+      finalQuery = baseQuery
+        .where(and(...conditions))
+        .orderBy(
+          getOrderClause(),
+          sql`${appointments.created_at} DESC NULLS LAST`,
+          sql`${lead_notes.created_at} DESC NULLS LAST`
+        )
+        .limit(limit + 1)
+        .offset(offset);
     } else {
-      // console.log('👑 ADMIN MODE QUERY PATH');
-      // For admins: Standard ordering
-      if (conditions.length > 0) {
-        // console.log('👑 Admin mode WITH conditions');
-        finalQuery = baseQuery
-          .where(and(...conditions))
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date),
-            sql`${appointments.created_at} DESC NULLS LAST`,
-            sql`${lead_notes.created_at} DESC NULLS LAST`
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      } else {
-        // console.log('👑 Admin mode WITHOUT conditions');
-        finalQuery = baseQuery
-          .orderBy(
-            desc(leads.updated_at),
-            asc(leads.follow_up_date),
-            sql`${appointments.created_at} DESC NULLS LAST`,
-            sql`${lead_notes.created_at} DESC NULLS LAST`
-          )
-          .limit(limit + 1)
-          .offset(offset);
-      }
+      finalQuery = baseQuery
+        .orderBy(
+          getOrderClause(),
+          sql`${appointments.created_at} DESC NULLS LAST`,
+          sql`${lead_notes.created_at} DESC NULLS LAST`
+        )
+        .limit(limit + 1)
+        .offset(offset);
     }
 
     // Execute query
-    // console.log('🚀 Executing query...');
-    
-    // Log the SQL query for debugging
-    try {
-      const querySQL = finalQuery.toSQL();
-      // console.log('📝 SQL Query:', querySQL.sql);
-      // console.log('📝 SQL Params:', querySQL.params);
-    } catch (error) {
-      console.log('❌ Could not extract SQL query:', error);
-    }
+    console.log('🚀 Executing query...');
     
     const results = await finalQuery;
-    // console.log(`📊 Query returned ${results.length} results`);
-    
-    // Log first few results for debugging
-    if (results.length > 0) {
-      // console.log('🔍 First 3 results (id, updated_at, status):');
-      results.slice(0, 3).forEach((lead, index) => {
-        // console.log(`  ${index + 1}. ID: ${lead.id}, Updated: ${lead.updated_at?.toISOString() ?? 'null'}, Status: ${lead.status}`);
-      });
-    }
+    console.log(`📊 Query returned ${results.length} results`);
     
     // Transform the results to match the Lead type
     const transformedLeads = results.map((result) => ({
@@ -1280,7 +1334,7 @@ export async function fetchFilteredLeads({
     const hasMore = results.length > limit;
     const leadsToReturn = hasMore ? transformedLeads.slice(0, limit) : transformedLeads;
 
-    // console.log(`✅ Returning ${leadsToReturn.length} leads, hasMore: ${hasMore}`);
+    console.log(`✅ Returning ${leadsToReturn.length} leads, hasMore: ${hasMore}`);
 
     return {
       success: true,
@@ -1439,6 +1493,123 @@ export async function findDuplicatePhoneLeads() {
       duplicateGroups: [],
       totalGroups: 0,
       totalDuplicateLeads: 0
+    };
+  }
+}
+
+// Get available agents for filtering
+export async function getAvailableAgents() {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    // Get all agents that have been assigned leads
+    const agents = await db
+      .select({
+        id: users.id,
+        first_name: users.first_name,
+        last_name: users.last_name,
+        email: users.email
+      })
+      .from(users)
+      .innerJoin(leads, eq(leads.assigned_to, users.id))
+      .groupBy(users.id, users.first_name, users.last_name, users.email)
+      .orderBy(users.first_name, users.last_name);
+
+    return {
+      success: true,
+      agents: agents.map(agent => ({
+        id: agent.id,
+        name: `${agent.first_name} ${agent.last_name}`,
+        email: agent.email
+      }))
+    };
+
+  } catch (error) {
+    console.error('Error fetching available agents:', error);
+    return {
+      success: false,
+      error: 'Failed to fetch available agents'
+    };
+  }
+}
+
+// Get users who have created appointments (for "Booked By" filter)
+export async function getAppointmentCreators() {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    // Get all users that have created appointments
+    const creators = await db
+      .select({
+        id: users.id,
+        first_name: users.first_name,
+        last_name: users.last_name,
+        email: users.email
+      })
+      .from(users)
+      .innerJoin(appointments, eq(appointments.created_by, users.id))
+      .groupBy(users.id, users.first_name, users.last_name, users.email)
+      .orderBy(users.first_name, users.last_name);
+
+    return {
+      success: true,
+      creators: creators.map(creator => ({
+        id: creator.id,
+        name: `${creator.first_name} ${creator.last_name}`,
+        email: creator.email
+      }))
+    };
+
+  } catch (error) {
+    console.error('Error fetching appointment creators:', error);
+    return {
+      success: false,
+      error: 'Failed to fetch appointment creators'
+    };
+  }
+}
+
+// Get available filter options
+export async function getFilterOptions() {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    // Get distinct values for filter options
+    const [sources, employmentStatuses, loanPurposes, residentialStatuses, leadTypes, eligibilityStatuses] = await Promise.all([
+      db.selectDistinct({ value: leads.source }).from(leads).where(isNotNull(leads.source)),
+      db.selectDistinct({ value: leads.employment_status }).from(leads).where(isNotNull(leads.employment_status)),
+      db.selectDistinct({ value: leads.loan_purpose }).from(leads).where(isNotNull(leads.loan_purpose)),
+      db.selectDistinct({ value: leads.residential_status }).from(leads).where(isNotNull(leads.residential_status)),
+      db.selectDistinct({ value: leads.lead_type }).from(leads).where(isNotNull(leads.lead_type)),
+      db.selectDistinct({ value: leads.eligibility_status }).from(leads).where(isNotNull(leads.eligibility_status))
+    ]);
+
+    return {
+      success: true,
+      options: {
+        sources: sources.map(s => s.value).filter(Boolean),
+        employmentStatuses: employmentStatuses.map(s => s.value).filter(Boolean),
+        loanPurposes: loanPurposes.map(s => s.value).filter(Boolean),
+        residentialStatuses: residentialStatuses.map(s => s.value).filter(Boolean),
+        leadTypes: leadTypes.map(s => s.value).filter(Boolean),
+        eligibilityStatuses: eligibilityStatuses.map(s => s.value).filter(Boolean)
+      }
+    };
+
+  } catch (error) {
+    console.error('Error fetching filter options:', error);
+    return {
+      success: false,
+      error: 'Failed to fetch filter options'
     };
   }
 }
