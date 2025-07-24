@@ -1131,33 +1131,40 @@ export async function fetchFilteredLeads({
       }
     }
 
-    // Date range filter
+    // Date range filter (Singapore timezone aware)
     if (searchOptions.dateFrom || searchOptions.dateTo) {
       const dateConditions: SQL[] = [];
       if (searchOptions.dateFrom) {
-        dateConditions.push(sql`DATE(${leads.created_at}) >= ${searchOptions.dateFrom}`);
+        // Convert to Singapore timezone before comparison
+        dateConditions.push(sql`DATE(${leads.created_at} AT TIME ZONE 'Asia/Singapore') >= ${searchOptions.dateFrom}`);
       }
       if (searchOptions.dateTo) {
-        dateConditions.push(sql`DATE(${leads.created_at}) <= ${searchOptions.dateTo}`);
+        // Convert to Singapore timezone before comparison
+        dateConditions.push(sql`DATE(${leads.created_at} AT TIME ZONE 'Asia/Singapore') <= ${searchOptions.dateTo}`);
       }
       if (dateConditions.length > 0) {
         conditions.push(and(...dateConditions)!);
       }
     }
 
-    // Follow-up date filter
+
+    // Follow-up date filter (Singapore timezone aware)
     if (searchOptions.followUpDateFrom || searchOptions.followUpDateTo) {
       const followUpConditions: SQL[] = [];
       if (searchOptions.followUpDateFrom) {
-        followUpConditions.push(sql`DATE(${leads.follow_up_date}) >= ${searchOptions.followUpDateFrom}`);
+        // Convert to Singapore timezone before comparison
+        followUpConditions.push(sql`DATE(${leads.follow_up_date} AT TIME ZONE 'Asia/Singapore') >= ${searchOptions.followUpDateFrom}`);
       }
       if (searchOptions.followUpDateTo) {
-        followUpConditions.push(sql`DATE(${leads.follow_up_date}) <= ${searchOptions.followUpDateTo}`);
+        // Convert to Singapore timezone before comparison
+        followUpConditions.push(sql`DATE(${leads.follow_up_date} AT TIME ZONE 'Asia/Singapore') <= ${searchOptions.followUpDateTo}`);
       }
       if (followUpConditions.length > 0) {
         conditions.push(and(...followUpConditions)!);
       }
     }
+
+    console.log ('conditions', conditions);
 
     // Recently assigned filter (assigned in last X days)
     if (searchOptions.assignedInLastDays) {

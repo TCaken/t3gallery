@@ -39,6 +39,7 @@ import CustomWhatsAppModal from '~/app/_components/CustomWhatsAppModal';
 import LeadStatusReasonModal from '~/app/_components/LeadStatusReasonModal';
 import LeadsFilterComponent, { type FilterOptions, type SortOptions } from '~/app/_components/LeadsFilterComponent';
 import { type Lead } from '~/app/types';
+import { getTodaySGT } from '~/lib/timezone';
 
 // Update the StatusInfo type to use the schema's lead status enum
 type StatusInfo = {
@@ -532,7 +533,7 @@ export default function LeadsPage() {
   };
 
     // Quick action filter functions
-  const handleMyLeads = () => {
+  const handleMyLeadsAll = () => {
     if (!userId) return;
     const newFilters = {
       status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
@@ -540,16 +541,40 @@ export default function LeadsPage() {
       includeUnassigned: false,
       bookedBy: []
     };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
     setComponentFilterOptions(newFilters);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
-    void fetchLeadsWithFilters(1, newFilters, '');
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleMyLeadsAssigned = () => {
+    if (!userId) return;
+    const newFilters = {
+      status: ['assigned'] as FilterOptions['status'],
+      assignedTo: [userId],
+      includeUnassigned: false,
+      bookedBy: []
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
   };
 
   const handleTodaysBookings = () => {
     if (!userId) return;
-    const today = new Date().toISOString().split('T')[0];
+    // Use Singapore timezone for "today"
+    const today = getTodaySGT();
     const newFilters = {
       status: ['booked'] as FilterOptions['status'],
       bookedBy: [userId],
@@ -558,11 +583,15 @@ export default function LeadsPage() {
       includeUnassigned: false,
       assignedTo: []
     };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
     setComponentFilterOptions(newFilters);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
-    void fetchLeadsWithFilters(1, newFilters, '');
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
   };
 
   const handleGiveUpPool = () => {
@@ -572,16 +601,21 @@ export default function LeadsPage() {
       assignedTo: availableAgents.map(a => a.id), // Show all assigned give up leads
       bookedBy: [] // Don't filter by bookedBy for give up pool
     };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
     setComponentFilterOptions(newFilters);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
-    void fetchLeadsWithFilters(1, newFilters, '');
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
   };
 
   const handleMyFollowUpToday = () => {
     if (!userId) return;
-    const today = new Date().toISOString().split('T')[0];
+    // Use Singapore timezone for "today"
+    const today = getTodaySGT();
     const newFilters = {
       status: ['follow_up'] as FilterOptions['status'],
       assignedTo: [userId],
@@ -590,11 +624,16 @@ export default function LeadsPage() {
       includeUnassigned: false,
       bookedBy: []
     };
+    const newSortOptions = {
+      sortBy: 'follow_up_date' as const,
+      sortOrder: 'asc' as const
+    };
     setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
-    void fetchLeadsWithFilters(1, newFilters, '');
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
   };
 
   const handleAllLeads = () => {
@@ -604,11 +643,15 @@ export default function LeadsPage() {
       assignedTo: availableAgents.map(a => a.id), // All agents
       bookedBy: [] // Don't filter by bookedBy for "All Leads"
     };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
     setComponentFilterOptions(newFilters);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
-    void fetchLeadsWithFilters(1, newFilters, '');
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
   };
 
   // Enhanced fetchLeadsWithFilters with new component integration
@@ -704,7 +747,7 @@ export default function LeadsPage() {
         const result = await fetchFilteredLeads({
           searchQuery: '',
           sortOptions: {
-            sortBy: "updated_at",
+          sortBy: "updated_at",
             sortOrder: "desc"
           },
           page: pageNum,
@@ -1031,7 +1074,7 @@ export default function LeadsPage() {
               bookedBy: [] // Don't filter by bookedBy for admin default
             };
           } else if (userRole === 'agent' && userId) {
-            // Agent sees "My Leads" by default (same as handleMyLeads)
+            // Agent sees "My Leads" by default (same as handleMyLeadsAll)
             initialFilters = {
               status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
               assignedTo: [userId],
@@ -1926,11 +1969,27 @@ export default function LeadsPage() {
         {/* Quick Action Buttons */}
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={handleMyLeads}
+            onClick={handleMyLeadsAll}
             className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 flex items-center gap-2"
           >
             <UserGroupIcon className="h-4 w-4" />
-            My Leads
+            My Leads (All)
+          </button>
+          
+            <button
+            onClick={handleMyLeadsAssigned}
+            className="px-4 py-2 bg-cyan-100 text-cyan-800 rounded-lg hover:bg-cyan-200 flex items-center gap-2"
+            >
+            <UserGroupIcon className="h-4 w-4" />
+            My Leads (Assigned)
+            </button>
+          
+          <button
+            onClick={handleMyFollowUpToday}
+            className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 flex items-center gap-2"
+          >
+            <ClockIcon className="h-4 w-4" />
+            My Follow Up Today
           </button>
           
           <button
@@ -1950,21 +2009,13 @@ export default function LeadsPage() {
           </button>
           
           <button
-            onClick={handleMyFollowUpToday}
-            className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 flex items-center gap-2"
-          >
-            <ClockIcon className="h-4 w-4" />
-            My Follow Up Today
-          </button>
-          
-          <button
             onClick={handleAllLeads}
             className="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-lg hover:bg-indigo-200 flex items-center gap-2"
           >
             <BookmarkIcon className="h-4 w-4" />
             All Leads
           </button>
-        </div>
+                </div>
 
         {/* Advanced Filter Panel (Hidden by Default) */}
         {showAdvancedFiltersPanel && (
@@ -2050,8 +2101,8 @@ export default function LeadsPage() {
             <div className="flex space-x-4" style={{ minWidth: visibleStatuses.length * 320 + 'px' }}>
               {visibleStatuses.map((status) => {
               const statusLeads = getLeadsForStatus(status.id);
-              const totalLeads = getTotalLeadsForStatus(status.id);
-              const isFiltered = statusLeads.length !== totalLeads;
+              // const totalLeads = getTotalLeadsForStatus(status.id);
+              // const isFiltered = statusLeads.length !== totalLeads;
               
               return (
                 <div 
@@ -2066,14 +2117,10 @@ export default function LeadsPage() {
                   <div className={`p-3 rounded-t-lg ${status.color} flex justify-between items-center`}>
                     <h3 className="font-medium">{status.name}</h3>
                     <span 
-                      className={`px-2 py-1 rounded-full text-sm font-mono ${
-                        isFiltered 
-                          ? 'bg-yellow-100 bg-opacity-90 text-yellow-800 border border-yellow-300' 
-                          : 'bg-white bg-opacity-80'
-                      }`}
-                      title={isFiltered ? `Showing ${statusLeads.length} of ${totalLeads} total leads (filtered)` : `${totalLeads} total leads`}
+                      className={`px-2 py-1 rounded-full text-sm font-mono bg-white bg-opacity-80`}
+                      title={`${statusLeads.length} total leads`}
                     >
-                      {isFiltered ? `${totalLeads}` : statusLeads.length}
+                      {statusLeads.length}
                     </span>
                   </div>
                   <div 
