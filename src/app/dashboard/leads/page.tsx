@@ -542,10 +542,11 @@ export default function LeadsPage() {
       bookedBy: []
     };
     const newSortOptions = {
-      sortBy: 'updated_at' as const,
+      sortBy: 'updated_at' as const,  
       sortOrder: 'desc' as const
     };
     setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
@@ -565,6 +566,7 @@ export default function LeadsPage() {
       sortOrder: 'desc' as const
     };
     setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
@@ -588,6 +590,7 @@ export default function LeadsPage() {
       sortOrder: 'desc' as const
     };
     setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
@@ -606,6 +609,7 @@ export default function LeadsPage() {
       sortOrder: 'desc' as const
     };
     setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
@@ -648,6 +652,7 @@ export default function LeadsPage() {
       sortOrder: 'desc' as const
     };
     setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
     setComponentSearchQuery('');
     setAllLoadedLeads([]);
     setPage(1);
