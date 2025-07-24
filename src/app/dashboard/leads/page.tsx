@@ -612,7 +612,7 @@ export default function LeadsPage() {
   };
 
   // Enhanced fetchLeadsWithFilters with new component integration
-  const fetchLeadsWithFilters = async (pageNum = 1, customFilters?: FilterOptions, customSearchQuery?: string) => {
+  const fetchLeadsWithFilters = async (pageNum = 1, customFilters?: FilterOptions, customSearchQuery?: string, customSortOptions?: SortOptions) => {
     console.log(`📥 [Fetch Leads] Starting fetch:`, {
       pageNum,
       isLoadingMore,
@@ -628,6 +628,7 @@ export default function LeadsPage() {
       // Use custom filters if provided, otherwise use component state
       const filtersToUse = customFilters ?? componentFilterOptions;
       const searchToUse = customSearchQuery ?? componentSearchQuery;
+      const sortToUse = customSortOptions ?? componentSortOptions;
       
       // Build filter parameters from filters
       const filterParams: FetchLeadsParams = {
@@ -651,7 +652,7 @@ export default function LeadsPage() {
           followUpDateTo: filtersToUse.followUpDateTo,
           assignedInLastDays: filtersToUse.assignedInLastDays
         },
-        sortOptions: componentSortOptions,
+        sortOptions: sortToUse,
         page: pageNum,
         limit: 100
       };
@@ -1975,10 +1976,13 @@ export default function LeadsPage() {
               onFilterChange={setComponentFilterOptions}
               onSortChange={setComponentSortOptions}
               onSearchChange={setComponentSearchQuery}
-              onApplyFilters={() => {
+              onApplyFilters={(customFilters?: FilterOptions, customSortOptions?: SortOptions) => {
                 setAllLoadedLeads([]);
                 setPage(1);
-                void fetchLeadsWithFilters(1);
+                // Use custom values if provided, otherwise use current state
+                const filtersToUse = customFilters ?? componentFilterOptions;
+                const sortToUse = customSortOptions ?? componentSortOptions;
+                void fetchLeadsWithFilters(1, filtersToUse, componentSearchQuery, sortToUse);
               }}
               userRole={userRole}
               userId={userId ?? undefined}

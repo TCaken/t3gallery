@@ -40,7 +40,7 @@ export interface FilterComponentProps {
   onFilterChange: (filters: FilterOptions) => void;
   onSortChange: (sort: SortOptions) => void;
   onSearchChange: (query: string) => void;
-  onApplyFilters: () => void;
+  onApplyFilters: (customFilters?: FilterOptions, customSortOptions?: SortOptions) => void;
   
   // Role-based configuration
   userRole?: string;
@@ -97,6 +97,20 @@ export default function LeadsFilterComponent({
   const [availableAgents, setAvailableAgents] = useState<{id: string, name: string, email: string}[]>([]);
   const [activeFiltersCount, setActiveFiltersCount] = useState(0);
   const [isApplying, setIsApplying] = useState(false);
+  
+  // Local state for date ranges to avoid async issues
+  const [localDateFrom, setLocalDateFrom] = useState<string>(filterOptions.dateFrom ?? '');
+  const [localDateTo, setLocalDateTo] = useState<string>(filterOptions.dateTo ?? '');
+  const [localFollowUpDateFrom, setLocalFollowUpDateFrom] = useState<string>(filterOptions.followUpDateFrom ?? '');
+  const [localFollowUpDateTo, setLocalFollowUpDateTo] = useState<string>(filterOptions.followUpDateTo ?? '');
+
+  // Sync local date state with props
+  useEffect(() => {
+    setLocalDateFrom(filterOptions.dateFrom ?? '');
+    setLocalDateTo(filterOptions.dateTo ?? '');
+    setLocalFollowUpDateFrom(filterOptions.followUpDateFrom ?? '');
+    setLocalFollowUpDateTo(filterOptions.followUpDateTo ?? '');
+  }, [filterOptions.dateFrom, filterOptions.dateTo, filterOptions.followUpDateFrom, filterOptions.followUpDateTo]);
 
   // Load dropdown data
   useEffect(() => {
@@ -201,23 +215,59 @@ export default function LeadsFilterComponent({
     });
   };
 
-  // Handle sorting change
+  // Apply date changes immediately with new values (NO async state issues!)
+  const handleDateChange = (field: 'dateFrom' | 'dateTo' | 'followUpDateFrom' | 'followUpDateTo', value: string) => {
+    const newFilterOptions = {
+      ...filterOptions,
+      [field]: value || undefined
+    };
+    
+    // Update local state immediately for UI
+    switch (field) {
+      case 'dateFrom':
+        setLocalDateFrom(value);
+        break;
+      case 'dateTo':
+        setLocalDateTo(value);
+        break;
+      case 'followUpDateFrom':
+        setLocalFollowUpDateFrom(value);
+        break;
+      case 'followUpDateTo':
+        setLocalFollowUpDateTo(value);
+        break;
+    }
+    
+    // Update parent state
+    onFilterChange(newFilterOptions);
+    // Apply immediately with NEW values directly - no waiting for state updates!
+    onApplyFilters(newFilterOptions);
+  };
+
+  // Handle sorting change with immediate apply (NO async state issues!)
   const handleSortingChange = (value: string) => {
     const selectedOption = SORTING_OPTIONS.find(opt => opt.value === value);
     if (selectedOption) {
-      onSortChange({
+      const newSortOptions = {
         sortBy: selectedOption.sortBy,
         sortOrder: selectedOption.sortOrder
-      });
+      };
+      onSortChange(newSortOptions);
+      // Apply immediately with NEW values directly - no waiting for state updates!
+      onApplyFilters(undefined, newSortOptions);
     }
   };
 
   // Clear all filters
   const clearAllFilters = () => {
+    const clearedFilters: FilterOptions = {};
+    const defaultSort: SortOptions = { sortBy: 'updated_at', sortOrder: 'desc' };
+    
     onSearchChange('');
-    onFilterChange({});
-    onSortChange({ sortBy: 'updated_at', sortOrder: 'desc' });
-    onApplyFilters();
+    onFilterChange(clearedFilters);
+    onSortChange(defaultSort);
+    // Apply immediately with cleared values
+    onApplyFilters(clearedFilters, defaultSort);
   };
 
   return (
@@ -458,32 +508,24 @@ export default function LeadsFilterComponent({
                 Created Date Range
               </label>
               <div className="space-y-2">
-                <input
-                  type="date"
-                  placeholder="From Date"
-                  value={filterOptions.dateFrom ?? ''}
-                  onChange={(e) => {
-                    onFilterChange({
-                      ...filterOptions,
-                      dateFrom: e.target.value || undefined
-                    });
-                    onApplyFilters();
-                  }}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                />
-                <input
-                  type="date"
-                  placeholder="To Date"
-                  value={filterOptions.dateTo ?? ''}
-                  onChange={(e) => {
-                    onFilterChange({
-                      ...filterOptions,
-                      dateTo: e.target.value || undefined
-                    });
-                    onApplyFilters();
-                  }}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                />
+                <div className="relative">
+                  <label className="block text-xs text-gray-500 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={localDateFrom}
+                    onChange={(e) => handleDateChange('dateFrom', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div className="relative">
+                  <label className="block text-xs text-gray-500 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={localDateTo}
+                    onChange={(e) => handleDateChange('dateTo', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
 
@@ -493,32 +535,24 @@ export default function LeadsFilterComponent({
                 Follow Up Date Range
               </label>
               <div className="space-y-2">
-                <input
-                  type="date"
-                  placeholder="From Date"
-                  value={filterOptions.followUpDateFrom ?? ''}
-                  onChange={(e) => {
-                    onFilterChange({
-                      ...filterOptions,
-                      followUpDateFrom: e.target.value || undefined
-                    });
-                    onApplyFilters();
-                  }}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                />
-                <input
-                  type="date"
-                  placeholder="To Date"
-                  value={filterOptions.followUpDateTo ?? ''}
-                  onChange={(e) => {
-                    onFilterChange({
-                      ...filterOptions,
-                      followUpDateTo: e.target.value || undefined
-                    });
-                    onApplyFilters();
-                  }}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-                />
+                <div className="relative">
+                  <label className="block text-xs text-gray-500 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={localFollowUpDateFrom}
+                    onChange={(e) => handleDateChange('followUpDateFrom', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div className="relative">
+                  <label className="block text-xs text-gray-500 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={localFollowUpDateTo}
+                    onChange={(e) => handleDateChange('followUpDateTo', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -532,7 +566,6 @@ export default function LeadsFilterComponent({
               value={getCurrentSortingValue()}
               onChange={(e) => {
                 handleSortingChange(e.target.value);
-                onApplyFilters();
               }}
               className="w-full md:w-auto rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none"
             >
