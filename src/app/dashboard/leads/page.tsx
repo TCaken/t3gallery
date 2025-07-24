@@ -535,7 +535,7 @@ export default function LeadsPage() {
   const handleMyLeads = () => {
     if (!userId) return;
     const newFilters = {
-      status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+      status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
       assignedTo: [userId],
       includeUnassigned: false,
       bookedBy: []
@@ -570,7 +570,7 @@ export default function LeadsPage() {
       status: ['give_up'] as FilterOptions['status'],
       includeUnassigned: true,
       assignedTo: availableAgents.map(a => a.id), // Show all assigned give up leads
-      bookedBy: []
+      bookedBy: [] // Don't filter by bookedBy for give up pool
     };
     setComponentFilterOptions(newFilters);
     setComponentSearchQuery('');
@@ -601,8 +601,8 @@ export default function LeadsPage() {
     const newFilters = {
       status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
       includeUnassigned: true,
-      assignedTo: [],
-      bookedBy: []
+      assignedTo: availableAgents.map(a => a.id), // All agents
+      bookedBy: [] // Don't filter by bookedBy for "All Leads"
     };
     setComponentFilterOptions(newFilters);
     setComponentSearchQuery('');
@@ -988,21 +988,16 @@ export default function LeadsPage() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        // Load first page of leads
-        await fetchLeadsWithFilters(1);
-        
-        // Load total lead counts by status
-        await loadTotalLeadCounts();
-
-        // Load available agents and filter options
+        // FIRST: Load available agents and filter options before anything else
         const [agentsResult, filterOptionsResult] = await Promise.all([
           getAvailableAgents(),
           getFilterOptions()
         ]);
 
+        let validAgents: {id: string, name: string, email: string}[] = [];
         if (agentsResult.success && agentsResult.agents) {
           // Filter out agents with null email
-          const validAgents = agentsResult.agents.filter(agent => agent.email !== null) as {id: string, name: string, email: string}[];
+          validAgents = agentsResult.agents.filter(agent => agent.email !== null) as {id: string, name: string, email: string}[];
           setAvailableAgents(validAgents);
         }
 
@@ -1019,17 +1014,7 @@ export default function LeadsPage() {
           setFilterOptions(cleanedOptions);
         }
         
-        // Load pinned leads
-        const pinnedResult = await getPinnedLeads();
-        if (pinnedResult.success && pinnedResult.pinnedLeads) {
-          const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
-          // Get pinned leads from all columns
-          const allLeads = Object.values(leads).flat();
-          const pinnedLeadsData = allLeads.filter(lead => pinnedLeadIds.includes(lead.id));
-          setPinnedLeads(pinnedLeadsData);
-        }
-        
-        // Load user role and initialize default filters
+        // SECOND: Load user role and initialize default filters with loaded agents
         if (userRole && userRole.length > 0) {
           console.log('Setting userRole to:', userRole); // Debug log
 
@@ -1037,31 +1022,30 @@ export default function LeadsPage() {
           let initialFilters: FilterOptions = {};
           
           if (userRole === 'admin') {
-            // Admin sees ALL leads by default
+            // Admin sees ALL leads by default (all statuses, all assigned, no bookedBy filter)
             initialFilters = {
               status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
               includeUnassigned: true,
-              assignedTo: [],
-              bookedBy: []
+              assignedTo: validAgents.map(a => a.id), // Use loaded agents
+              bookedBy: [] // Don't filter by bookedBy for admin default
             };
           } else if (userRole === 'agent' && userId) {
             // Agent sees "My Leads" by default (same as handleMyLeads)
             initialFilters = {
-              status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+              status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
               assignedTo: [userId],
               includeUnassigned: false,
               bookedBy: []
             };
           }
           
-          // Set the filters in state and fetch with them directly
+          // Set the filters in state
           setComponentFilterOptions(initialFilters);
           setComponentSearchQuery('');
           
-          // Auto-apply filters immediately with the correct filters
-          setTimeout(() => {
-            void fetchLeadsWithFilters(1, initialFilters, '');
-          }, 100);
+          // THIRD: Now fetch leads with the properly configured filters
+          console.log('Fetching leads with initial filters:', initialFilters);
+          await fetchLeadsWithFilters(1, initialFilters, '');
 
           // If user is an agent, check their check-in status
           if (userRole === 'agent') {
@@ -1078,6 +1062,19 @@ export default function LeadsPage() {
           }
         } else {
           console.log('No roles found, defaulting to user'); // Debug log
+        }
+        
+        // FOURTH: Load total lead counts and pinned leads
+        await loadTotalLeadCounts();
+        
+        // Load pinned leads
+        const pinnedResult = await getPinnedLeads();
+        if (pinnedResult.success && pinnedResult.pinnedLeads) {
+          const pinnedLeadIds = pinnedResult.pinnedLeads.map(p => p.lead_id);
+          // Get pinned leads from all columns
+          const allLeads = Object.values(leads).flat();
+          const pinnedLeadsData = allLeads.filter(lead => pinnedLeadIds.includes(lead.id));
+          setPinnedLeads(pinnedLeadsData);
         }
       } catch (err) {
         console.error('Error in loadInitialData:', err);
@@ -1865,10 +1862,45 @@ export default function LeadsPage() {
               onChange={(e) => {
                 const newSearchQuery = e.target.value;
                 setComponentSearchQuery(newSearchQuery);
+                
+                // Apply search behavior
+                let searchFilters: FilterOptions | undefined = undefined;
+                
+                if (newSearchQuery.trim() !== '') {
+                  // Use "All Leads" behavior when searching
+                  searchFilters = {
+                    status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+                    assignedTo: availableAgents.map(a => a.id), // All agents
+                    includeUnassigned: true,
+                    bookedBy: [] // Don't filter by bookedBy when searching
+                  };
+                } else {
+                  // Restore role-based defaults when search is cleared
+                  if (userRole === 'admin') {
+                    searchFilters = {
+                      status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
+                      includeUnassigned: true,
+                      assignedTo: availableAgents.map(a => a.id), // All agents
+                      bookedBy: [] // Don't filter by bookedBy for admin default
+                    };
+                  } else if (userRole === 'agent' && userId) {
+                    searchFilters = {
+                      status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
+                      assignedTo: [userId],
+                      includeUnassigned: false,
+                      bookedBy: []
+                    };
+                  }
+                }
+                
+                if (searchFilters) {
+                  setComponentFilterOptions(searchFilters);
+                }
+                
                 setTimeout(() => {
                   setAllLoadedLeads([]);
                   setPage(1);
-                  void fetchLeadsWithFilters(1, undefined, newSearchQuery);
+                  void fetchLeadsWithFilters(1, searchFilters, newSearchQuery);
                 }, 500);
               }}
             />
@@ -1950,7 +1982,6 @@ export default function LeadsPage() {
               }}
               userRole={userRole}
               userId={userId ?? undefined}
-              isCompact={true}
             />
           </div>
         )}

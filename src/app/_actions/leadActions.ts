@@ -4,7 +4,7 @@
 'use server';
 
 import { db } from "~/server/db";
-import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs, appointments } from "~/server/db/schema";
+import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs, appointments, roles, userRoles} from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import type { InferSelectModel } from "drizzle-orm";
 import { eq, desc, like, or, and, SQL, asc, sql, ilike, not, isNotNull } from "drizzle-orm";
@@ -1514,7 +1514,9 @@ export async function getAvailableAgents() {
         email: users.email
       })
       .from(users)
-      .innerJoin(leads, eq(leads.assigned_to, users.id))
+      .innerJoin(userRoles, eq(users.id, userRoles.userId))
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(or(eq(roles.name, 'agent'), eq(roles.name, 'admin')))
       .groupBy(users.id, users.first_name, users.last_name, users.email)
       .orderBy(users.first_name, users.last_name);
 

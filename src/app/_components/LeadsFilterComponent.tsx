@@ -47,7 +47,6 @@ export interface FilterComponentProps {
   userId?: string;
   
   // UI configuration
-  isCompact?: boolean;
   showAdvancedFilters?: boolean;
 }
 
@@ -93,12 +92,9 @@ export default function LeadsFilterComponent({
   onApplyFilters,
   userRole,
   userId,
-  isCompact = false,
   showAdvancedFilters = false
 }: FilterComponentProps) {
-  const [isExpanded, setIsExpanded] = useState(!isCompact);
   const [availableAgents, setAvailableAgents] = useState<{id: string, name: string, email: string}[]>([]);
-  const [appointmentCreators, setAppointmentCreators] = useState<{id: string, name: string, email: string}[]>([]);
   const [activeFiltersCount, setActiveFiltersCount] = useState(0);
   const [isApplying, setIsApplying] = useState(false);
 
@@ -106,9 +102,8 @@ export default function LeadsFilterComponent({
   useEffect(() => {
     const loadDropdownData = async () => {
       try {
-        const [agentsResult, creatorsResult] = await Promise.all([
-          getAvailableAgents(),
-          getAppointmentCreators()
+        const [agentsResult] = await Promise.all([
+          getAvailableAgents()
         ]);
 
         if (agentsResult.success && agentsResult.agents) {
@@ -116,10 +111,6 @@ export default function LeadsFilterComponent({
           setAvailableAgents(validAgents);
         }
 
-        if (creatorsResult.success && creatorsResult.creators) {
-          const validCreators = creatorsResult.creators.filter(creator => creator.email !== null) as {id: string, name: string, email: string}[];
-          setAppointmentCreators(validCreators);
-        }
       } catch (error) {
         console.error('Error loading dropdown data:', error);
       }
@@ -151,16 +142,34 @@ export default function LeadsFilterComponent({
   const handleSearchChange = (value: string) => {
     onSearchChange(value);
     
-    // If search is active, reset other filters to avoid conflicts
+    // If search is active, use "All Leads" behavior to avoid conflicts
     if (value.trim() !== '') {
       onFilterChange({
         status: LEAD_STATUSES.map(s => s.value) as FilterOptions['status'],
-        assignedTo: [],
+        assignedTo: availableAgents.map(a => a.id), // All agents
         includeUnassigned: true,
-        bookedBy: []
+        bookedBy: [] // Don't filter by bookedBy when searching
       });
+    } else {
+      // If search is cleared, reload role-based defaults
+      const defaultFilters: FilterOptions = {};
+      
+      if (userRole === 'admin') {
+        // Admin default: All leads (all statuses, all assigned, no bookedBy filter)
+        defaultFilters.status = LEAD_STATUSES.map(s => s.value) as FilterOptions['status'];
+        defaultFilters.includeUnassigned = true;
+        defaultFilters.assignedTo = availableAgents.map(a => a.id);
+        defaultFilters.bookedBy = []; // Don't filter by bookedBy for admin default
+      } else if (userRole === 'agent' && userId) {
+        // Agent default: My Leads (filtered statuses, only their assigned leads)
+        defaultFilters.status = ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'];
+        defaultFilters.assignedTo = [userId];
+        defaultFilters.includeUnassigned = false;
+        defaultFilters.bookedBy = [];
+      }
+      
+      onFilterChange(defaultFilters);
     }
-    // Note: Don't reset to defaults when search is cleared - maintain current filter state
   };
 
   // Handle multi-select change
@@ -240,24 +249,12 @@ export default function LeadsFilterComponent({
             </button>
           )}
           
-          {isCompact && (
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="p-1 rounded-md hover:bg-gray-100"
-            >
-              <ChevronDownIcon 
-                className={`h-5 w-5 text-gray-500 transform transition-transform ${
-                  isExpanded ? 'rotate-180' : ''
-                }`} 
-              />
-            </button>
-          )}
+
         </div>
       </div>
 
       {/* Content */}
-      {(!isCompact || isExpanded) && (
-        <div className="p-4 space-y-6">
+      <div className="p-4 space-y-6">
           {/* Search Bar */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -404,20 +401,20 @@ export default function LeadsFilterComponent({
                 Booked By
               </label>
               <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-md p-2">
-                {appointmentCreators.length === 0 ? (
-                  <div className="text-sm text-gray-500 italic">No appointment creators found</div>
-                ) : (
+                                 {availableAgents.length === 0 ? (
+                   <div className="text-sm text-gray-500 italic">No agents found</div>
+                 ) : (
                   <>
                     {/* All Booked By Option */}
                     <label className="flex items-center space-x-2">
                       <input
                         type="checkbox"
-                        checked={filterOptions.bookedBy?.length === appointmentCreators.length}
+                        checked={filterOptions.bookedBy?.length === availableAgents.length}
                         onChange={(e) => {
                           if (e.target.checked) {
                             onFilterChange({ 
                               ...filterOptions, 
-                              bookedBy: appointmentCreators.map(c => c.id)
+                              bookedBy: availableAgents.map(a => a.id)
                             });
                             onApplyFilters();
                           } else {
@@ -433,18 +430,18 @@ export default function LeadsFilterComponent({
                       <span className="text-sm font-bold text-green-600">All Creators</span>
                     </label>
                     
-                    {appointmentCreators.map((creator) => (
-                      <label key={creator.id} className="flex items-center space-x-2">
+                    {availableAgents.map((agent) => (
+                      <label key={agent.id} className="flex items-center space-x-2">
                         <input
                           type="checkbox"
-                          checked={filterOptions.bookedBy?.includes(creator.id) ?? false}
+                          checked={filterOptions.bookedBy?.includes(agent.id) ?? false}
                           onChange={(e) => {
-                            handleMultiSelectChange('bookedBy', creator.id, e.target.checked);
+                            handleMultiSelectChange('bookedBy', agent.id, e.target.checked);
                             onApplyFilters();
                           }}
                           className="rounded border-gray-300"
                         />
-                        <span className="text-sm">{creator.name}</span>
+                        <span className="text-sm">{agent.name}</span>
                       </label>
                     ))}
                   </>
@@ -547,7 +544,6 @@ export default function LeadsFilterComponent({
             </select>
           </div>
         </div>
-      )}
     </div>
   );
 } 
