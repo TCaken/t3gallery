@@ -537,6 +537,10 @@ export default function LeadsPage() {
     if (!userId) return;
     const newFilters = {
       status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
       assignedTo: [userId],
       includeUnassigned: false,
       bookedBy: []
@@ -557,9 +561,13 @@ export default function LeadsPage() {
     if (!userId) return;
     const newFilters = {
       status: ['assigned'] as FilterOptions['status'],
-      assignedTo: [userId],
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
       includeUnassigned: false,
-      bookedBy: []
+      bookedBy: [],
+      assignedTo: [userId],
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,
@@ -578,10 +586,12 @@ export default function LeadsPage() {
     // Use Singapore timezone for "today"
     const today = getTodaySGT();
     const newFilters = {
-      status: ['booked'] as FilterOptions['status'],
+      status: ['missed/RS', 'booked', 'done'] as FilterOptions['status'],
       bookedBy: [userId],
-      dateFrom: today,
-      dateTo: today,
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
       includeUnassigned: false,
       assignedTo: []
     };
@@ -602,7 +612,11 @@ export default function LeadsPage() {
       status: ['give_up'] as FilterOptions['status'],
       includeUnassigned: true,
       assignedTo: availableAgents.map(a => a.id), // Show all assigned give up leads
-      bookedBy: [] // Don't filter by bookedBy for give up pool
+      bookedBy: [], // Don't filter by bookedBy for give up pool
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,
@@ -623,6 +637,8 @@ export default function LeadsPage() {
     const newFilters = {
       status: ['follow_up'] as FilterOptions['status'],
       assignedTo: [userId],
+      dateFrom: undefined,
+      dateTo: undefined,
       followUpDateFrom: today,
       followUpDateTo: today,
       includeUnassigned: false,
@@ -645,7 +661,11 @@ export default function LeadsPage() {
       status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
       includeUnassigned: true,
       assignedTo: availableAgents.map(a => a.id), // All agents
-      bookedBy: [] // Don't filter by bookedBy for "All Leads"
+      bookedBy: [], // Don't filter by bookedBy for "All Leads"
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,
