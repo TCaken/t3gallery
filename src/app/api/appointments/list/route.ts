@@ -4,6 +4,26 @@ import { db } from '~/server/db';
 import { appointments, leads, users } from '~/server/db/schema';
 import { and, gte, lte, eq } from 'drizzle-orm';
 
+function censorName(name: string | null | undefined): string {
+  if (!name || name.length < 2) return name ?? '';
+  if(name.length === 2) return name.slice(0, 1) + '*';
+  return name.slice(0, 2) + '*'.repeat(Math.max(0, name.length - 4)) + name.slice(-2);
+}
+
+function censorPhone(phone: string | null | undefined): string {
+  if (!phone) return '';
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length <= 5) return '*'.repeat(digits.length);
+  return '*'.repeat(digits.length - 5) + digits.slice(-5);
+}
+
+function censorEmail(email: string | null | undefined): string {
+  if (!email) return '';
+  const [user, domain] = email.split('@');
+  if (!user || !domain) return '';
+  return user[0] + '*'.repeat(Math.max(0, user.length - 1)) + '@' + domain;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -42,10 +62,13 @@ export async function POST(request: NextRequest) {
       ))
       .orderBy(appointments.start_datetime);
 
-    // Concatenate agent_name in JS
+    // Concatenate agent_name in JS and censor lead fields
     const data = rows.map(row => ({
       ...row,
-      agent_name: `${row.agent_first_name ?? ''} ${row.agent_last_name ?? ''}`.trim()
+      agent_name: `${row.agent_first_name ?? ''} ${row.agent_last_name ?? ''}`.trim(),
+      lead_name: censorName(row.lead_name),
+      lead_phonenumber: censorPhone(row.lead_phonenumber),
+      lead_email: censorEmail(row.lead_email)
     }));
 
     return NextResponse.json({ success: true, data });
