@@ -1,9 +1,21 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 'use server';
 
 import { auth } from '@clerk/nextjs/server';
 import { db } from "~/server/db";
 import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments, borrowers, appointmentReminderLog } from "~/server/db/schema";
 import { eq, and, desc, or } from 'drizzle-orm';
+import { env } from '~/env';
+
+// Helper to check if we're in staging mode
+function isStaging(): boolean {
+  return env.NEXT_PUBLIC_ENVIRONMENT !== 'production';
+}
+
+// Helper to check if staging phone redirect is configured
+function hasStagingPhoneConfigured(): boolean {
+  return isStaging() && !!env.STAGING_TEST_PHONE;
+}
 
 interface WhatsAppRequest {
   workspaces: string;
@@ -120,9 +132,10 @@ export async function sendWhatsAppMessage(
     // console.log('Built parameters:', parameters);
 
     // Log the attempt - only include lead_id if it exists
+    const formattedPhone = formatPhoneNumber(phone);
     const logValues: any = {
       template_id: templateData.template.id,
-      sent_to: formatPhoneNumber(phone),
+      sent_to: formattedPhone,
       delivery_method: finalDeliveryMethod,
       trigger_type: 'manual',
       parameters_used: parameters,
@@ -130,8 +143,18 @@ export async function sendWhatsAppMessage(
     };
 
     if (leadId) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       logValues.lead_id = leadId;
     }
+
+    // // Add staging info to parameters if in staging mode
+    // if (hasStagingPhoneConfigured() && phone !== formattedPhone) {
+    //   logValues.staging_info = {
+    //     original_phone: phone,
+    //     redirected_to: formattedPhone,
+    //     environment: env.NEXT_PUBLIC_ENVIRONMENT
+    //   };
+    // }
 
     const logEntry = await db.insert(templateUsageLog).values(logValues).returning();
 
@@ -143,7 +166,7 @@ export async function sendWhatsAppMessage(
         workspaces: templateData.template.workspace_id,
         channels: templateData.template.channel_id,
         projectId: templateData.template.project_id,
-        identifierValue: formatPhoneNumber(phone),
+        identifierValue: formattedPhone,
         parameters: Object.entries(parameters).map(([key, value]) => ({
           type: "string",
           key,
@@ -157,7 +180,7 @@ export async function sendWhatsAppMessage(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': `${process.env.WHATSAPP_API_KEY}`
+          'apikey': env.WHATSAPP_API_KEY
         },
         body: JSON.stringify(whatsappData)
       });
@@ -334,11 +357,14 @@ export async function ascendAppointmentReminder(
     const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
     const projectId = "20144ad5-88f2-4336-be9e-9c30b2c0a89b";
 
+    // Format phone number early for use in both data and logging
+    const formattedPhone = formatPhoneNumber(phoneNumber);
+
     const whatsappData: WhatsAppRequest = {
       workspaces: workspaceId,
       channels: channelId,
       projectId: projectId,
-      identifierValue: formatPhoneNumber(phoneNumber),
+      identifierValue: formattedPhone,
       parameters: [
         { type: "string", key: "customer_name", value: customerName },
         { type: "string", key: "appt_date", value: appointmentDate },
@@ -349,14 +375,19 @@ export async function ascendAppointmentReminder(
     // Log the attempt to database first
     const logEntry = await db.insert(appointmentReminderLog).values({
       customer_name: customerName,
-      phone_number: formatPhoneNumber(phoneNumber),
+      phone_number: phoneNumber,
       appointment_date: appointmentDate,
       time_slot: timeSlot,
       app: app,
       status: 'pending',
       workspace_id: workspaceId,
       channel_id: channelId,
-      project_id: projectId
+      project_id: projectId,
+      // Add original phone for staging tracking
+      ...(hasStagingPhoneConfigured() && phoneNumber !== formattedPhone && {
+        original_phone_number: phoneNumber,
+        staging_redirect: true
+      })
     }).returning();
 
     const logId = logEntry[0]?.id;
@@ -368,7 +399,7 @@ export async function ascendAppointmentReminder(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': `${process.env.WHATSAPP_API_KEY}`
+        'apikey': env.WHATSAPP_API_KEY
       },
       body: JSON.stringify(whatsappData)
     });
@@ -713,10 +744,19 @@ function formatDate(dateValue: string, pattern: string): string {
   }
 }
 
-// Helper to format phone number
+// Helper to format phone number with environment-specific routing
 function formatPhoneNumber(phone: string): string {
-  // return '+6583992504'; // Default fallback number
+  // In non-production environments, route all messages to staging test phone if configured
+  if (hasStagingPhoneConfigured()) {
+    console.log(`🧪 STAGING MODE (${process.env.NEXT_PUBLIC_ENVIRONMENT}): Redirecting message from ${phone} to test number ${env.STAGING_TEST_PHONE}`);
+    return formatPhoneNumberInternal(process.env.STAGING_TEST_PHONE!);
+  }
   
+  return formatPhoneNumberInternal(phone);
+}
+
+// Internal phone formatting logic
+function formatPhoneNumberInternal(phone: string): string {
   // Strip any non-numeric characters
   const digits = phone.replace(/\D/g, '');
   

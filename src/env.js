@@ -12,6 +12,9 @@ export const env = createEnv({
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
+    WHATSAPP_API_KEY: z.string(),
+    // Test phone number for staging environment - all messages will be sent here in non-production
+    STAGING_TEST_PHONE: z.string().optional(),
   },
 
   /**
@@ -20,7 +23,8 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    // NEXT_PUBLIC_CLIENTVAR: z.string(),
+    // Custom environment variable for controlling staging behavior
+    NEXT_PUBLIC_ENVIRONMENT: z.enum(["development", "staging", "production"]).default("development"),
   },
 
   /**
@@ -31,6 +35,9 @@ export const env = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     POSTGRES_URL: process.env.POSTGRES_URL,
     NODE_ENV: process.env.NODE_ENV,
+    WHATSAPP_API_KEY: process.env.WHATSAPP_API_KEY,
+    STAGING_TEST_PHONE: process.env.STAGING_TEST_PHONE,
+    NEXT_PUBLIC_ENVIRONMENT: process.env.NEXT_PUBLIC_ENVIRONMENT,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**
