@@ -12,15 +12,16 @@ function toSingaporeTime(date: Date | string | null | undefined): string | null 
 }
 
 function censorName(name: string | null | undefined): string {
-  if (!name) return '';
-  return name[0] + '*'.repeat(Math.max(0, name.length - 1));
+  if (!name || name.length < 2) return name ?? '';
+  if(name.length === 2) return name.slice(0, 1) + '*';
+  return name.slice(0, 2) + '*'.repeat(Math.max(0, name.length - 4)) + name.slice(-2);
 }
 
 function censorPhone(phone: string | null | undefined): string {
   if (!phone) return '';
   const digits = phone.replace(/\D/g, '');
-  if (digits.length <= 4) return '*'.repeat(digits.length);
-  return '*'.repeat(digits.length - 4) + digits.slice(-4);
+  if (digits.length <= 5) return '*'.repeat(digits.length);
+  return '*'.repeat(digits.length - 5) + digits.slice(-5);
 }
 
 function censorEmail(email: string | null | undefined): string {
