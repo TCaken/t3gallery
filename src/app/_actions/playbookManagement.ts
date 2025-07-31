@@ -712,77 +712,79 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
     }
 
     // Get agent's follow-up leads that are not already in this playbook
-    const existingLeadIds = await db
-      .select({ lead_id: playbook_contacts.lead_id })
-      .from(playbook_contacts)
-      .where(eq(playbook_contacts.playbook_id, playbookId));
+    // UNION query approach: Get leads to create + contacts to update
+    console.log('Executing UNION query to get leads for processing...');
 
-    const existingIds = existingLeadIds.map(row => row.lead_id);
-
-    const leadsQuery = db
+    // Part 1: New leads with status 'assigned' NOT in playbook_contacts yet
+    const newLeadsToCreate = await db
       .select({
         id: leads.id,
         phone_number: leads.phone_number,
         full_name: leads.full_name,
         source: leads.source,
+        lead_status: leads.status,
+        samespace_status: sql<string>`NULL`.as('samespace_status'),
+        action: sql<string>`'create'`.as('action'),
       })
       .from(leads)
+      .leftJoin(playbook_contacts, eq(playbook_contacts.lead_id, leads.id))
       .where(
         and(
           eq(leads.assigned_to, playbook.agent_id),
           eq(leads.status, 'assigned'),
           eq(leads.is_deleted, false),
-          not(inArray(leads.id, existingIds))
+          sql`${playbook_contacts.lead_id} IS NULL` // NOT in playbook_contacts
         )
       )
       .limit(300);
 
-      // const leadsQuery = db
-      // .select({
-      //   id: leads.id,
-      //   phone_number: leads.phone_number,
-      //   full_name: leads.full_name,
-      //   source: leads.source,
-      // })
-      // .from(leads)
-      // .where(
-      //   and(
-      //     eq(leads.assigned_to, playbook.agent_id),
-      //     or(
-      //       eq(leads.status, 'assigned'), 
-      //       eq(leads.status, 'no_answer'),
-      //       eq(leads.status, 'follow_up'),
-      //     ),
-      //     or(
-      //       isNull(leads.follow_up_date),
-      //       sql`extract(hour from ${leads.follow_up_date}) = 16`,
-      //     ),
-      //     eq(leads.is_deleted, false),
-      //   )
-      // )
-      // .limit(300)
+    // Part 2: Existing playbook_contacts where lead status ≠ playbook_contact status  
+    const existingContactsToUpdate = await db
+      .select({
+        id: leads.id,
+        phone_number: leads.phone_number,
+        full_name: leads.full_name,
+        source: leads.source,
+        lead_status: leads.status,
+        samespace_status: playbook_contacts.status,
+        action: sql<string>`'update'`.as('action'),
+        contact_id: playbook_contacts.id,
+      })
+      .from(leads)
+      .innerJoin(playbook_contacts, eq(playbook_contacts.lead_id, leads.id))
+      .where(
+        and(
+          eq(leads.assigned_to, playbook.agent_id),
+          eq(playbook_contacts.playbook_id, playbookId),
+          not(eq(leads.status, playbook_contacts.status)), // Different statuses
+          eq(playbook_contacts.status, 'assigned'),
+          eq(leads.is_deleted, false)
+        )
+      );
 
-    const followUpLeads = await leadsQuery;
+    console.log(`Found ${newLeadsToCreate.length} new leads to create and ${existingContactsToUpdate.length} contacts to update`);
 
-    console.log(`Found ${followUpLeads.length} new follow-up leads for agent ${playbook.agent_id}`);
-
-    if (followUpLeads.length === 0) {
+    if (newLeadsToCreate.length === 0 && existingContactsToUpdate.length === 0) {
       return {
         success: true,
-        message: 'No new follow-up leads to sync',
+        message: 'No leads to sync or contacts to update',
         data: {
           contactsCreated: 0,
           contactsFailed: 0,
+          contactsUpdated: 0,
           playbookUpdated: false,
         },
       };
     }
 
-    // Create contacts and track results
+    // Process results
     const results = [];
-    const successfulContacts = [];
+    let contactsCreated = 0;
+    let contactsFailed = 0;
+    let contactsUpdated = 0;
 
-    for (const lead of followUpLeads) {
+    // PART 1: Create new Samespace contacts
+    for (const lead of newLeadsToCreate) {
       console.log('Creating contact for lead:', lead);
       try {
         const name = lead.full_name?.replace(/[^\p{L}\p{N} ]/ug, ' ');
@@ -807,7 +809,7 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
             first_name: firstName || 'Unknown',
             last_name: lastName,
             data_source: lead.source || 'Unknown',
-            status: 'created',
+            status: 'assigned', // Match the lead status
             sync_status: 'synced',
             api_response: contact,
           });
@@ -819,7 +821,7 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
             status: 'created',
           });
 
-          successfulContacts.push(lead.phone_number);
+          contactsCreated++;
         } else {
           throw new Error('No contact ID returned from Samespace');
         }
@@ -846,51 +848,92 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
           status: 'failed',
           error: error instanceof Error ? error.message : 'Unknown error',
         });
+
+        contactsFailed++;
       }
     }
 
-    // Update playbook with ALL contacts (existing + new successful ones)
-    let playbookUpdated = false;
-    if (successfulContacts.length > 0) {
+    // PART 2: Update existing playbook_contacts database records to match lead status
+    for (const contact of existingContactsToUpdate) {
       try {
-        // Get ALL contacts for this playbook (existing + new)
-        const allPlaybookContacts = await db
-          .select({
-            phone_number: playbook_contacts.phone_number,
+        console.log(`Updating playbook_contact ${contact.contact_id} status from '${contact.samespace_status}' to '${contact.lead_status}'`);
+        
+        // Update the playbook_contacts database record
+        await db
+          .update(playbook_contacts)
+          .set({ 
+            status: contact.lead_status,
+            sync_status: 'synced',
+            updated_at: new Date(),
           })
-          .from(playbook_contacts)
-          .where(eq(playbook_contacts.playbook_id, playbookId));
+          .where(eq(playbook_contacts.id, contact.contact_id));
 
-        const allPhoneNumbers = allPlaybookContacts.map(contact => 
-          contact.phone_number.replace(/^\+65/, '65')
+        results.push({
+          leadId: contact.id,
+          leadName: contact.full_name ?? 'Unknown',
+          phone: contact.phone_number,
+          status: 'updated',
+          oldStatus: contact.samespace_status,
+          newStatus: contact.lead_status,
+        });
+
+        contactsUpdated++;
+      } catch (error) {
+        console.error(`Failed to update playbook_contact ${contact.contact_id}:`, error);
+        
+        results.push({
+          leadId: contact.id,
+          leadName: contact.full_name ?? 'Unknown',
+          phone: contact.phone_number,
+          status: 'update_failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    // FINAL STEP: Update playbook filters with only 'assigned' contacts
+    let playbookUpdated = false;
+    try {
+      // Get all playbook_contacts with status 'assigned' 
+      const assignedContacts = await db
+        .select({
+          phone_number: playbook_contacts.phone_number,
+        })
+        .from(playbook_contacts)
+        .where(
+          and(
+            eq(playbook_contacts.playbook_id, playbookId),
+            eq(playbook_contacts.status, 'assigned')
+          )
         );
 
-        console.log(`Updating playbook with ${allPhoneNumbers.length} total contacts (${allPlaybookContacts.length - successfulContacts.length} existing + ${successfulContacts.length} new)`);
-        
-        await updatePlaybookContacts(playbook.samespace_playbook_id, allPhoneNumbers);
-        playbookUpdated = true;
-        
-        // Update last synced timestamp
-        await db
-          .update(playbooks)
-          .set({ last_synced_at: new Date() })
-          .where(eq(playbooks.id, playbookId));
+      const assignedPhoneNumbers = assignedContacts.map(contact => 
+        contact.phone_number.replace(/^\+65/, '65')
+      );
 
-        console.log(`Updated playbook ${playbook.samespace_playbook_id} with ${allPhoneNumbers.length} total contacts`);
-      } catch (error) {
-        console.error('Failed to update playbook:', error);
-      }
+      console.log(`Updating playbook filters with ${assignedPhoneNumbers.length} assigned contacts only`);
+      
+      await updatePlaybookContacts(playbook.samespace_playbook_id, assignedPhoneNumbers);
+      playbookUpdated = true;
+      
+      // Update last synced timestamp
+      await db
+        .update(playbooks)
+        .set({ last_synced_at: new Date() })
+        .where(eq(playbooks.id, playbookId));
+
+      console.log(`Updated playbook ${playbook.samespace_playbook_id} filters with ${assignedPhoneNumbers.length} assigned contacts`);
+    } catch (error) {
+      console.error('Failed to update playbook filters:', error);
     }
-
-    const contactsCreated = results.filter(r => r.status === 'created').length;
-    const contactsFailed = results.filter(r => r.status === 'failed').length;
 
     return {
       success: true,
-      message: `Sync completed: ${contactsCreated} created, ${contactsFailed} failed, playbook ${playbookUpdated ? 'updated' : 'not updated'}`,
+      message: `Sync completed: ${contactsCreated} created, ${contactsFailed} failed, ${contactsUpdated} updated, playbook ${playbookUpdated ? 'updated' : 'not updated'}`,
       data: {
         contactsCreated,
         contactsFailed,
+        contactsUpdated,
         playbookUpdated,
         details: results,
       },
@@ -1048,8 +1091,8 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
         .where(
           and(
             eq(playbook_contacts.playbook_id, playbookId),
-            // Remove contacts for leads that are no longer in follow-up statuses
-            not(inArray(leads.status, ['assigned', 'no_answer', 'follow_up']))
+            // Remove contacts for leads that are no longer in active statuses
+            not(inArray(leads.status, ['assigned', 'no_answer']))
           )
         );
     } else if (borrowerExists) {
@@ -1068,7 +1111,7 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
           and(
             eq(playbook_contacts.playbook_id, playbookId),
             // Remove contacts for borrowers that are no longer in active statuses
-            not(inArray(borrowers.status, ['assigned', 'no_answer', 'follow_up'])),
+            not(inArray(borrowers.status, ['assigned', 'no_answer'])),
             eq(borrowers.is_deleted, false)
           )
         );
