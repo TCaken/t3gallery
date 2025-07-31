@@ -1054,6 +1054,8 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
       };
     }
 
+    console.log('Sample contact:', sampleContact);
+
     // Check if it's a lead or borrower playbook
     const [leadExists] = await db
       .select({ id: leads.id })
@@ -1092,7 +1094,7 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
           and(
             eq(playbook_contacts.playbook_id, playbookId),
             // Remove contacts for leads that are no longer in active statuses
-            not(inArray(leads.status, ['assigned', 'no_answer']))
+            not(inArray(leads.status, ['assigned']))
           )
         );
     } else if (borrowerExists) {
