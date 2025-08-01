@@ -1094,7 +1094,6 @@ export async function cleanupPlaybookContacts(playbookId: number): Promise<Playb
           and(
             eq(playbook_contacts.playbook_id, playbookId),
             // Remove contacts for leads that are no longer in active statuses
-            not(inArray(leads.status, ['assigned']))
           )
         );
     } else if (borrowerExists) {
