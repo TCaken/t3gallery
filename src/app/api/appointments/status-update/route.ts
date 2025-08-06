@@ -837,12 +837,31 @@ export async function POST(request: NextRequest) {
                   gte(appointments.start_datetime, new Date(`${todaySingapore}T00:00:00.000Z`)),
                   lte(appointments.start_datetime, new Date(`${todaySingapore}T23:59:59.999Z`))
                 )
-              );
+              ).orderBy(desc(appointments.created_at));
 
-            // Validate single appointment constraint for today
+            // Handle multiple appointments for today - select the latest one
             if (todayAppointments.length > 1) {
-              console.log(`❌ [MULTIPLE APPOINTMENTS] Lead ${existingLead.id} has ${todayAppointments.length} non-cancelled appointments today: ${todayAppointments.map(a => `ID:${a.id}(${a.status})`).join(', ')}`);
-              throw new Error(`Multiple non-cancelled appointments found for lead ${existingLead.id} today. Found ${todayAppointments.length} appointments: ${todayAppointments.map(a => `ID:${a.id}(${a.status})`).join(', ')}`);
+              const appointmentDetails = todayAppointments.map(a => `ID:${a.id}(${a.status})`).join(', ');
+              console.log(`⚠️ [MULTIPLE APPOINTMENTS] Lead ${existingLead.id} has ${todayAppointments.length} non-cancelled appointments today: ${appointmentDetails}`);
+              console.log(`📋 [WORKATO LOG] Selecting latest appointment for lead ${existingLead.id} - Multiple found: ${appointmentDetails}`);
+              
+              // Select the latest appointment (first in the array since we order by desc(created_at))
+              todayAppointments = [todayAppointments[0]!];
+              
+              // Log this for Workato tracking
+              results.push({
+                appointmentId: 'multiple_warning',
+                leadId: existingLead.id.toString(),
+                leadName: fullName,
+                oldAppointmentStatus: 'multiple',
+                newAppointmentStatus: 'selected_latest',
+                oldLeadStatus: existingLead.status,
+                newLeadStatus: existingLead.status,
+                reason: `WORKATO WARNING: Multiple appointments found for today - Selected latest appointment ID:${todayAppointments[0]!.id} from: ${appointmentDetails}`,
+                appointmentTime: format(new Date(todayAppointments[0]!.start_datetime.getTime() + (8 * 60 * 60 * 1000)), 'yyyy-MM-dd HH:mm'),
+                timeDiffHours: 'N/A',
+                action: 'multiple_appointments_warning'
+              });
             }
 
             // Also check for any upcoming appointments on other dates (upcoming status already excludes cancelled)
