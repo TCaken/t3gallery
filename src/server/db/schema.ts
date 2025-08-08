@@ -6,11 +6,9 @@ import {
   index,
   integer,
   primaryKey,
-  serial,
   text,
   timestamp,
   varchar,
-  pgTable,
   pgEnum,
   pgTableCreator,
   pgView,
@@ -668,6 +666,27 @@ export const appointmentReminderLog = createTable(
     index("reminder_app_idx").on(t.app),
     index("reminder_sent_at_idx").on(t.sent_at),
     index("reminder_status_idx").on(t.status)
+  ]
+);
+
+// Manual Verification Log table
+export const manualVerificationLog = createTable(
+  "manual_verification_log",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    customer_name: d.varchar({ length: 255 }).notNull(),
+    phone_number: d.varchar({ length: 20 }).notNull(),
+    customer_hyperlink: d.text().notNull(), // Store the full hyperlink
+    app: d.varchar({ length: 100 }).notNull(), // Who requested this (e.g., "ascend", "dashboard", "mobile-app")
+    status: d.varchar({ length: 50 }).default('verified').notNull(), // verified, pending, failed
+    created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    created_by: d.varchar({ length: 256 }), // User ID who triggered the verification
+  }),
+  (t) => [
+    index("manual_verification_phone_idx").on(t.phone_number),
+    index("manual_verification_app_idx").on(t.app),
+    index("manual_verification_created_at_idx").on(t.created_at),
+    index("manual_verification_status_idx").on(t.status)
   ]
 );
 
