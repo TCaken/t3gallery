@@ -1112,144 +1112,144 @@ export const pinnedBorrowersRelations = relations(pinned_borrowers, ({ one }) =>
   }),
 }));
 
-// Create a view for leads with appointment status and computed fields
-export const leadsWithAppointmentStatusAgentName = pgView("leads_with_appointment_status_agent_name", {
-  id: integer(),
-  full_name: varchar({ length: 255 }),
-  email: varchar({ length: 255 }),
-  status: varchar({ length: 50 }),
-  source: varchar({ length: 100 }),
-  assigned_to: varchar({ length: 256 }),
-  assigned_to_agent_name: varchar({ length: 511 }),
-  lead_type: varchar({ length: 50 }),
-  created_at: timestamp({ withTimezone: true }),
-  updated_at: timestamp({ withTimezone: true }),
-  created_by: varchar({ length: 256 }),
-  updated_by: varchar({ length: 256 }),
-  phone_number: varchar({ length: 20 }),
-  residential_status: varchar({ length: 50 }),
-  employment_status: varchar({ length: 50 }),
-  loan_purpose: varchar({ length: 100 }),
-  existing_loans: varchar({ length: 50 }),
-  amount: varchar({ length: 50 }),
-  eligibility_checked: boolean(),
-  eligibility_status: varchar({ length: 50 }),
-  eligibility_notes: text(),
-  booked: varchar({ length: 3 }),
-  booked_by: varchar({ length: 256 }),
-  booked_by_agent_name: varchar({ length: 511 }),
-  seo_leads: varchar({ length: 3 }),
-  phone_number_2: varchar({ length: 20 }),
-  phone_number_3: varchar({ length: 20 }),
-  has_work_pass_expiry: varchar({ length: 255 }),
-  has_payslip_3months: boolean(),
-  has_proof_of_residence: boolean(),
-  proof_of_residence_type: varchar({ length: 50 }),
-  has_letter_of_consent: boolean(),
-  employment_salary: varchar({ length: 50 }),
-  employment_length: varchar({ length: 50 }),
-  outstanding_loan_amount: varchar({ length: 255 }),
-  lead_score: integer(),
-  contact_preference: varchar({ length: 50 }),
-  communication_language: varchar({ length: 50 }),
-  follow_up_date: timestamp({ withTimezone: true }),
-  is_contactable: boolean(),
-  is_deleted: boolean(),
-  has_exported: boolean(),
-  exported_at: timestamp({ withTimezone: true }),
-  loan_status: varchar({ length: 50 }),
-  loan_notes: text(),
-}).as(sql`
-  SELECT 
-    l.id,
-    l.full_name,
-    l.email,
-    l.status,
-    l.source,
-    l.assigned_to,
-    CASE 
-      WHEN assigned_agent.first_name IS NOT NULL AND assigned_agent.last_name IS NOT NULL 
-      THEN CONCAT(assigned_agent.first_name, ' ', assigned_agent.last_name)
-      WHEN assigned_agent.first_name IS NOT NULL 
-      THEN assigned_agent.first_name
-      WHEN assigned_agent.last_name IS NOT NULL 
-      THEN assigned_agent.last_name
-      ELSE NULL
-    END AS assigned_to_agent_name,
-    l.lead_type,
-    l.created_at AT TIME ZONE 'Asia/Singapore' AS created_at,
-    l.updated_at AT TIME ZONE 'Asia/Singapore' AS updated_at,
-    l.created_by,
-    l.updated_by,
-    l.phone_number,
-    l.residential_status,
-    l.employment_status,
-    l.loan_purpose,
-    l.existing_loans,
-    l.amount,
-    l.eligibility_checked,
-    l.eligibility_status,
-    l.eligibility_notes,
-    -- Booked status computed field
-    CASE 
-      WHEN a.id IS NOT NULL THEN 'Yes'
-      ELSE 'No'
-    END AS booked,
-    -- Booked by user ID
-    a.created_by AS booked_by,
-    -- Booked by agent name
-    CASE 
-      WHEN a.booking_first_name IS NOT NULL AND a.booking_last_name IS NOT NULL 
-      THEN CONCAT(a.booking_first_name, ' ', a.booking_last_name)
-      WHEN a.booking_first_name IS NOT NULL 
-      THEN a.booking_first_name
-      WHEN a.booking_last_name IS NOT NULL 
-      THEN a.booking_last_name
-      ELSE NULL
-    END AS booked_by_agent_name,
-    -- SEOLeads computed field
-    CASE 
-      WHEN l.source = 'SEO' AND l.eligibility_status = 'eligible' THEN 'Yes'
-      WHEN l.source = 'SEO' AND l.eligibility_status = 'ineligible' AND (
-        LOWER(l.eligibility_notes) LIKE '%new%' OR
-        LOWER(l.eligibility_notes) LIKE '%blacklisted%' OR
-        LOWER(l.eligibility_notes) LIKE '%assigned%' OR
-        LOWER(l.eligibility_notes) LIKE '%give_up%' OR
-        LOWER(l.eligibility_notes) LIKE '%no_answer%'
-      ) THEN 'Yes'
-      ELSE 'No'
-    END AS seo_leads,
-    l.phone_number_2,
-    l.phone_number_3,
-    l.has_work_pass_expiry,
-    l.has_payslip_3months,
-    l.has_proof_of_residence,
-    l.proof_of_residence_type,
-    l.has_letter_of_consent,
-    l.employment_salary,
-    l.employment_length,
-    l.outstanding_loan_amount,
-    l.lead_score,
-    l.contact_preference,
-    l.communication_language,
-    l.follow_up_date AT TIME ZONE 'Asia/Singapore' AS follow_up_date,
-    l.is_contactable,
-    l.is_deleted,
-    l.has_exported,
-    l.exported_at AT TIME ZONE 'Asia/Singapore' AS exported_at,
-    l.loan_status,
-    l.loan_notes
-  FROM t3gallery_leads l
-  LEFT JOIN t3gallery_users assigned_agent ON assigned_agent.id = l.assigned_to
-  LEFT JOIN LATERAL (
-    SELECT a2.*, booking_user.first_name as booking_first_name, booking_user.last_name as booking_last_name
-    FROM t3gallery_appointments a2
-    LEFT JOIN t3gallery_users booking_user ON a2.created_by = booking_user.id
-    WHERE a2.lead_id = l.id
-    ORDER BY a2.created_at DESC
-    LIMIT 1
-  ) a ON true
-`);
+// // Create a view for leads with appointment status and computed fields
+// export const leadsWithAppointmentStatusAgentName = pgView("leads_with_appointment_status_agent_name", {
+//   id: integer(),
+//   full_name: varchar({ length: 255 }),
+//   email: varchar({ length: 255 }),
+//   status: varchar({ length: 50 }),
+//   source: varchar({ length: 100 }),
+//   assigned_to: varchar({ length: 256 }),
+//   assigned_to_agent_name: varchar({ length: 511 }),
+//   lead_type: varchar({ length: 50 }),
+//   created_at: timestamp({ withTimezone: true }),
+//   updated_at: timestamp({ withTimezone: true }),
+//   created_by: varchar({ length: 256 }),
+//   updated_by: varchar({ length: 256 }),
+//   phone_number: varchar({ length: 20 }),
+//   residential_status: varchar({ length: 50 }),
+//   employment_status: varchar({ length: 50 }),
+//   loan_purpose: varchar({ length: 100 }),
+//   existing_loans: varchar({ length: 50 }),
+//   amount: varchar({ length: 50 }),
+//   eligibility_checked: boolean(),
+//   eligibility_status: varchar({ length: 50 }),
+//   eligibility_notes: text(),
+//   booked: varchar({ length: 3 }),
+//   booked_by: varchar({ length: 256 }),
+//   booked_by_agent_name: varchar({ length: 511 }),
+//   seo_leads: varchar({ length: 3 }),
+//   phone_number_2: varchar({ length: 20 }),
+//   phone_number_3: varchar({ length: 20 }),
+//   has_work_pass_expiry: varchar({ length: 255 }),
+//   has_payslip_3months: boolean(),
+//   has_proof_of_residence: boolean(),
+//   proof_of_residence_type: varchar({ length: 50 }),
+//   has_letter_of_consent: boolean(),
+//   employment_salary: varchar({ length: 50 }),
+//   employment_length: varchar({ length: 50 }),
+//   outstanding_loan_amount: varchar({ length: 255 }),
+//   lead_score: integer(),
+//   contact_preference: varchar({ length: 50 }),
+//   communication_language: varchar({ length: 50 }),
+//   follow_up_date: timestamp({ withTimezone: true }),
+//   is_contactable: boolean(),
+//   is_deleted: boolean(),
+//   has_exported: boolean(),
+//   exported_at: timestamp({ withTimezone: true }),
+//   loan_status: varchar({ length: 50 }),
+//   loan_notes: text(),
+// }).as(sql`
+//   SELECT 
+//     l.id,
+//     l.full_name,
+//     l.email,
+//     l.status,
+//     l.source,
+//     l.assigned_to,
+//     CASE 
+//       WHEN assigned_agent.first_name IS NOT NULL AND assigned_agent.last_name IS NOT NULL 
+//       THEN CONCAT(assigned_agent.first_name, ' ', assigned_agent.last_name)
+//       WHEN assigned_agent.first_name IS NOT NULL 
+//       THEN assigned_agent.first_name
+//       WHEN assigned_agent.last_name IS NOT NULL 
+//       THEN assigned_agent.last_name
+//       ELSE NULL
+//     END AS assigned_to_agent_name,
+//     l.lead_type,
+//     l.created_at AT TIME ZONE 'Asia/Singapore' AS created_at,
+//     l.updated_at AT TIME ZONE 'Asia/Singapore' AS updated_at,
+//     l.created_by,
+//     l.updated_by,
+//     l.phone_number,
+//     l.residential_status,
+//     l.employment_status,
+//     l.loan_purpose,
+//     l.existing_loans,
+//     l.amount,
+//     l.eligibility_checked,
+//     l.eligibility_status,
+//     l.eligibility_notes,
+//     -- Booked status computed field
+//     CASE 
+//       WHEN a.id IS NOT NULL THEN 'Yes'
+//       ELSE 'No'
+//     END AS booked,
+//     -- Booked by user ID
+//     a.created_by AS booked_by,
+//     -- Booked by agent name
+//     CASE 
+//       WHEN a.booking_first_name IS NOT NULL AND a.booking_last_name IS NOT NULL 
+//       THEN CONCAT(a.booking_first_name, ' ', a.booking_last_name)
+//       WHEN a.booking_first_name IS NOT NULL 
+//       THEN a.booking_first_name
+//       WHEN a.booking_last_name IS NOT NULL 
+//       THEN a.booking_last_name
+//       ELSE NULL
+//     END AS booked_by_agent_name,
+//     -- SEOLeads computed field
+//     CASE 
+//       WHEN l.source = 'SEO' AND l.eligibility_status = 'eligible' THEN 'Yes'
+//       WHEN l.source = 'SEO' AND l.eligibility_status = 'ineligible' AND (
+//         LOWER(l.eligibility_notes) LIKE '%new%' OR
+//         LOWER(l.eligibility_notes) LIKE '%blacklisted%' OR
+//         LOWER(l.eligibility_notes) LIKE '%assigned%' OR
+//         LOWER(l.eligibility_notes) LIKE '%give_up%' OR
+//         LOWER(l.eligibility_notes) LIKE '%no_answer%'
+//       ) THEN 'Yes'
+//       ELSE 'No'
+//     END AS seo_leads,
+//     l.phone_number_2,
+//     l.phone_number_3,
+//     l.has_work_pass_expiry,
+//     l.has_payslip_3months,
+//     l.has_proof_of_residence,
+//     l.proof_of_residence_type,
+//     l.has_letter_of_consent,
+//     l.employment_salary,
+//     l.employment_length,
+//     l.outstanding_loan_amount,
+//     l.lead_score,
+//     l.contact_preference,
+//     l.communication_language,
+//     l.follow_up_date AT TIME ZONE 'Asia/Singapore' AS follow_up_date,
+//     l.is_contactable,
+//     l.is_deleted,
+//     l.has_exported,
+//     l.exported_at AT TIME ZONE 'Asia/Singapore' AS exported_at,
+//     l.loan_status,
+//     l.loan_notes
+//   FROM t3gallery_leads l
+//   LEFT JOIN t3gallery_users assigned_agent ON assigned_agent.id = l.assigned_to
+//   LEFT JOIN LATERAL (
+//     SELECT a2.*, booking_user.first_name as booking_first_name, booking_user.last_name as booking_last_name
+//     FROM t3gallery_appointments a2
+//     LEFT JOIN t3gallery_users booking_user ON a2.created_by = booking_user.id
+//     WHERE a2.lead_id = l.id
+//     ORDER BY a2.created_at DESC
+//     LIMIT 1
+//   ) a ON true
+// `);
 
 // Create a forced union view that combines leads and appointments with matching column structure
 // export const leadAppointmentUnion = pgView("lead_appointment_union", {
