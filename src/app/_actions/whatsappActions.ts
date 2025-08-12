@@ -3,7 +3,7 @@
 
 import { auth } from '@clerk/nextjs/server';
 import { db } from "~/server/db";
-import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments, borrowers, appointmentReminderLog } from "~/server/db/schema";
+import { whatsappTemplates, templateVariables, templateUsageLog, leads, users, appointments, borrowers, appointmentReminderLog, manualVerificationLog } from "~/server/db/schema";
 import { eq, and, desc, or } from 'drizzle-orm';
 import { env } from '~/env';
 
@@ -926,4 +926,55 @@ function getTemplateData(templateId: string, phone: string): WhatsAppRequest {
       }
     ]
   };
+}
+
+/**
+ * Store manual verification data for Ascend leads
+ */
+export async function storeManualVerification(
+  customerName: string,
+  phoneNumber: string,
+  customerHyperLink: string,
+  app: string = 'ascend'
+): Promise<{ success: boolean; message?: string; error?: string; data?: any }> {
+  try {
+    console.log('📝 Storing manual verification data:', {
+      customerName,
+      phoneNumber,
+      customerHyperLink,
+      app
+    });
+
+    // Insert into manual verification log
+    const insertResult = await db.insert(manualVerificationLog).values({
+      customer_name: customerName,
+      phone_number: phoneNumber,
+      customer_hyperlink: customerHyperLink,
+      app: app,
+      status: 'verified',
+      created_at: new Date()
+    }).returning();
+
+    console.log('✅ Manual verification data stored successfully:', insertResult[0]);
+
+    return {
+      success: true,
+      message: `Manual verification stored successfully for ${customerName}`,
+      data: {
+        id: insertResult[0]?.id,
+        customerName,
+        phoneNumber,
+        customerHyperLink,
+        app,
+        createdAt: insertResult[0]?.created_at
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Error storing manual verification data:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to store manual verification data'
+    };
+  }
 } 

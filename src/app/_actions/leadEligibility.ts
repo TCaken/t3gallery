@@ -1,11 +1,13 @@
 import { db } from "~/server/db";
 import { leads } from "~/server/db/schema";
 import { eq, and, not, or } from "drizzle-orm";
+import type { InferSelectModel } from "drizzle-orm";
 
 interface EligibilityResponse {
   isEligible: boolean;
   status: string;
   notes: string;
+  existingLead?: InferSelectModel<typeof leads> | null;
 }
 
 // Validate Singapore phone number
@@ -59,23 +61,26 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
 
     const lists = await response.json() as string[];
     
-    // Check if phone exists in leads with status other than unqualified
+    
+    // Check if phone exists in leads with status other than unqualified (get the most recent one)
     console.log('phoneNumber', phoneNumber);
     const existingLead = await db.query.leads.findFirst({
       where: and(
         or(eq(leads.phone_number, phoneNumber), eq(leads.phone_number_2, phoneNumber), eq(leads.phone_number_3, phoneNumber)),
         not(eq(leads.status, 'unqualified'))
-      )
+      ),
+      orderBy: (leads, { desc }) => [desc(leads.updated_at)]
     });
 
-    // If phone exists in our leads (non-unqualified) or in any CAPC lists, mark as unqualified
+    // If phone exists in our leads (non-unqualified) or in any CAPC lists, mark as ineligible but return existing lead
     if (lists.length > 0 || existingLead) {
       return {
         isEligible: false,
         status: 'unqualified',
         notes: lists.length > 0
           ? `Found in CAPC lists: ${lists.join(', ')}`
-          : `Phone number already exists in leads ${existingLead?.id} with status ${existingLead?.status}`
+          : `Phone number already exists in leads ${existingLead?.id} with status ${existingLead?.status}`,
+        existingLead: existingLead ?? null
       };
     }
 
@@ -83,7 +88,8 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
     return {
       isEligible: true,
       status: 'new',
-      notes: 'Not found in any lists or existing leads'
+      notes: 'Not found in any lists or existing leads',
+      existingLead: null
     };
 
   } catch (error) {
@@ -91,7 +97,8 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
     return {
       isEligible: false,
       status: 'unqualified',
-      notes: 'Error checking eligibility: ' + (error instanceof Error ? error.message : String(error))
+      notes: 'Error checking eligibility: ' + (error instanceof Error ? error.message : String(error)),
+      existingLead: null
     };
   }
 }
