@@ -320,7 +320,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
       
         
         // Determine if we should reassign based on current status
-        const statusesForReassignment = ['no_answer', 'follow_up', 'give_up', 'missed/RS'];
+        const statusesForReassignment = ['no_answer', 'give_up', 'missed/RS'];
         const shouldReassign = statusesForReassignment.includes(existingLeadToUpdate.status ?? '');
         
         const updateData: Partial<InferSelectModel<typeof leads>> = {
