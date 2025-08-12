@@ -195,8 +195,27 @@ interface CreateLeadInput {
   pushToWebhook?: boolean; // New flag to control webhook push
 }
 
+interface CreateLeadSuccessResult {
+  success: true;
+  lead: InferSelectModel<typeof leads>;
+  isReapply?: boolean;
+  message?: string;
+  reapplyData?: {
+    existingLeadId?: number;
+    updatedExistingLead?: InferSelectModel<typeof leads>;
+    reapplyMessage?: string;
+  };
+}
 
-export async function createLead(input: CreateLeadInput, assignedToMe = false) {
+interface CreateLeadErrorResult {
+  success: false;
+  error: string;
+}
+
+type CreateLeadResult = CreateLeadSuccessResult | CreateLeadErrorResult;
+
+
+export async function createLead(input: CreateLeadInput, assignedToMe = false): Promise<CreateLeadResult> {
   try {
     // Support API key authentication
     let userId: string;
@@ -277,7 +296,12 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       updated_by: input.updated_by ?? userId,
     };
 
-    // Handle reapply case
+    // Handle reapply case - update existing lead but continue to create new duplicate lead for documentation
+    let reapplyData: {
+      updatedExistingLead?: InferSelectModel<typeof leads>;
+      reapplyMessage?: string;
+    } = {};
+    
     if (isReapply && existingLeadToUpdate) {
       try {
         // Update the existing lead apply count
@@ -285,9 +309,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
         
         // Create reapply note content
         const reapplyNoteContent = `Reapply from source: ${input.source ?? 'Unknown'}`;
-        
-        // Update eligibility notes for reapply
-        const updatedEligibilityNotes = reapplyNoteContent;
+      
         
         // Determine if we should reassign based on current status
         const statusesForReassignment = ['no_answer', 'follow_up', 'give_up', 'missed/RS'];
@@ -295,7 +317,6 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
         
         const updateData: Partial<InferSelectModel<typeof leads>> = {
           apply_count: newApplyCount,
-          eligibility_notes: updatedEligibilityNotes,
           updated_at: new Date(),
           updated_by: userId
         };
@@ -348,16 +369,15 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
           await autoAssignSingleLead(existingLeadToUpdate.id);
         }
 
-        return { 
-          success: true, 
-          lead: updatedLead,
-          isReapply: true,
-          message: `Reapply processed for existing lead ${existingLeadToUpdate.id}` 
+        // Store reapply information to include in final return
+        reapplyData = {
+          updatedExistingLead: updatedLead,
+          reapplyMessage: `Updated existing lead ${existingLeadToUpdate.id} (apply count: ${newApplyCount})`
         };
         
       } catch (error) {
         console.error('Error handling reapply:', error);
-        // Fall through to create new lead if reapply update fails
+        reapplyData.reapplyMessage = `Failed to update existing lead: ${(error as Error).message}`;
       }
     }
 
@@ -480,7 +500,24 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       }
     }
 
-    return { success: true, lead: lead };
+    // Combine results to show both new lead creation and reapply information
+    const finalResponse: CreateLeadSuccessResult = { 
+      success: true, 
+      lead: lead!,  // Non-null assertion since lead is created above
+      isReapply: isReapply,
+      message: isReapply 
+        ? `New duplicate lead ${lead?.id} created for documentation. ${reapplyData.reapplyMessage || ''}` 
+        : 'Lead created successfully',
+      ...(isReapply && {
+        reapplyData: {
+          existingLeadId: existingLeadToUpdate?.id,
+          updatedExistingLead: reapplyData.updatedExistingLead,
+          reapplyMessage: reapplyData.reapplyMessage
+        }
+      })
+    };
+    
+    return finalResponse;
   } catch (error) {
     console.error('Error creating lead:', error);
     return { success: false, error: 'Failed to create lead' };
@@ -716,7 +753,7 @@ export async function importLeads(leadsData: ImportLeadData[]) {
         } else {
           results.failed.push({
             lead: leadData,
-            reason: result.error ?? 'Unknown error during lead creation'
+            reason: result.success === false ? result.error : 'Unknown error during lead creation'
           });
         }
         
