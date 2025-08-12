@@ -1,20 +1,17 @@
 /* eslint-disable @typescript-eslint/prefer-nullish-coalescing */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 'use server';
 
 import { db } from "~/server/db";
-import { leads, leadStatusEnum, leadTypeEnum, lead_notes, users, logs, appointments, roles, userRoles} from "~/server/db/schema";
+import { leads, lead_notes, users, logs, appointments, roles, userRoles} from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import type { InferSelectModel } from "drizzle-orm";
-import { eq, desc, like, or, and, SQL, asc, sql, ilike, not, isNotNull } from "drizzle-orm";
-import { getCurrentUserId } from "~/app/_actions/userActions";
+import type { SQL } from "drizzle-orm";
+import type { leadStatusEnum } from "~/server/db/schema";
+import { eq, desc, like, or, and, asc, sql, ilike, not, isNotNull } from "drizzle-orm";
 import { checkLeadEligibility } from "./leadEligibility";
 import { getUserRoles } from "~/server/rbac/queries";
 import { sendAutoTriggeredMessage } from "./whatsappActions";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import { autoAssignSingleLead } from "./agentActions";
+import { autoAssignSingleLead, getCheckedInAgents } from "./agentActions";
 
 // PII Censoring utility functions (imported from exportActions pattern)
 function censorName(name: string | null): string {
@@ -223,6 +220,10 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
     let eligibilityNotes = 'Manually created lead - bypassed eligibility check';
     let finalStatus = input.status ?? 'new';
     
+    
+    let isReapply = false;
+    let existingLeadToUpdate: InferSelectModel<typeof leads> | null = null;
+
     if (!input.bypassEligibility) {
       // Run eligibility check
       const eligibilityResult = await checkLeadEligibility(formattedPhone);
@@ -230,7 +231,14 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       eligibilityStatus = eligibilityResult.isEligible ? 'eligible' : 'ineligible';
       eligibilityNotes = eligibilityResult.notes;
       finalStatus = eligibilityResult.isEligible ? 'new' : 'unqualified';
+      
+      // Check if this is a reapply (ineligible but existing lead found)
+      if (!eligibilityResult.isEligible && eligibilityResult.existingLead) {
+        isReapply = true;
+        existingLeadToUpdate = eligibilityResult.existingLead;
+      }
     }
+
     // Prepare comprehensive values with all the new fields
     const baseValues = {
       phone_number: formattedPhone,
@@ -268,6 +276,90 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false) {
       created_by: input.created_by ?? userId,
       updated_by: input.updated_by ?? userId,
     };
+
+    // Handle reapply case
+    if (isReapply && existingLeadToUpdate) {
+      try {
+        // Update the existing lead apply count
+        const newApplyCount = (existingLeadToUpdate.apply_count || 1) + 1;
+        
+        // Create reapply note content
+        const reapplyNoteContent = `Reapply from source: ${input.source ?? 'Unknown'}`;
+        
+        // Update eligibility notes for reapply
+        const updatedEligibilityNotes = reapplyNoteContent;
+        
+        // Determine if we should reassign based on current status
+        const statusesForReassignment = ['no_answer', 'follow_up', 'give_up', 'missed/RS'];
+        const shouldReassign = statusesForReassignment.includes(existingLeadToUpdate.status ?? '');
+        
+        const updateData: Partial<InferSelectModel<typeof leads>> = {
+          apply_count: newApplyCount,
+          eligibility_notes: updatedEligibilityNotes,
+          updated_at: new Date(),
+          updated_by: userId
+        };
+        
+        // Handle status and assignment logic for reapply
+        if (shouldReassign) {
+          updateData.status = 'assigned';
+          
+          // Check if current assigned agent is checked in today
+          if (existingLeadToUpdate.assigned_to) {
+            const checkedInAgentsResult = await getCheckedInAgents();
+            const isCurrentAgentCheckedIn = checkedInAgentsResult.success && 
+              checkedInAgentsResult.agents?.some(agent => agent.agent.id === existingLeadToUpdate.assigned_to);
+              
+            if (!isCurrentAgentCheckedIn) {
+              // Current agent not checked in, will auto-assign after update
+              updateData.assigned_to = null;
+            }
+          } else {
+            // No current assignment, will auto-assign after update
+            updateData.assigned_to = null;
+          }
+        }
+        
+        // Update the existing lead
+        const [updatedLead] = await db.update(leads)
+          .set(updateData)
+          .where(eq(leads.id, existingLeadToUpdate.id))
+          .returning();
+
+        // Add reapply note
+        await db.insert(lead_notes).values({
+          lead_id: existingLeadToUpdate.id,
+          content: reapplyNoteContent,
+          created_by: userId,
+          created_at: new Date()
+        });
+
+        // Add log entry for reapply
+        await db.insert(logs).values({
+          description: `Lead reapply detected - Apply count: ${newApplyCount} | Source: ${input.source ?? 'Unknown'} | Previous status: ${existingLeadToUpdate.status}`,
+          entity_type: 'lead',
+          entity_id: existingLeadToUpdate.id.toString(),
+          action: 'reapply',
+          performed_by: userId,
+        });
+
+        // Handle auto-assignment if needed
+        if (shouldReassign && !updateData.assigned_to) {
+          await autoAssignSingleLead(existingLeadToUpdate.id);
+        }
+
+        return { 
+          success: true, 
+          lead: updatedLead,
+          isReapply: true,
+          message: `Reapply processed for existing lead ${existingLeadToUpdate.id}` 
+        };
+        
+      } catch (error) {
+        console.error('Error handling reapply:', error);
+        // Fall through to create new lead if reapply update fails
+      }
+    }
 
     // Create the lead
     const [lead] = await db.insert(leads).values(baseValues).returning();
@@ -729,7 +821,7 @@ export async function fetchLeadNotes(leadId: number) {
   }
 }
 
-export async function updateLeadDetails (leadId: number, newStatus: string) {
+export async function updateLeadDetails (_leadId: number, _newStatus: string) {
   return { success: true };
 }
 
@@ -1477,7 +1569,7 @@ export async function findDuplicatePhoneLeads() {
 
     // Filter only groups with duplicates (more than 1 lead)
     const duplicateGroups = Object.entries(phoneGroups)
-      .filter(([phone, leadsInGroup]) => leadsInGroup.length > 1)
+      .filter(([_phone, leadsInGroup]) => leadsInGroup.length > 1)
       .map(([phone, leadsInGroup]) => ({
         phoneNumber: phone,
         leads: leadsInGroup,

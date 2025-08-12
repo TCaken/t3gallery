@@ -507,6 +507,7 @@ export async function POST(request: Request) {
       );
     }
 
+    
     // Create the lead
     const createResult = await createLead({
       ...leadData,

@@ -292,6 +292,7 @@ export const leads = createTable(
     is_deleted: d.boolean().default(false),
     has_exported: d.boolean().default(false),
     exported_at: d.timestamp({ withTimezone: true }).default(sql`NULL`),
+    apply_count: d.integer().default(1),
   }),
   (t) => [
     index("lead_phone_idx").on(t.phone_number),
