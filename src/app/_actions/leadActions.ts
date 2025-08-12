@@ -307,8 +307,16 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
         // Update the existing lead apply count
         const newApplyCount = (existingLeadToUpdate.apply_count || 1) + 1;
         
-        // Create reapply note content
-        const reapplyNoteContent = `Reapply from source: ${input.source ?? 'Unknown'}`;
+        // Create reapply note content with SGT timestamp
+        const sgtTimestamp = new Date().toLocaleString('en-SG', { 
+          timeZone: 'Asia/Singapore',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        const reapplyNoteContent = `Reapply: ${input.source ?? 'Unknown'} - ${sgtTimestamp}`;
       
         
         // Determine if we should reassign based on current status
