@@ -346,6 +346,19 @@ export default function LeadCard({
                     timeZone: 'Asia/Singapore'
                   })}
                 </span>
+                {/* Created date */}
+                {lead.latest_appointment.created_at && (
+                  <span className="text-xs text-gray-500">
+                    Created: {new Date(lead.latest_appointment.created_at).toLocaleDateString('en-SG', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true,
+                      timeZone: 'Asia/Singapore'
+                    })}
+                  </span>
+                )}
               </div>
             </div>
             

@@ -321,7 +321,12 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
         
         // Determine if we should reassign based on current status
         const statusesForReassignment = ['no_answer', 'give_up', 'missed/RS'];
-        const shouldReassign = statusesForReassignment.includes(existingLeadToUpdate.status ?? '');
+        let shouldReassign = statusesForReassignment.includes(existingLeadToUpdate.status ?? '');
+        
+        // Don't reassign if status is 'missed/RS' but loan_status is 'RS'
+        if (existingLeadToUpdate.status === 'missed/RS' && existingLeadToUpdate.loan_status === 'RS') {
+          shouldReassign = false;
+        }
         
         const updateData: Partial<InferSelectModel<typeof leads>> = {
           apply_count: newApplyCount,
@@ -1385,7 +1390,8 @@ export async function fetchFilteredLeads({
         loan_status: appointments.loan_status,
         loan_notes: appointments.loan_notes,
         notes: appointments.notes,
-        created_by: appointments.created_by
+        created_by: appointments.created_by,
+        created_at: appointments.created_at
       },
       note : {
         desc : lead_notes.content
