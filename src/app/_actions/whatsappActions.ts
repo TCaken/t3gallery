@@ -935,8 +935,8 @@ export async function storeManualVerification(
   customerName: string,
   phoneNumber: string,
   customerHyperLink: string,
-  app: string = 'ascend'
-): Promise<{ success: boolean; message?: string; error?: string; data?: any }> {
+  app = 'ascend'
+): Promise<{ success: boolean; message?: string; error?: string; data?: unknown }> {
   try {
     console.log('📝 Storing manual verification data:', {
       customerName,
@@ -975,6 +975,79 @@ export async function storeManualVerification(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to store manual verification data'
+    };
+  }
+}
+
+// Function to send WhatsApp appointment reminder using the new project ID
+export async function sendAppointmentWhatsAppReminder(
+  customerName: string,
+  phoneNumber: string,
+  appointmentDate: string,
+  appointmentTime: string,
+  appointmentType = "Consultation"
+) {
+  try {
+    console.log('📱 Sending WhatsApp appointment reminder:', {
+      customerName,
+      phoneNumber,
+      appointmentDate,
+      appointmentTime,
+      appointmentType
+    });
+
+    // New project ID configuration
+    const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
+    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const projectId = "823ea3ac-0682-4660-9c12-522501217046"; // New project ID
+
+    // Use the existing formatPhoneNumber function from this file
+    const formattedPhone = formatPhoneNumber(phoneNumber);
+
+    const whatsappData: WhatsAppRequest = {
+      workspaces: workspaceId,
+      channels: channelId,
+      projectId: projectId,
+      identifierValue: formattedPhone,
+      parameters: [
+        { type: "string", key: "customer_name", value: customerName },
+        { type: "string", key: "appt_date", value: appointmentDate },
+        { type: "string", key: "time_slot", value: appointmentTime },
+        { type: "string", key: "appointment_type", value: appointmentType }
+      ]
+    };
+
+    console.log('📱 WhatsApp request data:', JSON.stringify(whatsappData, null, 2));
+
+    // Send the WhatsApp message
+    const response = await fetch('https://api.capcfintech.com/api/bird/v2/wa/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': env.WHATSAPP_API_KEY
+      },
+      body: JSON.stringify(whatsappData)
+    });
+
+    const data = await response.json() as WhatsAppResponse;
+    
+    if (!response.ok) {
+      throw new Error(data.message ?? 'Failed to send WhatsApp message');
+    }
+
+    console.log('✅ WhatsApp message sent successfully:', data);
+
+    return {
+      success: true,
+      message: 'WhatsApp appointment reminder sent successfully',
+      whatsappResponse: data
+    };
+
+  } catch (error) {
+    console.error('❌ Error sending WhatsApp appointment reminder:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send WhatsApp appointment reminder'
     };
   }
 } 

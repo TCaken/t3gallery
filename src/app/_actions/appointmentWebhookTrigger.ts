@@ -1,15 +1,32 @@
 'use server';
 
+
 import { db } from "~/server/db";
 import { appointments, leads } from "~/server/db/schema";
 import { auth } from "@clerk/nextjs/server";
 import { eq, sql, and, gte, lte } from "drizzle-orm";
 
-export async function triggerTodayAppointmentWebhooks() {
+export async function triggerTodayAppointmentWebhooks(apiKey?: string) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return { success: false, error: "Not authenticated" };
+    let userId: string | null = null;
+    
+    // Check for API key authentication first
+    if (apiKey) {
+      const workatoApiKey = process.env.WORKATO_API_KEY;
+      if (apiKey === workatoApiKey) {
+        userId = 'api_key_authenticated'; // Use a placeholder for API key auth
+        console.log('🔑 API key authentication successful');
+      } else {
+        return { success: false, error: "Invalid API key" };
+      }
+    } else {
+      // Fall back to Clerk authentication
+      const { userId: clerkUserId } = await auth();
+      if (!clerkUserId) {
+        return { success: false, error: "Not authenticated - requires either valid API key or user authentication" };
+      }
+      userId = clerkUserId;
+      console.log('👤 Clerk authentication successful');
     }
 
     // Get current date in UTC+8 (Singapore time)
@@ -75,19 +92,47 @@ export async function triggerTodayAppointmentWebhooks() {
       try {
         console.log(`🔄 Processing appointment ID: ${appointment.id} for lead: ${appointment.leadName}`);
         
-        // Import the webhook function
+        // Import the webhook functions
         const { sendAppointmentToWebhook } = await import('./appointmentWebhookActions');
+        const { sendAppointmentWhatsAppReminder } = await import('./whatsappActions');
         
         // Extract date and time from datetime
         const appointmentDate = appointment.startDatetime.toISOString().split('T')[0]; // YYYY-MM-DD
         const appointmentTime = appointment.startDatetime.toTimeString().split(' ')[0]; // HH:MM:SS
 
+        // Send to Workato webhook
         const webhookResult = await sendAppointmentToWebhook(appointment.leadId, {
           appointmentDate: appointmentDate,
           appointmentTime: appointmentTime,
           appointmentType: "Consultation",
           notes: appointment.notes ?? ""
         });
+
+        // Send WhatsApp reminder to customer (don't stop if this fails)
+        let whatsappResult = null;
+        try {
+          // Only send WhatsApp if we have valid phone number
+          if (appointment.leadPhone && appointment.leadPhone.trim() !== '') {
+            whatsappResult = await sendAppointmentWhatsAppReminder(
+              appointment.leadName ?? 'Customer',
+              appointment.leadPhone as string,
+              appointmentDate,
+              appointmentTime,
+              "Consultation"
+            );
+            
+            if (whatsappResult?.success) {
+              console.log(`✅ WhatsApp reminder sent for appointment ${appointment.id}`);
+            } else {
+              console.log(`⚠️ WhatsApp reminder failed for appointment ${appointment.id}: ${whatsappResult?.error ?? 'Unknown error'}`);
+            }
+          } else {
+            console.log(`⚠️ Skipping WhatsApp reminder for appointment ${appointment.id}: No phone number`);
+          }
+        } catch (whatsappError) {
+          console.log(`⚠️ WhatsApp reminder error for appointment ${appointment.id}:`, whatsappError);
+          // Don't stop the process, continue with other appointments
+        }
 
         if (webhookResult?.success) {
           successCount++;
@@ -135,7 +180,8 @@ export async function triggerTodayAppointmentWebhooks() {
       errorCount,
       currentDate: todayDateString,
       singaporeTime: singaporeTime.toISOString(),
-      appointments: results
+      appointments: results,
+      authenticatedBy: userId === 'api_key_authenticated' ? 'API Key' : 'User Session'
     };
 
   } catch (error) {
