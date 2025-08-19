@@ -616,6 +616,7 @@ export async function fetchAppointments(filters: {
   }
 }
 
+
 /**
  * Get a single appointment by ID
  */

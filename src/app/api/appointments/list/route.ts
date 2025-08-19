@@ -24,6 +24,7 @@ function censorEmail(email: string | null | undefined): string {
   return user[0] + '*'.repeat(Math.max(0, user.length - 1)) + '@' + domain;
 }
 
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
