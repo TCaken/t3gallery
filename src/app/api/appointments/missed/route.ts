@@ -46,7 +46,28 @@ export async function POST(request: NextRequest) {
     });
     
     // Use provided date or default to today
-    const targetDate = todaysDate ?? new Date().toISOString().split('T')[0];
+    let targetDate: string;
+    
+    if (todaysDate) {
+      // Handle different date formats - extract just the date part
+      if (todaysDate.includes('T')) {
+        // If it's an ISO string, extract just the date part
+        targetDate = todaysDate.split('T')[0] ?? '';
+      } else {
+        // If it's already just a date string
+        targetDate = todaysDate;
+      }
+    } else {
+      // Default to today
+      targetDate = new Date().toISOString().split('T')[0] ?? '';
+    }
+    
+    // Ensure we have a valid date
+    if (!targetDate || targetDate.length !== 10) {
+      targetDate = new Date().toISOString().split('T')[0] ?? '';
+    }
+    
+    console.log('📅 Parsed target date:', targetDate);
     
     // Create date range for the entire day (GMT+8)
     // Since the date is already in GMT+8, we'll create a range from start to end of day
