@@ -329,27 +329,28 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
         }
         
         const updateData: Partial<InferSelectModel<typeof leads>> = {
+          assigned_to: existingLeadToUpdate.assigned_to,
           apply_count: newApplyCount,
           updated_at: new Date(),
           updated_by: userId
         };
         
         // Handle status and assignment logic for reapply
-        if (shouldReassign) {
-          updateData.status = 'assigned';
-          
+        if (shouldReassign) {      
           // Check if current assigned agent is checked in today
           if (existingLeadToUpdate.assigned_to) {
+            updateData.status = 'assigned';
             const checkedInAgentsResult = await getCheckedInAgents();
             const isCurrentAgentCheckedIn = checkedInAgentsResult.success && 
               checkedInAgentsResult.agents?.some(agent => agent.agent.id === existingLeadToUpdate.assigned_to);
               
             if (!isCurrentAgentCheckedIn) {
               // Current agent not checked in, will auto-assign after update
-              updateData.assigned_to = null;
+              updateData.status = 'assigned';
             }
           } else {
             // No current assignment, will auto-assign after update
+            updateData.status = 'new';
             updateData.assigned_to = null;
           }
         }
@@ -396,6 +397,29 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
 
     // Create the lead
     const [lead] = await db.insert(leads).values(baseValues).returning();
+
+    // Send Whatsapp message to lead if they are new
+    if(lead && lead.status === 'new') {
+      try {
+        // Import the new lead reminder function
+        const { sendNewLeadReminders } = await import('./whatsappActions');
+        
+        // Send both new lead reminders back to back
+        const reminderResult = await sendNewLeadReminders(
+          lead.phone_number ?? '',
+          lead.full_name ?? ''
+        );
+        
+        if (reminderResult.success) {
+          console.log('✅ New lead reminders sent successfully for lead:', lead.id);
+        } else {
+          console.warn('⚠️ Failed to send new lead reminders:', reminderResult.error);
+        }
+      } catch (error) {
+        console.error('❌ Error sending new lead reminders:', error);
+        // Don't fail lead creation if WhatsApp reminders fail
+      }
+    }
 
     // Add log entry for lead creation with important business information
     const createLogDescription = [

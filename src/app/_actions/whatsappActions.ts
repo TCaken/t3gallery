@@ -1051,3 +1051,177 @@ export async function sendAppointmentWhatsAppReminder(
     };
   }
 } 
+
+// Function to send new lead reminder 1 (after 5 minutes)
+export async function sendNewLeadReminder1(
+  phoneNumber: string,
+  customerName?: string
+) {
+  try {
+    console.log('📱 Sending new lead reminder 1:', {
+      phoneNumber,
+      customerName
+    });
+
+    // Project ID for new lead reminder 1
+    const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
+    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const projectId = "3ebc38c0-8f77-4859-8909-b60c75eab05d";
+
+    // Format phone number
+    const formattedPhone = formatPhoneNumber(phoneNumber);
+
+    const whatsappData: WhatsAppRequest = {
+      workspaces: workspaceId,
+      channels: channelId,
+      projectId: projectId,
+      identifierValue: formattedPhone,
+      parameters: [] // No parameters needed
+    };
+
+    console.log('📱 WhatsApp request data for reminder 1:', JSON.stringify(whatsappData, null, 2));
+
+    // Send the WhatsApp message
+    const response = await fetch('https://api.capcfintech.com/api/bird/v2/wa/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': env.WHATSAPP_API_KEY
+      },
+      body: JSON.stringify(whatsappData)
+    });
+
+    const data = await response.json() as WhatsAppResponse;
+    
+    if (!response.ok) {
+      throw new Error(data.message ?? 'Failed to send WhatsApp message');
+    }
+
+    console.log('✅ New lead reminder 1 sent successfully:', data);
+
+    return {
+      success: true,
+      message: 'New lead reminder 1 sent successfully',
+      whatsappResponse: data
+    };
+
+  } catch (error) {
+    console.error('❌ Error sending new lead reminder 1:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send new lead reminder 1'
+    };
+  }
+}
+
+// Function to send new lead reminder 2 (back to back)
+export async function sendNewLeadReminder2(
+  phoneNumber: string,
+  customerName?: string
+) {
+  try {
+    console.log('📱 Sending new lead reminder 2:', {
+      phoneNumber,
+      customerName
+    });
+
+    // Project ID for new lead reminder 2
+    const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
+    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const projectId = "aa8cad3a-7452-42e9-bc39-d781052521cf";
+
+    // Format phone number
+    const formattedPhone = formatPhoneNumber(phoneNumber);
+
+    const whatsappData: WhatsAppRequest = {
+      workspaces: workspaceId,
+      channels: channelId,
+      projectId: projectId,
+      identifierValue: formattedPhone,
+      parameters: [] // No parameters needed
+    };
+
+    console.log('📱 WhatsApp request data for reminder 2:', JSON.stringify(whatsappData, null, 2));
+
+    // Send the WhatsApp message
+    const response = await fetch('https://api.capcfintech.com/api/bird/v2/wa/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': env.WHATSAPP_API_KEY
+      },
+      body: JSON.stringify(whatsappData)
+    });
+
+    const data = await response.json() as WhatsAppResponse;
+    
+    if (!response.ok) {
+      throw new Error(data.message ?? 'Failed to send WhatsApp message');
+    }
+
+    console.log('✅ New lead reminder 2 sent successfully:', data);
+
+    return {
+      success: true,
+      message: 'New lead reminder 2 sent successfully',
+      whatsappResponse: data
+    };
+
+  } catch (error) {
+    console.error('❌ Error sending new lead reminder 2:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send new lead reminder 2'
+    };
+  }
+}
+
+// Function to send both new lead reminders in sequence
+export async function sendNewLeadReminders(
+  phoneNumber: string,
+  customerName?: string
+) {
+  try {
+    console.log('📱 Sending both new lead reminders:', {
+      phoneNumber,
+      customerName
+    });
+
+    // Send reminder 1 first
+    const reminder1Result = await sendNewLeadReminder1(phoneNumber, customerName);
+    if (!reminder1Result.success) {
+      return {
+        success: false,
+        error: `Failed to send reminder 1: ${reminder1Result.error}`,
+        reminder1Result
+      };
+    }
+
+    // Send reminder 2 back to back
+    const reminder2Result = await sendNewLeadReminder2(phoneNumber, customerName);
+    if (!reminder2Result.success) {
+      return {
+        success: false,
+        error: `Failed to send reminder 2: ${reminder2Result.error}`,
+        reminder1Result,
+        reminder2Result
+      };
+    }
+
+    console.log('✅ Both new lead reminders sent successfully');
+
+    return {
+      success: true,
+      message: 'Both new lead reminders sent successfully',
+      reminder1Result,
+      reminder2Result
+    };
+
+  } catch (error) {
+    console.error('❌ Error sending new lead reminders:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send new lead reminders'
+    };
+  }
+} 
