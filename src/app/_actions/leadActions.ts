@@ -398,29 +398,6 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
     // Create the lead
     const [lead] = await db.insert(leads).values(baseValues).returning();
 
-    // Send Whatsapp message to lead if they are new
-    if(lead && lead.status === 'new') {
-      try {
-        // Import the new lead reminder function
-        const { sendNewLeadReminders } = await import('./whatsappActions');
-        
-        // Send both new lead reminders back to back
-        const reminderResult = await sendNewLeadReminders(
-          lead.phone_number ?? '',
-          lead.full_name ?? ''
-        );
-        
-        if (reminderResult.success) {
-          console.log('✅ New lead reminders sent successfully for lead:', lead.id);
-        } else {
-          console.warn('⚠️ Failed to send new lead reminders:', reminderResult.error);
-        }
-      } catch (error) {
-        console.error('❌ Error sending new lead reminders:', error);
-        // Don't fail lead creation if WhatsApp reminders fail
-      }
-    }
-
     // Add log entry for lead creation with important business information
     const createLogDescription = [
       `Created new lead - Status: ${finalStatus}`,
@@ -529,11 +506,49 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
           });
         } else {
           // If creator is not an agent, fall back to auto-assignment
-          await autoAssignSingleLead(lead.id);
+          const autoAssignResult = await autoAssignSingleLead(lead.id);
+          
+          // If auto-assignment failed, send reminder to customer
+          if (!autoAssignResult.success) {
+            console.log('Auto-assignment failed, sending reminder to customer:', autoAssignResult.message);
+            try {
+              const { sendNewLeadReminder1 } = await import('./whatsappActions');
+              const reminderResult = await sendNewLeadReminder1(
+                lead.phone_number ?? '',
+                lead.full_name ?? ''
+              );
+              if (reminderResult.success) {
+                console.log('✅ Reminder sent successfully after auto-assignment failure');
+              } else {
+                console.error('❌ Failed to send reminder after auto-assignment failure:', reminderResult.error);
+              }
+            } catch (reminderError) {
+              console.error('❌ Error sending reminder after auto-assignment failure:', reminderError);
+            }
+          }
         }
       } else {
         // Normal auto-assignment process
-        await autoAssignSingleLead(lead.id);
+        const autoAssignResult = await autoAssignSingleLead(lead.id);
+        
+        // If auto-assignment failed, send reminder to customer
+        if (!autoAssignResult.success) {
+          console.log('Auto-assignment failed, sending reminder to customer:', autoAssignResult.message);
+          try {
+            const { sendNewLeadReminder1 } = await import('./whatsappActions');
+            const reminderResult = await sendNewLeadReminder1(
+              lead.phone_number ?? '',
+              lead.full_name ?? ''
+            );
+            if (reminderResult.success) {
+              console.log('✅ Reminder sent successfully after auto-assignment failure');
+            } else {
+              console.error('❌ Failed to send reminder after auto-assignment failure:', reminderResult.error);
+            }
+          } catch (reminderError) {
+            console.error('❌ Error sending reminder after auto-assignment failure:', reminderError);
+          }
+        }
       }
     }
 
