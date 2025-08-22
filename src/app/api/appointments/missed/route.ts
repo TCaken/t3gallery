@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
       endOfDay: endOfDay.toISOString()
     });
     
-          try {
+    try {
         // Query lead appointments with lead details in a single JOIN query
         const missedAppointmentsWithDetails = await db
           .select({
@@ -135,8 +135,88 @@ export async function POST(request: NextRequest) {
             created_at: appointment.created_at?.toISOString()
           };
         });
-      
-              // Calculate summary statistics
+        
+        // Send WhatsApp reminders for missed appointments
+        const whatsappResults = [];
+        try {
+          if (formattedAppointments.length > 0) {
+            console.log('📱 Sending WhatsApp reminders for missed appointments...');
+            
+            // Import the WhatsApp function
+            const { sendMissedAppointmentReminder } = await import('~/app/_actions/whatsappActions');
+            
+            // Send reminders one by one for each missed appointment
+            for (const appointment of formattedAppointments) {
+              try {
+                console.log(`📱 Sending reminder for appointment ${appointment.appointment_id} to ${appointment.lead_name}`);
+                
+                // Skip if no valid phone number
+                if (!appointment.lead_phone || appointment.lead_phone === 'Unknown') {
+                  console.warn(`⚠️ Skipping appointment ${appointment.appointment_id} - no valid phone number`);
+                  whatsappResults.push({
+                    appointment_id: appointment.appointment_id,
+                    lead_name: appointment.lead_name,
+                    status: 'skipped',
+                    reason: 'No valid phone number'
+                  });
+                  continue;
+                }
+                
+                // Send the reminder
+                const reminderResult = await sendMissedAppointmentReminder(
+                  appointment.lead_phone,
+                  appointment.lead_name
+                );
+                
+                whatsappResults.push({
+                  appointment_id: appointment.appointment_id,
+                  lead_name: appointment.lead_name,
+                  status: reminderResult.success ? 'success' : 'failed',
+                  reason: reminderResult.success ? 'Reminder sent successfully' : reminderResult.error,
+                  whatsappResult: reminderResult
+                });
+                
+                if (reminderResult.success) {
+                  console.log(`✅ Reminder sent successfully for ${appointment.lead_name}`);
+                } else {
+                  console.error(`❌ Failed to send reminder for ${appointment.lead_name}:`, reminderResult.error);
+                }
+                
+              } catch (error) {
+                console.error(`❌ Error processing appointment ${appointment.appointment_id}:`, error);
+                whatsappResults.push({
+                  appointment_id: appointment.appointment_id,
+                  lead_name: appointment.lead_name,
+                  status: 'error',
+                  reason: `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                });
+              }
+            }
+            
+            // Calculate WhatsApp summary
+            const successful = whatsappResults.filter(r => r.status === 'success').length;
+            const failed = whatsappResults.filter(r => r.status === 'failed').length;
+            const skipped = whatsappResults.filter(r => r.status === 'skipped').length;
+            const errors = whatsappResults.filter(r => r.status === 'error').length;
+            
+            console.log(`📊 WhatsApp reminders completed:`, {
+              total: whatsappResults.length,
+              successful,
+              failed,
+              skipped,
+              errors
+            });
+            
+          }
+        } catch (whatsappError) {
+          console.error('❌ Error in WhatsApp reminder process:', whatsappError);
+          whatsappResults.push({
+            status: 'error',
+            reason: `System error: ${whatsappError instanceof Error ? whatsappError.message : 'Unknown error'}`
+          });
+        }
+        
+        // Calculate summary statistics
         const totalMissed = formattedAppointments.filter((apt) => apt.status === 'missed').length;
         const totalCancelled = formattedAppointments.filter((apt) => apt.status === 'cancelled').length;
         const totalProcessed = formattedAppointments.length;
@@ -151,24 +231,24 @@ export async function POST(request: NextRequest) {
             currentDate: targetDate,
             singaporeTime: new Date().toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }),
             missedAppointments: formattedAppointments,
-          summary: {
-            totalMissed,
-            totalCancelled,
-            totalProcessed,
-            rescheduledCount: 0, // You can add this logic if needed
-            followUpRequired: totalProcessed // All missed/cancelled appointments need follow-up
-          },
-          queryInfo: {
-            dateRange: {
-              start: startOfDay.toISOString(),
-              end: endOfDay.toISOString()
+            whatsappReminders: whatsappResults,
+            summary: {
+              totalMissed,
+              totalCancelled,
+              totalProcessed,
+              rescheduledCount: 0, // You can add this logic if needed
+              followUpRequired: totalProcessed // All missed/cancelled appointments need follow-up
             },
-            totalFound: totalProcessed
+            queryInfo: {
+              dateRange: {
+                start: startOfDay.toISOString(),
+                end: endOfDay.toISOString()
+              },
+              totalFound: totalProcessed
+            }
           }
-        }
-      }, { status: 200 });
-      
-    } catch (dbError) {
+        }, { status: 200 });
+      } catch (dbError) {
       console.error('❌ Database error while querying appointments:', dbError);
       return NextResponse.json({
         success: false,
@@ -211,8 +291,9 @@ export async function GET() {
       success: true,
       data: {
         missedAppointments: 'Array of missed/cancelled appointments',
+        whatsappReminders: 'Array of WhatsApp reminder results for each appointment',
         summary: 'Summary statistics',
-        testMode: 'Always true for this endpoint'
+        queryInfo: 'Query execution details'
       }
     }
   }, { status: 200 });

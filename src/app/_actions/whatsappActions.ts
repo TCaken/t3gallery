@@ -1226,212 +1226,64 @@ export async function sendNewLeadReminders(
   }
 } 
 
-// Function to send yesterday's missed appointment reminders
-export async function sendYesterdayMissedAppointmentReminder() {
+// Function to send a single missed appointment reminder
+export async function sendMissedAppointmentReminder(
+  phoneNumber: string,
+  customerName?: string
+) {
   try {
-    console.log('📱 Starting yesterday missed appointment reminders...');
-    
-    // Get yesterday's date in YYYY-MM-DD format
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayDate = yesterday.toISOString().split('T')[0];
-    
-    console.log('📅 Processing missed appointments for:', yesterdayDate);
-    
-    // Import the missed appointments API function
-    const { db } = await import('~/server/db');
-    const { appointments, leads } = await import('~/server/db/schema');
-    const { eq, and, or, gte, lte } = await import('drizzle-orm');
-    
-    // Create date range for yesterday (GMT+8)
-    const startOfDay = new Date(`${yesterdayDate}T00:00:00+08:00`);
-    const endOfDay = new Date(`${yesterdayDate}T23:59:59+08:00`);
-    
-    // Query yesterday's missed appointments with lead details
-    const missedAppointments = await db
-      .select({
-        appointment_id: appointments.id,
-        appointment_date: appointments.start_datetime,
-        appointment_time: appointments.start_datetime,
-        status: appointments.status,
-        notes: appointments.notes,
-        created_at: appointments.created_at,
-        lead_id: leads.id,
-        lead_name: leads.full_name,
-        lead_phone: leads.phone_number
-      })
-      .from(appointments)
-      .leftJoin(leads, eq(appointments.lead_id, leads.id))
-      .where(
-        and(
-          gte(appointments.start_datetime, startOfDay),
-          lte(appointments.start_datetime, endOfDay),
-          eq(appointments.status, 'missed')
-        )
-      );
-    
-    console.log(`📊 Found ${missedAppointments.length} missed appointments for yesterday`);
-    
-    if (missedAppointments.length === 0) {
-      return {
-        success: true,
-        message: 'No missed appointments found for yesterday',
-        data: {
-          processedDate: yesterdayDate,
-          totalAppointments: 0,
-          results: []
-        }
-      };
-    }
-    
-    // Project ID for yesterday missed appointment reminders
+    console.log('📱 Sending missed appointment reminder:', {
+      phoneNumber,
+      customerName
+    });
+
+    // Project ID for missed appointment reminders
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
     const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
     const projectId = "91891f46-fb65-43d0-ac3f-562224ba9462";
-    
-    // Process each missed appointment and send WhatsApp reminder
-    const results = [];
-    for (const appointment of missedAppointments) {
-      try {
-        console.log(`📱 Processing appointment ${appointment.appointment_id} for ${appointment.lead_name}`);
-        
-        // Format phone number
-        const formattedPhone = formatPhoneNumber(appointment.lead_phone ?? '');
-        
-        if (!formattedPhone || formattedPhone === 'Unknown') {
-          console.warn(`⚠️ Skipping appointment ${appointment.appointment_id} - no valid phone number`);
-          results.push({
-            appointment_id: appointment.appointment_id,
-            lead_id: appointment.lead_id,
-            lead_name: appointment.lead_name,
-            lead_phone: appointment.lead_phone,
-            status: 'skipped',
-            reason: 'No valid phone number',
-            whatsappResult: null
-          });
-          continue;
-        }
-        
-        // Format appointment time
-        const appointmentTime = appointment.appointment_time 
-          ? new Date(appointment.appointment_time).toLocaleTimeString('en-SG', { 
-              timeZone: 'Asia/Singapore',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            })
-          : 'Unknown';
-        
-        // Prepare WhatsApp data
-        const whatsappData: WhatsAppRequest = {
-          workspaces: workspaceId,
-          channels: channelId,
-          projectId: projectId,
-          identifierValue: formattedPhone,
-          parameters: [
-            { type: "string", key: "customer_name", value: appointment.lead_name ?? 'Customer' },
-            { type: "string", key: "appt_date", value: yesterdayDate },
-            { type: "string", key: "time_slot", value: appointmentTime }
-          ]
-        };
-        
-        console.log('📱 WhatsApp request data:', JSON.stringify(whatsappData, null, 2));
-        
-        // Send the WhatsApp message
-        const response = await fetch('https://api.capcfintech.com/api/bird/v2/wa/', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': env.WHATSAPP_API_KEY
-          },
-          body: JSON.stringify(whatsappData)
-        });
-        
-        const whatsappResponse = await response.json() as WhatsAppResponse;
-        
-        if (response.ok) {
-          console.log(`✅ WhatsApp reminder sent successfully for ${appointment.lead_name}`);
-          results.push({
-            appointment_id: appointment.appointment_id,
-            lead_id: appointment.lead_id,
-            lead_name: appointment.lead_name,
-            lead_phone: appointment.lead_phone,
-            status: 'success',
-            reason: 'WhatsApp sent successfully',
-            whatsappResult: {
-              success: true,
-              response: whatsappResponse,
-              statusCode: response.status
-            }
-          });
-        } else {
-          console.error(`❌ Failed to send WhatsApp for ${appointment.lead_name}:`, whatsappResponse);
-          results.push({
-            appointment_id: appointment.appointment_id,
-            lead_id: appointment.lead_id,
-            lead_name: appointment.lead_name,
-            lead_phone: appointment.lead_phone,
-            status: 'failed',
-            reason: `WhatsApp API error: ${whatsappResponse.message ?? 'Unknown error'}`,
-            whatsappResult: {
-              success: false,
-              response: whatsappResponse,
-              statusCode: response.status,
-              error: whatsappResponse.message ?? 'Unknown error'
-            }
-          });
-        }
-        
-      } catch (error) {
-        console.error(`❌ Error processing appointment ${appointment.appointment_id}:`, error);
-        results.push({
-          appointment_id: appointment.appointment_id,
-          lead_id: appointment.lead_id,
-          lead_name: appointment.lead_name,
-          lead_phone: appointment.lead_phone,
-          status: 'error',
-          reason: `Processing error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          whatsappResult: null
-        });
-      }
-    }
-    
-    // Calculate summary
-    const successful = results.filter(r => r.status === 'success').length;
-    const failed = results.filter(r => r.status === 'failed').length;
-    const skipped = results.filter(r => r.status === 'skipped').length;
-    const errors = results.filter(r => r.status === 'error').length;
-    
-    console.log(`📊 Yesterday missed appointment reminders completed:`, {
-      total: results.length,
-      successful,
-      failed,
-      skipped,
-      errors
+
+    // Format phone number
+    const formattedPhone = formatPhoneNumber(phoneNumber);
+
+    const whatsappData: WhatsAppRequest = {
+      workspaces: workspaceId,
+      channels: channelId,
+      projectId: projectId,
+      identifierValue: formattedPhone,
+      parameters: [] // No parameters needed for this template
+    };
+
+    console.log('📱 WhatsApp request data:', JSON.stringify(whatsappData, null, 2));
+
+    // Send the WhatsApp message
+    const response = await fetch('https://api.capcfintech.com/api/bird/v2/wa/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': env.WHATSAPP_API_KEY
+      },
+      body: JSON.stringify(whatsappData)
     });
+
+    const data = await response.json() as WhatsAppResponse;
     
+    if (!response.ok) {
+      throw new Error(data.message ?? 'Failed to send WhatsApp message');
+    }
+
+    console.log('✅ Missed appointment reminder sent successfully:', data);
+
     return {
       success: true,
-      message: `Yesterday missed appointment reminders processed`,
-      data: {
-        processedDate: yesterdayDate,
-        totalAppointments: results.length,
-        summary: {
-          successful,
-          failed,
-          skipped,
-          errors
-        },
-        results: results
-      }
+      message: 'Missed appointment reminder sent successfully',
+      whatsappResponse: data
     };
-    
+
   } catch (error) {
-    console.error('❌ Error in sendYesterdayMissedAppointmentReminder:', error);
+    console.error('❌ Error sending missed appointment reminder:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to process yesterday missed appointments',
-      data: null
+      error: error instanceof Error ? error.message : 'Failed to send missed appointment reminder'
     };
   }
 } 
