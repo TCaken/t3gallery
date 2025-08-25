@@ -150,12 +150,26 @@ export async function getCheckedInAgents() {
 }
 
 // Auto-assign leads to checked-in agents (manual assignment by admin)
-export async function autoAssignLeads() {
+// Can be called with API key for automated systems or without for authenticated users
+export async function autoAssignLeads(apiKey?: string) {
   try {
-    const { userId } = await auth();
+    let userId: string | null = null;
     
-    if (!userId) {
-      return { success: false, message: "Not authenticated" };
+    // Check if this is an API call with valid API key
+    if (apiKey) {
+      const expectedApiKey = process.env.AUTO_ASSIGNMENT_API_KEY;
+      if (!expectedApiKey || apiKey !== expectedApiKey) {
+        return { success: false, message: "Invalid API key" };
+      }
+      userId = 'api'; // Use 'api' as the user ID for API calls
+    } else {
+      // Regular authenticated call
+      const authResult = await auth();
+      userId = authResult.userId;
+      
+      if (!userId) {
+        return { success: false, message: "Not authenticated" };
+      }
     }
 
     // Get all checked-in agents (no settings check needed for manual assignment)
