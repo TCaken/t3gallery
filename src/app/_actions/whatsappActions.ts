@@ -1057,6 +1057,15 @@ export async function sendNewLeadReminder1(
   phoneNumber: string,
   customerName?: string
 ) {
+  if (process.env.NEXT_PUBLIC_ENVIRONMENT !== 'production') {
+    return {
+      success: true,
+      message: 'New lead reminder 1 sent successfully (staging skipped)',
+      whatsappResponse: {
+        message: 'New lead reminder 1 sent successfully (staging skipped)'
+      }
+    };
+  }
   try {
     console.log('📱 Sending new lead reminder 1:', {
       phoneNumber,

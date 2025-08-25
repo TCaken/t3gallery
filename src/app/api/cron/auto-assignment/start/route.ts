@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '~/server/db';
-import { autoAssignmentSettings } from '~/server/db/schema';
-import { eq } from 'drizzle-orm';
+import { autoAssignmentSettings, checkedInAgents } from '~/server/db/schema';
+import { eq, and, sql, asc } from 'drizzle-orm';
+import { autoAssignLeads } from '~/app/_actions/agentActions';
+
 
 // Define the request schema
 const RequestSchema = z.object({
@@ -58,6 +60,25 @@ export async function POST(request: Request) {
       });
     }
 
+    // Check if there are any checked-in agents for today
+    const checkedInAgentsList = await db.query.checkedInAgents.findMany({
+      where: and(
+        eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
+        eq(checkedInAgents.is_active, true)
+      ),
+      with: {
+        agent: true
+      },
+      orderBy: [asc(checkedInAgents.id)]
+    });
+
+    if (checkedInAgentsList.length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: "No agents are checked in today. Auto-assignment cannot proceed."
+      }, { status: 400 });
+    }
+
     // Update existing settings to enable auto-assignment
     const updatedSettings = await db
       .update(autoAssignmentSettings)
@@ -69,10 +90,14 @@ export async function POST(request: Request) {
       .where(eq(autoAssignmentSettings.id, currentSettings.id))
       .returning();
 
+    // Trigger auto-assignment of leads with API key
+    const autoAssignResult = await autoAssignLeads(parsedBody.data.api_key);
+
     return NextResponse.json({
       success: true,
-      message: "Auto-assignment enabled successfully",
-      settings: updatedSettings[0]
+      message: "Auto-assignment enabled successfully and leads assigned",
+      settings: updatedSettings[0],
+      autoAssignResult: autoAssignResult
     });
 
   } catch (error) {

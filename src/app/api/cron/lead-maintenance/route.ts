@@ -82,34 +82,35 @@ export async function POST(request: Request) {
       delete params.days_threshold;
     }
 
-    const deleteResponse = await fetch(new URL('/api/leads/auto-delete', request.url), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(params)
-    });
+    // const deleteResponse = await fetch(new URL('/api/leads/auto-delete', request.url), {
+    //   method: 'POST',
+    //   headers: {
+    //     'Content-Type': 'application/json'
+    //   },
+    //   body: JSON.stringify(params)
+    // });
 
-    if (!deleteResponse.ok) {
-      const deleteError = await deleteResponse.json();
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: "Error in lead deletion step",
-          update_result: updateResult,
-          delete_error: deleteError 
-        },
-        { status: 500 }
-      );
-    }
+    // if (!deleteResponse.ok) {
+    //   const deleteError = await deleteResponse.json();
+    //   return NextResponse.json(
+    //     { 
+    //       success: false, 
+    //       message: "Error in lead deletion step",
+    //       update_result: updateResult,
+    //       delete_error: deleteError 
+    //     },
+    //     { status: 500 }
+    //   );
+    // }
 
-    const deleteResult = await deleteResponse.json();
+    // const deleteResult = await deleteResponse.json();
 
     // Return combined results
     return NextResponse.json({
       success: true,
+      message: "Lead maintenance completed successfully",
       update_result: updateResult,
-      delete_result: deleteResult
+      // delete_result: deleteResult
     });
 
   } catch (error) {
