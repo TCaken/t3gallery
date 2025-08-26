@@ -302,6 +302,7 @@ export const leads = createTable(
   ]
 );
 
+
 // Lead Actions table
 export const lead_actions = createTable(
   "lead_actions",
@@ -454,6 +455,7 @@ export const users = createTable(
     password_hash: d.text(),
     role: d.varchar({ length: 50 }).default('user'),
     team: d.varchar({ length: 100 }),
+    weight: d.integer().default(1),
     is_verified: d.boolean().default(false),
     status: d.varchar({ length: 50 }).default('active').notNull(), // Add status field
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),

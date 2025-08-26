@@ -26,6 +26,10 @@ export async function checkInAgent() {
       ),
     });
 
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+
     if (existingCheckIn) {
       // Update existing check-in
       await db
@@ -47,6 +51,7 @@ export async function checkInAgent() {
     await db.insert(checkedInAgents).values({
       agent_id: userId,
       checked_in_date: sql`CURRENT_DATE`,
+      weight: user?.weight ?? 1,
       is_active: true,
       created_at: new Date(),
       updated_at: new Date(),
@@ -205,7 +210,7 @@ export async function autoAssignLeads(apiKey?: string) {
       }
     }
     
-    console.log('Weighted agents distribution:', weightedCheckedInAgentsList.map(a => `${a.agent.first_name || a.agent.email} (weight: ${a.weight})`));
+    console.log('Weighted agents distribution:', weightedCheckedInAgentsList.map(a => `${a.agent.first_name ?? a.agent.email} (weight: ${a.weight})`));
     console.log('Total weighted positions:', weightedCheckedInAgentsList.length);
 
     // Get new unassigned leads ordered by ID to ensure fair distribution
@@ -1111,6 +1116,189 @@ export async function getManualAssignmentPreview() {
       preview: [],
       totalAgents: 0,
       totalLeads: 0
+    };
+  }
+}
+
+// Get auto-assignment leads preview with weighted distribution
+export async function getAutoAssignmentLeadsPreview() {
+  try {
+    // Get all checked-in agents (no settings check needed for preview)
+    const checkedInAgentsList = await db.query.checkedInAgents.findMany({
+      where: and(
+        eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
+        eq(checkedInAgents.is_active, true)
+      ),
+      with: {
+        agent: true
+      },
+      orderBy: [asc(checkedInAgents.id)] // Consistent ordering for round-robin
+    });
+
+    if (checkedInAgentsList.length === 0) {
+      return {
+        success: false,
+        message: "No agents are checked in today",
+        preview: [],
+        totalAgents: 0,
+        totalLeads: 0,
+        weightedPositions: 0
+      };
+    }
+
+    // Generate weighted list based on agent weights
+    // Example: agent1 weight=2, agent2 weight=3 -> [agent1, agent1, agent2, agent2, agent2]
+    const weightedCheckedInAgentsList: typeof checkedInAgentsList = [];
+    
+    for (const agent of checkedInAgentsList) {
+      const weight = agent.weight ?? 1; // Default weight of 1 if not set
+      for (let i = 0; i < weight; i++) {
+        weightedCheckedInAgentsList.push(agent);
+      }
+    }
+
+    // Get new unassigned leads ordered by ID to ensure fair distribution
+    const unassignedLeads = await db.query.leads.findMany({
+      where: and(
+        eq(leads.status, 'new'),
+        isNull(leads.assigned_to)
+      ),
+      orderBy: [asc(leads.id)] // Order by ID for consistent round-robin
+    });
+
+    if (unassignedLeads.length === 0) {
+      return {
+        success: true,
+        message: "No new unassigned leads available",
+        preview: checkedInAgentsList.map(agentRecord => {
+          const agent = agentRecord.agent;
+          const firstName = agent?.first_name ?? '';
+          const lastName = agent?.last_name ?? '';
+          const agentName = `${firstName} ${lastName}`.trim() || 'Unknown';
+          
+          return {
+            agentId: agentRecord.agent_id,
+            agentName,
+            leadCount: 0,
+            weight: agentRecord.weight ?? 1,
+            weightedPositions: agentRecord.weight ?? 1,
+            currentCount: agentRecord.current_lead_count ?? 0,
+            capacity: agentRecord.lead_capacity ?? 10
+          };
+        }),
+        totalAgents: checkedInAgentsList.length,
+        totalLeads: 0,
+        weightedPositions: weightedCheckedInAgentsList.length
+      };
+    }
+
+    // Get current auto-assignment settings for round-robin index
+    const currentSettings = await getAutoAssignmentSettings();
+    if (!currentSettings.success || !currentSettings.settings) {
+      return {
+        success: false,
+        message: "Could not get current settings",
+        preview: [],
+        totalAgents: 0,
+        totalLeads: 0,
+        weightedPositions: 0
+      };
+    }
+
+    const currentRoundRobinIndex = currentSettings.settings.current_round_robin_index ?? 0;
+    let currentIndex = currentRoundRobinIndex % weightedCheckedInAgentsList.length;
+
+    // Calculate distribution mathematically without simulating each lead
+    const agentLeadCounts = new Map<string, number>();
+    
+    // Initialize counts
+    checkedInAgentsList.forEach(agent => {
+      agentLeadCounts.set(agent.agent_id, 0);
+    });
+    
+    // Mathematical calculation of lead distribution
+    const totalLeads = unassignedLeads.length;
+    const totalWeightedPositions = weightedCheckedInAgentsList.length;
+    
+    if (totalLeads > 0) {
+      // Calculate complete cycles and remaining leads
+      const completeCycles = Math.floor(totalLeads / totalWeightedPositions);
+      const remainingLeads = totalLeads % totalWeightedPositions;
+      
+      // Each agent gets (completeCycles * weight) leads from complete cycles
+      checkedInAgentsList.forEach(agent => {
+        const baseLeads = completeCycles * (agent.weight ?? 1);
+        agentLeadCounts.set(agent.agent_id, baseLeads);
+      });
+      
+      // Distribute remaining leads starting from current round-robin index
+      for (let i = 0; i < remainingLeads; i++) {
+        const agentIndex = (currentIndex + i) % totalWeightedPositions;
+        const selectedAgent = weightedCheckedInAgentsList[agentIndex];
+        
+        if (selectedAgent) {
+          const currentCount = agentLeadCounts.get(selectedAgent.agent_id) ?? 0;
+          agentLeadCounts.set(selectedAgent.agent_id, currentCount + 1);
+        }
+      }
+    }
+
+    // Create preview with calculated counts
+    const preview = checkedInAgentsList.map(agentRecord => {
+      const agent = agentRecord.agent;
+      const firstName = agent?.first_name ?? '';
+      const lastName = agent?.last_name ?? '';
+      const agentName = `${firstName} ${lastName}`.trim() || 'Unknown';
+      
+      return {
+        agentId: agentRecord.agent_id,
+        agentName,
+        leadCount: agentLeadCounts.get(agentRecord.agent_id) ?? 0,
+        weight: agentRecord.weight ?? 1,
+        weightedPositions: agentRecord.weight ?? 1,
+        currentCount: agentRecord.current_lead_count ?? 0,
+        capacity: agentRecord.lead_capacity ?? 10
+      };
+    });
+
+    return {
+      success: true,
+      preview,
+      totalAgents: checkedInAgentsList.length,
+      totalLeads: unassignedLeads.length,
+      weightedPositions: weightedCheckedInAgentsList.length,
+      currentRoundRobinIndex: currentRoundRobinIndex,
+      nextRoundRobinIndex: currentIndex,
+      message: `Weighted round-robin distribution ensures agents with higher weights get proportionally more leads`,
+      distributionInfo: {
+        totalWeightedPositions: weightedCheckedInAgentsList.length,
+        averageWeight: weightedCheckedInAgentsList.length / checkedInAgentsList.length,
+        weightDistribution: checkedInAgentsList.map(a => ({
+          agentName: `${a.agent.first_name ?? ''} ${a.agent.last_name ?? ''}`.trim() || 'Unknown',
+          weight: a.weight ?? 1,
+          percentage: ((a.weight ?? 1) / weightedCheckedInAgentsList.length * 100).toFixed(1)
+        })),
+        mathematicalBreakdown: {
+          totalLeads,
+          completeCycles: Math.floor(totalLeads / totalWeightedPositions),
+          remainingLeads: totalLeads % totalWeightedPositions,
+          baseDistribution: checkedInAgentsList.map(a => ({
+            agentName: `${a.agent.first_name ?? ''} ${a.agent.last_name ?? ''}`.trim() || 'Unknown',
+            baseLeads: Math.floor(totalLeads / totalWeightedPositions) * (a.weight ?? 1),
+            guaranteedLeads: Math.floor(totalLeads / totalWeightedPositions) * (a.weight ?? 1)
+          }))
+        }
+      }
+    };
+  } catch (error) {
+    console.error("Error getting auto-assignment leads preview:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      preview: [],
+      totalAgents: 0,
+      totalLeads: 0,
+      weightedPositions: 0
     };
   }
 }
