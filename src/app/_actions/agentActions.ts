@@ -192,6 +192,22 @@ export async function autoAssignLeads(apiKey?: string) {
       };
     }
 
+    // After getting the list of checkedInAgents, generate a weighted list based on their weight
+    // Every weight point means that agent gets an extra copy in the distribution list
+    // Example: agent1 weight=2, agent2 weight=3 -> [agent1, agent1, agent2, agent2, agent2]
+    // This allows simple index-based selection to achieve weighted distribution
+    const weightedCheckedInAgentsList: typeof checkedInAgentsList = [];
+    
+    for (const agent of checkedInAgentsList) {
+      const weight = agent.weight ?? 1; // Default weight of 1 if not set
+      for (let i = 0; i < weight; i++) {
+        weightedCheckedInAgentsList.push(agent);
+      }
+    }
+    
+    console.log('Weighted agents distribution:', weightedCheckedInAgentsList.map(a => `${a.agent.first_name || a.agent.email} (weight: ${a.weight})`));
+    console.log('Total weighted positions:', weightedCheckedInAgentsList.length);
+
     // Get new unassigned leads ordered by ID to ensure fair distribution
     const unassignedLeads = await db.query.leads.findMany({
       where: and(
@@ -209,13 +225,24 @@ export async function autoAssignLeads(apiKey?: string) {
     }
 
     let assignedCount = 0;
+
+    const currentSettings = await getAutoAssignmentSettings();
+    if (!currentSettings.success || !currentSettings.settings) {
+      return { success: false, message: "Could not get current settings" };
+    }
+
+    const currentRoundRobinIndex = currentSettings.settings.current_round_robin_index ?? 0;
+    let currentIndex = currentRoundRobinIndex % weightedCheckedInAgentsList.length;
+
     
-    // Use round-robin assignment based on lead_id to ensure fair distribution
-    // This prevents some agents from getting all old leads and others getting all new leads
+    // Use round-robin assignment based on weighted agent list for fair distribution
+    // This ensures agents with higher weights get proportionally more leads
     for (const lead of unassignedLeads) {
-      // Use lead ID modulo number of agents to determine which agent gets this lead
-      const agentIndex = lead.id % checkedInAgentsList.length;
-      const selectedAgent = checkedInAgentsList[agentIndex];
+
+      // Use current index modulo weighted agents list to determine which agent gets this lead
+      const agentIndex = currentIndex % weightedCheckedInAgentsList.length;
+      const selectedAgent = weightedCheckedInAgentsList[agentIndex];
+      currentIndex = (currentIndex + 1) % weightedCheckedInAgentsList.length;
       
       if (!selectedAgent) continue;
       
@@ -244,7 +271,7 @@ export async function autoAssignLeads(apiKey?: string) {
 
     return { 
       success: true, 
-      message: `Successfully assigned ${assignedCount} leads to ${checkedInAgentsList.length} agents using round-robin distribution` 
+      message: `Successfully assigned ${assignedCount} leads to ${checkedInAgentsList.length} agents using weighted round-robin distribution (total weighted positions: ${weightedCheckedInAgentsList.length})` 
     };
   } catch (error) {
     console.error("Error auto-assigning leads:", error);
@@ -301,6 +328,7 @@ export async function updateAutoAssignmentSettings(settingsData: {
   is_enabled?: boolean;
   assignment_method?: string;
   max_leads_per_agent_per_day?: number;
+  current_round_robin_index?: number;
 }) {
   try {
     const { userId } = await auth();
