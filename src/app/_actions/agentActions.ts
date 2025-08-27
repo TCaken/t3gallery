@@ -274,6 +274,14 @@ export async function autoAssignLeads(apiKey?: string) {
       assignedCount++;
     }
 
+    // Update the current round-robin index
+    await db
+      .update(autoAssignmentSettings)
+      .set({
+        current_round_robin_index: currentIndex
+      })
+      .where(eq(autoAssignmentSettings.id, currentSettings.settings.id));
+
     return { 
       success: true, 
       message: `Successfully assigned ${assignedCount} leads to ${checkedInAgentsList.length} agents using weighted round-robin distribution (total weighted positions: ${weightedCheckedInAgentsList.length})` 
