@@ -13,6 +13,7 @@ export async function getAllUsers() {
       first_name: users.first_name,
       last_name: users.last_name,
       email: users.email,
+      weight: users.weight,
       roleId: userRoles.roleId,
       roleName: roles.name,
       roleDescription: roles.description
@@ -32,6 +33,7 @@ export async function getAllUsers() {
           first_name: row.first_name,
           last_name: row.last_name,
           email: row.email,
+          weight: row.weight,
           roles: []
         });
       }
@@ -94,6 +96,64 @@ export async function assignRoleToUser(userId: string, roleId: number) {
   } catch (error) {
     console.error('Error assigning role:', error);
     return { success: false, error: 'Failed to assign role' };
+  }
+}
+
+// Get user by ID with full details
+export async function getUserById(userId: string) {
+  try {
+    const user = await db.select({
+      id: users.id,
+      first_name: users.first_name,
+      last_name: users.last_name,
+      email: users.email,
+      role: users.role,
+      team: users.team,
+      weight: users.weight,
+      status: users.status,
+      created_at: users.created_at,
+      updated_at: users.updated_at
+    })
+    .from(users)
+    .where(eq(users.id, userId));
+
+    if (user.length === 0) {
+      return { success: false, error: 'User not found' };
+    }
+
+    return { success: true, user: user[0] };
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    return { success: false, error: 'Failed to fetch user' };
+  }
+}
+
+// Update user weight for lead distribution
+export async function updateUserWeight(userId: string, weight: number) {
+  try {
+    const { userId: currentUserId } = await auth();
+    if (!currentUserId) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    // Validate weight
+    if (weight < 0 || !Number.isInteger(weight)) {
+      return { success: false, error: 'Weight must be a non-negative integer' };
+    }
+
+    await db
+      .update(users)
+      .set({
+        weight: weight,
+        updated_at: new Date(),
+        updated_by: currentUserId
+      })
+      .where(eq(users.id, userId));
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating user weight:', error);
+    return { success: false, error: 'Failed to update user weight' };
   }
 }
 

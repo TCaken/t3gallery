@@ -27,10 +27,8 @@ import { updateLead,updateLeadStatus, fetchFilteredLeads, getLeadCountsByStatus,
 import { type InferSelectModel } from 'drizzle-orm';
 import { type leads, type leadStatusEnum } from "~/server/db/schema";
 import { togglePinLead, getPinnedLeads } from '~/app/_actions/pinnedLeadActions';
-import { sendWhatsAppMessage } from '~/app/_actions/whatsappActions';
-import { checkInAgent, checkOutAgent, autoAssignLeads, checkAgentStatus, getAutoAssignmentSettings, updateAutoAssignmentSettings, getAssignmentPreviewWithRoundRobin, bulkAutoAssignLeads, updateAgentCapacity, resetRoundRobinIndex, getManualAssignmentPreview } from '~/app/_actions/agentActions';
+import { checkInAgent, checkOutAgent, autoAssignLeads, checkAgentStatus, getAutoAssignmentSettings, updateAutoAssignmentSettings, bulkAutoAssignLeads, getAutoAssignmentLeadsPreview } from '~/app/_actions/agentActions';
 import { useUserRole } from './useUserRole';
-import type { UserRole } from './useUserRole';
 import AssignLeadModal from '~/app/_components/AssignLeadModal';
 import { exportAllLeadsToCSV } from '~/app/_actions/exportActions';
 import { makeCall } from '~/app/_actions/callActions';
@@ -963,7 +961,7 @@ export default function LeadsPage() {
   const loadAssignmentPreview = async () => {
     try {
       setIsLoadingPreview(true);
-      const result = await getManualAssignmentPreview();
+      const result = await getAutoAssignmentLeadsPreview();
       if (result.success) {
         setAssignmentPreview(result.preview);
         setAssignmentStats({
