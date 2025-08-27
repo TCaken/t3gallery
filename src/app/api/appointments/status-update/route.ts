@@ -1095,10 +1095,10 @@ export async function POST(request: NextRequest) {
                       newLeadStatus = 'done';
                       newLoanStatus = 'P';
                       newLoanNotes = 'P - Done';
-                      newEligibilityNotes = 'Loan Disbursed';
+                      newEligibilityNotes = 'P - Done';
                       
                       // Update appointment fields
-                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: P - Completed`;
+                      newAppointmentNotes = `P - Done`;
                       newAppointmentLoanStatus = 'P';
                       newAppointmentLoanNotes = 'P - Done';
                       
@@ -1109,10 +1109,10 @@ export async function POST(request: NextRequest) {
                       newLeadStatus = 'done';
                       newLoanStatus = 'PRS';
                       newLoanNotes = 'PRS - Customer Rejected';
-                      newEligibilityNotes = 'Loan approved but customer rejected';
+                      newEligibilityNotes = 'PRS - Customer Rejected';
                       
                       // Update appointment fields
-                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: PRS - Customer Rejected`;
+                      newAppointmentNotes = `PRS - Customer Rejected`;
                       newAppointmentLoanStatus = 'PRS';
                       newAppointmentLoanNotes = 'PRS - Customer Rejected';
                       
@@ -1128,14 +1128,14 @@ export async function POST(request: NextRequest) {
                       const rsDetails = row["col_RS -Detailed"]?.toString().trim();
                       
                       newLoanNotes = `RS${rsType ? ` - ${rsType}` : ''}`;
-                      newEligibilityNotes = `Failed eligibility${rsType ? ` - ${rsType}` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
+                      newEligibilityNotes = `RS${rsType ? ` - ${rsType}` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
                       
                       // Update appointment fields
-                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: RS - Rejected by System${rsType ? ` - ${rsType}` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
+                      newAppointmentNotes = `$RS${rsType ? ` - ${rsType}` : ''}${rsDetails ? ` - ${rsDetails}` : ''}`;
                       newAppointmentLoanStatus = 'RS';
                       newAppointmentLoanNotes = `RS${rsType ? ` - ${rsType}` : ''}`;
                       
-                      updateReason = `Live: RS (Rejected by System)${rsType ? ` - Type: ${rsType}` : ''}${rsDetails ? ` - Details: ${rsDetails}` : ''} - UW field filled`;
+                      updateReason = `Live: RS${rsType ? ` - Type: ${rsType}` : ''}${rsDetails ? ` - Details: ${rsDetails}` : ''} - UW field filled`;
                       break;
                     case 'R':
                       newAppointmentStatus = 'done';
@@ -1145,7 +1145,7 @@ export async function POST(request: NextRequest) {
                       newEligibilityNotes = 'Rejected';
                       
                       // Update appointment fields
-                      newAppointmentNotes = `${todayAppointment.notes ? todayAppointment.notes + ' | ' : ''}Live: R - Rejected`;
+                      newAppointmentNotes = `R - Rejected`;
                       newAppointmentLoanStatus = 'R';
                       newAppointmentLoanNotes = 'R - Rejected';
                       
@@ -1183,30 +1183,20 @@ export async function POST(request: NextRequest) {
               }
 
               // Apply updates if status changed or new fields need updating
-              const hasLeadChanges = newLeadStatus !== existingLead.status || 
-                                    newLoanStatus !== existingLead.loan_status || 
-                                    newLoanNotes !== existingLead.loan_notes || 
-                                    newEligibilityNotes !== existingLead.eligibility_notes;
+              const hasAppointmentChanges = newAppointmentStatus !== todayAppointment.status || newAppointmentLoanStatus !== todayAppointment.loan_status
 
-              const hasAppointmentChanges = newAppointmentStatus !== todayAppointment.status ||
-                                          newAppointmentNotes !== todayAppointment.notes ||
-                                          newAppointmentLoanStatus !== todayAppointment.loan_status ||
-                                          newAppointmentLoanNotes !== todayAppointment.loan_notes;
-
-              if (hasLeadChanges || hasAppointmentChanges) {
+              if (hasAppointmentChanges) {
                 // Update lead
-                if (hasLeadChanges) {
-                  await updateLead(existingLead.id, {
-                    status: newLeadStatus,
-                    loan_status: newLoanStatus,
-                    loan_notes: newLoanNotes,
-                    eligibility_notes: newEligibilityNotes,
-                    updated_by: authenticatedUserId
-                  });
-                }
+                await updateLead(existingLead.id, {
+                  status: newLeadStatus,
+                  loan_status: newLoanStatus,
+                  loan_notes: newLoanNotes,
+                  eligibility_notes: newEligibilityNotes,
+                  updated_by: authenticatedUserId
+                });
+                
 
                 // Update appointment
-                if (hasAppointmentChanges) {
                 await db.update(appointments)
                   .set({ 
                     status: newAppointmentStatus,
@@ -1216,8 +1206,8 @@ export async function POST(request: NextRequest) {
                       updated_at: new Date(),
                     updated_by: authenticatedUserId
                   })
-                  .where(eq(appointments.id, todayAppointment.id));
-                }
+                .where(eq(appointments.id, todayAppointment.id));
+                
                   
                 console.log(`✅ [UPDATED] Lead:${existingLead.status}→${newLeadStatus} Appt:${todayAppointment.status}→${newAppointmentStatus} | Loan:${newLoanStatus ?? 'none'}`);
 
