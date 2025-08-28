@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     console.log('📅 Final targetTime:', targetTime.toISOString());
     
     // Convert to Singapore time (UTC+8) for time calculations
-    const singaporeTime = new Date(targetTime.getTime() + 8 * 60 * 60 * 1000);
+    const singaporeTime = new Date(targetTime.getTime());
     
     // Extract date from the ORIGINAL input time (not Singapore time)
     // This ensures we get the correct date from your input
