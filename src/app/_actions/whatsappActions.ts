@@ -1296,3 +1296,65 @@ export async function sendMissedAppointmentReminder(
     };
   }
 } 
+
+// Function to send missed appointment reminder after one hour
+export async function sendMissedAppointmentAfterOneHourReminder(
+  phoneNumber: string,
+  customerName?: string
+) {
+  try {
+    console.log('📱 Sending missed appointment after one hour reminder:', {
+      phoneNumber,
+      customerName
+    });
+
+    // Project ID for missed appointment after one hour reminders
+    const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
+    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const projectId = "48003f9b-09a4-4aed-9d39-57fd05de0ab9";
+
+    // Format phone number
+    const formattedPhone = formatPhoneNumber(phoneNumber);
+
+    const whatsappData: WhatsAppRequest = {
+      workspaces: workspaceId,
+      channels: channelId,
+      projectId: projectId,
+      identifierValue: formattedPhone,
+      parameters: [] // No parameters needed for this template
+    };
+
+    console.log('📱 WhatsApp request data for after one hour reminder:', JSON.stringify(whatsappData, null, 2));
+
+    // Send the WhatsApp message
+    const response = await fetch('https://api.capcfintech.com/api/bird/v2/wa/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': env.WHATSAPP_API_KEY
+      },
+      body: JSON.stringify(whatsappData)
+    });
+
+    const data = await response.json() as WhatsAppResponse;
+    
+    if (!response.ok) {
+      throw new Error(data.message ?? 'Failed to send WhatsApp message');
+    }
+
+    console.log('✅ Missed appointment after one hour reminder sent successfully:', data);
+
+    return {
+      success: true,
+      message: 'Missed appointment after one hour reminder sent successfully',
+      whatsappResponse: data
+    };
+
+  } catch (error) {
+    console.error('❌ Error sending missed appointment after one hour reminder:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send missed appointment after one hour reminder'
+    };
+  }
+} 
