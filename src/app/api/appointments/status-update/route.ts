@@ -549,7 +549,7 @@ export async function POST(request: NextRequest) {
     const safeUserId = authenticatedUserId ?? 'system-update';
 
     // Get today's date in Singapore timezone (UTC+8)
-    const now = new Date();
+    const now = new Date('2025-09-01T15:59:59.999Z'); // 11:59 PM Singapore time
     const singaporeOffset = 8 * 60; // 8 hours in minutes
     const singaporeTime = new Date(now.getTime() + (singaporeOffset * 60 * 1000));
     const todayParts = singaporeTime.toISOString().split('T');
