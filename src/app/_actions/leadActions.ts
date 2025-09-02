@@ -129,6 +129,8 @@ export async function fetchLeadById(leadId: number) {
         eligibility_notes: leads.eligibility_notes,
         loan_status: leads.loan_status,
         loan_notes: leads.loan_notes,
+        ascend_status: leads.ascend_status,
+        airconnect_verification_link: leads.airconnect_verification_link,
         source: leads.source,
         created_by: leads.created_by,
         updated_by: leads.updated_by,
@@ -1414,6 +1416,8 @@ export async function fetchFilteredLeads({
       is_deleted: leads.is_deleted,
       loan_status: leads.loan_status,
       loan_notes: leads.loan_notes,
+      ascend_status: leads.ascend_status,
+      airconnect_verification_link: leads.airconnect_verification_link,
       assigned_user: {
         id: users.id,
         first_name: users.first_name,

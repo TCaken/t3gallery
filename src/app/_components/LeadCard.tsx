@@ -14,7 +14,10 @@ import {
   BookmarkIcon,
   XMarkIcon,
   ClockIcon,
-  DocumentDuplicateIcon
+  DocumentDuplicateIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  LinkIcon
 } from '@heroicons/react/24/outline';
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads } from "~/server/db/schema";
@@ -268,6 +271,70 @@ export default function LeadCard({
         </div>
       </div>
 
+      {/* Debug: Show ascend_status */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-2 p-2 bg-gray-100 text-xs">
+          Debug: ascend_status = "{lead.ascend_status}", airconnect_link = "{lead.airconnect_verification_link}"
+        </div>
+      )}
+
+      {/* Ascend Status Section - Show all statuses for testing */}
+      {lead.ascend_status && (
+        <div className="mb-3">
+          {lead.ascend_status === 'manual_verification_required' && (
+            <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <ExclamationTriangleIcon className="h-5 w-5 text-orange-500" />
+                <span className="text-sm font-medium text-orange-800">Manual Verification Required</span>
+              </div>
+              {lead.airconnect_verification_link && lead.airconnect_verification_link.trim() !== '' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (lead.airconnect_verification_link) {
+                      window.open(lead.airconnect_verification_link, '_blank', 'noopener,noreferrer');
+                      // Call the action handler to track this action
+                      // handleAction('ascend_manual_verification');
+                    }
+                  }}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-orange-600 text-white text-sm font-medium rounded-md hover:bg-orange-700 transition-colors duration-200"
+                  data-no-card-click="true"
+                >
+                  <LinkIcon className="h-4 w-4" />
+                  <span>Verify in Ascend</span>
+                </button>
+              )}
+            </div>
+          )}
+          
+          {lead.ascend_status === 'booking_appointment' && (
+            <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <CalendarIcon className="h-5 w-5 text-blue-500" />
+                <span className="text-sm font-medium text-blue-800">Ready for Booking</span>
+              </div>
+            </div>
+          )}
+          
+          {lead.ascend_status === 'new' && (
+            <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <span className="text-sm font-medium text-gray-800">New Lead (Ascend)</span>
+              </div>
+            </div>
+          )}
+          
+          {lead.ascend_status === 'done' && (
+            <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                <span className="text-sm font-medium text-green-800">Completed (Ascend)</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Info Grid - More compact layout */}
       <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 mb-3">
         <div className="flex items-center space-x-1">
@@ -330,7 +397,7 @@ export default function LeadCard({
               <CalendarIcon className="h-4 w-4 text-blue-500" />
               <div className="flex flex-col">
                 <span className="text-sm font-medium text-gray-800">
-                  {new Date(lead.latest_appointment.start_datetime).toLocaleDateString('en-SG', {
+                  {lead.latest_appointment.start_datetime && new Date(lead.latest_appointment.start_datetime).toLocaleDateString('en-SG', {
                     weekday: 'short',
                     day: 'numeric',
                     month: 'short',
@@ -339,7 +406,7 @@ export default function LeadCard({
                   })}
                 </span>
                 <span className="text-lg font-bold text-blue-600">
-                  {new Date(lead.latest_appointment.start_datetime).toLocaleTimeString('en-SG', { 
+                  {lead.latest_appointment.start_datetime && new Date(lead.latest_appointment.start_datetime).toLocaleTimeString('en-SG', { 
                     hour: '2-digit', 
                     minute: '2-digit',
                     hour12: true,
@@ -371,7 +438,7 @@ export default function LeadCard({
                 lead.latest_appointment.status === 'missed' ? 'bg-gray-100 text-gray-800' :
                 'bg-gray-100 text-gray-800'
               }`}>
-                {formatAppointmentStatus(lead.latest_appointment.status)}
+                {lead.latest_appointment.status && formatAppointmentStatus(lead.latest_appointment.status)}
               </span>
               {lead.latest_appointment.loan_status && (
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${

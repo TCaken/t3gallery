@@ -120,6 +120,7 @@ interface LeadFilters {
   dateTo?: string;
   leadType?: string[];
   eligibilityStatus?: string[];
+  ascendStatus?: string[];
 }
 
 // Interface for fetchFilteredLeads parameters
@@ -136,6 +137,7 @@ interface FetchLeadsParams {
     residentialStatuses?: string[];
     leadTypes?: string[];
     eligibilityStatuses?: string[];
+    ascendStatuses?: string[];
     amountMin?: number;
     amountMax?: number;
     dateFrom?: string;
@@ -1456,6 +1458,18 @@ export default function LeadsPage() {
           break;
 
         case 'schedule':
+          break;
+
+        case 'ascend_manual_verification':
+          // Track that user clicked on manual verification link
+          showNotification('Opening AirConnect verification link', 'info');
+          break;
+
+        case 'ascend_booking_appointment':
+          // Handle booking appointment action - same as schedule_appointment
+          setSelectedLead(lead);
+          setIsEditOpen(true);
+          showNotification('Opening appointment booking', 'info');
           break;
 
         case 'assign':

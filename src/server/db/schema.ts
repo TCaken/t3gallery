@@ -118,6 +118,14 @@ export const leadStatusEnum = pgEnum('lead_status', [
   'blacklisted'
 ]);
 
+// Define enum for Ascend statuses
+export const ascendStatusEnum = pgEnum('ascend_status', [
+  'new',
+  'manual_verification_required',
+  'booking_appointment',
+  'done'
+]);
+
 // Define enum for appointment statuses
 export const appointmentStatusEnum = pgEnum('appointment_status', [
   'upcoming',
@@ -293,6 +301,8 @@ export const leads = createTable(
     has_exported: d.boolean().default(false),
     exported_at: d.timestamp({ withTimezone: true }).default(sql`NULL`),
     apply_count: d.integer().default(1),
+    ascend_status: d.varchar({ length: 50 }).default('new'), // Status from Ascend: new, manual_verification_required, booking_appointment, done
+    airconnect_verification_link: d.text().default(''), // Link for manual verification in AirConnect
   }),
   (t) => [
     index("lead_phone_idx").on(t.phone_number),
@@ -872,6 +882,8 @@ export const borrowers = createTable(
     created_by: d.varchar({ length: 256 }).references(() => users.id),
     updated_by: d.varchar({ length: 256 }).references(() => users.id),
     is_deleted: d.boolean().default(false),
+    ascend_status: d.varchar({ length: 50 }).default(sql`NULL`), // Status from Ascend: new, manual_verification_required, booking_appointment, done
+    airconnect_verification_link: d.text().default(sql`NULL`), // Link for manual verification in AirConnect
   }),
   (t) => [
     index("borrower_phone_idx").on(t.phone_number),
