@@ -2,14 +2,49 @@
 "use server";
 
 import { db } from "~/server/db";
-import { leads, playbooks, playbook_contacts, users, borrowers } from "~/server/db/schema";
-import { eq, and, inArray, not, sql, or } from "drizzle-orm";
+import { leads, playbooks, playbook_contacts, playbook_agents, users, borrowers } from "~/server/db/schema";
+import { eq, and, inArray, not, sql, or, type SQL } from "drizzle-orm";
 
 interface PlaybookResult {
   success: boolean;
   message: string;
   data?: Record<string, unknown>;
   error?: string;
+}
+
+// New interface for playbook filters (similar to fetchFilteredLeads)
+interface PlaybookFilters {
+  status?: string[];
+  assignedTo?: string[];
+  includeUnassigned?: boolean;
+  sources?: string[];
+  employmentStatuses?: string[];
+  loanPurposes?: string[];
+  residentialStatuses?: string[];
+  leadTypes?: string[];
+  eligibilityStatuses?: string[];
+  amountMin?: number;
+  amountMax?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  followUpDateFrom?: string;
+  followUpDateTo?: string;
+  assignedInLastDays?: number;
+}
+
+// New interface for creating playbooks
+interface CreatePlaybookOptions {
+  samespacePlaybookId: string; // Existing Samespace playbook ID
+  name: string;
+  description?: string;
+  agentIds: string[]; // Multiple agents
+  filters: PlaybookFilters;
+  callScript?: string;
+  timesetId?: string;
+  teamId?: string;
+  autoSyncEnabled?: boolean;
+  syncFrequency?: 'daily' | 'weekly' | 'manual';
+  createdBy: string;
 }
 
 // Get API key from environment
@@ -142,6 +177,81 @@ async function checkPlaybookStatus(playbookId: string) {
   }
 }
 
+// Update playbook filters in Samespace
+async function updatePlaybookFilters(playbookId: string, options: {
+  phoneNumbers: string[];
+  company: string;
+}) {
+  const apiKey = getApiKey();
+  
+  const phoneFilters = options.phoneNumbers.map(phone => ({
+    key: 'phoneNumber',
+    condition: 'IS',
+    value: phone.replace(/^\+65/, '65'),
+  }));
+
+  const rules = {
+    filters: {
+      and: [
+        {
+          or: phoneFilters,
+        },
+        {
+          or: [
+            {
+              key: 'company',
+              condition: 'IS',
+              value: options.company,
+            },
+          ],
+        },
+      ],
+    },
+    type: 'Native',
+  };
+
+  const query = `
+    mutation UpdatePlaybook($id: ID!, $payload: PlaybookInput!) {
+      updatePlaybook(_id: $id, payload: $payload) {
+        _id
+        name
+        status
+      }
+    }
+  `;
+
+  const response = await fetch('https://api.capcfintech.com/api/playbook/update', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': apiKey,
+    },
+    body: JSON.stringify({
+      query,
+      variables: {
+        id: playbookId,
+        payload: { 
+          rules,
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Samespace playbook update error ${response.status}: ${errorText}`);
+  }
+
+  const result = await response.json() as { data?: { updatePlaybook?: { _id: string; name: string; status: string } }; errors?: Array<{ message: string }> };
+  
+  if (result.errors && result.errors.length > 0) {
+    const errorMessages = result.errors.map((err) => err.message).join(', ');
+    throw new Error(`Samespace playbook update returned errors: ${errorMessages}`);
+  }
+
+  return result.data?.updatePlaybook;
+}
+
 // Create contact in Samespace with work phone number
 async function createSamespaceContact(contact: {
   firstName: string;
@@ -162,7 +272,7 @@ async function createSamespaceContact(contact: {
   const variables = {
     module: "6303289128a0e96163bd0dcd",
     properties: [
-      { key: "company", value: "AirConnect" },
+      { key: "company", value: "AirConnect Demo" },
       { key: "dataSource", value: contact.dataSource },
       { key: "firstName", value: contact.firstName },
       { key: "lastName", value: contact.lastName },
@@ -221,7 +331,7 @@ async function updatePlaybookContacts(playbookId: string, phoneNumbers: string[]
             {
               key: 'company',
               condition: 'IS',
-              value: 'AirConnect',
+              value: 'AirConnect Demo',
             },
           ],
         },
@@ -372,8 +482,7 @@ export async function createAndRegisterPlaybook(
           eq(leads.status, 'assigned'),
           eq(leads.is_deleted, false)
         )
-      )
-      .limit(50);
+      );
 
     if (agentLeads.length === 0) {
       return {
@@ -406,7 +515,7 @@ export async function createAndRegisterPlaybook(
       .values({
         samespace_playbook_id: samespacePlaybook._id,
         name: name,
-        agent_id: agentId,
+        created_by: agentId, // Use agentId as created_by
         is_active: true,
       })
       .returning();
@@ -417,6 +526,13 @@ export async function createAndRegisterPlaybook(
         message: 'Failed to create playbook record in database',
       };
     }
+
+    // Assign the agent to the playbook
+    await db.insert(playbook_agents).values({
+      playbook_id: newPlaybook.id,
+      agent_id: agentId,
+      assigned_by: agentId, // Self-assigned
+    });
 
     // Create contact records for tracking
     const contactRecords = agentLeads.map(lead => {
@@ -450,6 +566,264 @@ export async function createAndRegisterPlaybook(
     return {
       success: false,
       message: 'Failed to create and register playbook',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Build lead query conditions based on filters (similar to fetchFilteredLeads)
+function buildLeadQueryConditions(filters: PlaybookFilters): SQL[] {
+  const conditions: SQL[] = [];
+  
+  // Apply status filter
+  if (filters.status && filters.status.length > 0) {
+    const statusConditions = filters.status.map(status => eq(leads.status, status));
+    const statusOr = or(...statusConditions);
+    if (statusOr) {
+      conditions.push(statusOr);
+    }
+  }
+
+  // Apply assigned to filter
+  if (filters.assignedTo && filters.assignedTo.length > 0) {
+    if (filters.includeUnassigned) {
+      // Include both assigned and unassigned leads
+      const assignedConditions = filters.assignedTo.map(agentId => eq(leads.assigned_to, agentId));
+      const assignedOr = or(...assignedConditions, sql`${leads.assigned_to} IS NULL`);
+      if (assignedOr) {
+        conditions.push(assignedOr);
+      }
+    } else {
+      // Only assigned leads
+      const assignedConditions = filters.assignedTo.map(agentId => eq(leads.assigned_to, agentId));
+      const assignedOr = or(...assignedConditions);
+      if (assignedOr) {
+        conditions.push(assignedOr);
+      }
+    }
+  } else if (filters.includeUnassigned) {
+    // Only unassigned leads
+    conditions.push(sql`${leads.assigned_to} IS NULL`);
+  }
+
+  // Apply other filters
+  if (filters.sources && filters.sources.length > 0) {
+    const sourceConditions = filters.sources.map(source => eq(leads.source, source));
+    const sourceOr = or(...sourceConditions);
+    if (sourceOr) {
+      conditions.push(sourceOr);
+    }
+  }
+
+  if (filters.employmentStatuses && filters.employmentStatuses.length > 0) {
+    const empConditions = filters.employmentStatuses.map(status => eq(leads.employment_status, status));
+    const empOr = or(...empConditions);
+    if (empOr) {
+      conditions.push(empOr);
+    }
+  }
+
+  if (filters.loanPurposes && filters.loanPurposes.length > 0) {
+    const purposeConditions = filters.loanPurposes.map(purpose => eq(leads.loan_purpose, purpose));
+    const purposeOr = or(...purposeConditions);
+    if (purposeOr) {
+      conditions.push(purposeOr);
+    }
+  }
+
+  if (filters.residentialStatuses && filters.residentialStatuses.length > 0) {
+    const resConditions = filters.residentialStatuses.map(status => eq(leads.residential_status, status));
+    const resOr = or(...resConditions);
+    if (resOr) {
+      conditions.push(resOr);
+    }
+  }
+
+  if (filters.leadTypes && filters.leadTypes.length > 0) {
+    const typeConditions = filters.leadTypes.map(type => eq(leads.lead_type, type));
+    const typeOr = or(...typeConditions);
+    if (typeOr) {
+      conditions.push(typeOr);
+    }
+  }
+
+  if (filters.eligibilityStatuses && filters.eligibilityStatuses.length > 0) {
+    const eligConditions = filters.eligibilityStatuses.map(status => eq(leads.eligibility_status, status));
+    const eligOr = or(...eligConditions);
+    if (eligOr) {
+      conditions.push(eligOr);
+    }
+  }
+
+  // Amount range filter
+  if (filters.amountMin !== undefined || filters.amountMax !== undefined) {
+    const amountConditions: SQL[] = [];
+    if (filters.amountMin !== undefined) {
+      amountConditions.push(sql`CAST(${leads.amount} AS DECIMAL) >= ${filters.amountMin}`);
+    }
+    if (filters.amountMax !== undefined) {
+      amountConditions.push(sql`CAST(${leads.amount} AS DECIMAL) <= ${filters.amountMax}`);
+    }
+    if (amountConditions.length > 0) {
+      conditions.push(and(...amountConditions)!);
+    }
+  }
+
+  // Date range filter (Singapore timezone aware)
+  if (filters.dateFrom || filters.dateTo) {
+    const dateConditions: SQL[] = [];
+    if (filters.dateFrom) {
+      dateConditions.push(sql`DATE(${leads.created_at} AT TIME ZONE 'Asia/Singapore') >= ${filters.dateFrom}`);
+    }
+    if (filters.dateTo) {
+      dateConditions.push(sql`DATE(${leads.created_at} AT TIME ZONE 'Asia/Singapore') <= ${filters.dateTo}`);
+    }
+    if (dateConditions.length > 0) {
+      conditions.push(and(...dateConditions)!);
+    }
+  }
+
+  // Follow-up date filter (Singapore timezone aware)
+  if (filters.followUpDateFrom || filters.followUpDateTo) {
+    const followUpConditions: SQL[] = [];
+    if (filters.followUpDateFrom) {
+      followUpConditions.push(sql`DATE(${leads.follow_up_date} AT TIME ZONE 'Asia/Singapore') >= ${filters.followUpDateFrom}`);
+    }
+    if (filters.followUpDateTo) {
+      followUpConditions.push(sql`DATE(${leads.follow_up_date} AT TIME ZONE 'Asia/Singapore') <= ${filters.followUpDateTo}`);
+    }
+    if (followUpConditions.length > 0) {
+      conditions.push(and(...followUpConditions)!);
+    }
+  }
+
+  // Recently assigned filter (assigned in last X days)
+  if (filters.assignedInLastDays) {
+    const daysAgo = new Date();
+    daysAgo.setDate(daysAgo.getDate() - filters.assignedInLastDays);
+    conditions.push(sql`${leads.updated_at} >= ${daysAgo.toISOString()}`);
+    conditions.push(sql`${leads.assigned_to} IS NOT NULL`);
+  }
+
+  // Always exclude deleted leads
+  conditions.push(eq(leads.is_deleted, false));
+
+  return conditions;
+}
+
+// Register an existing Samespace playbook with our configuration
+export async function createAndRegisterPlaybookWithFilters(
+  options: CreatePlaybookOptions
+): Promise<PlaybookResult> {
+  try {
+    console.log('Registering existing Samespace playbook with filters:', options);
+
+    // Validate that we have a Samespace playbook ID
+    if (!options.samespacePlaybookId) {
+      return {
+        success: false,
+        message: 'Samespace Playbook ID is required',
+      };
+    }
+
+    // Build lead query conditions based on filters
+    const leadConditions = buildLeadQueryConditions(options.filters);
+    
+    // Get leads matching the filters
+    const filteredLeads = await db
+      .select({
+        id: leads.id,
+        phone_number: leads.phone_number,
+        full_name: leads.full_name,
+        source: leads.source,
+      })
+      .from(leads)
+      .where(and(...leadConditions))
+      .limit(500); // Limit to prevent overwhelming
+
+    if (filteredLeads.length === 0) {
+      return {
+        success: false,
+        message: 'No leads found matching the specified filters',
+      };
+    }
+
+    // Use the existing Samespace playbook ID instead of creating a new one
+    const samespacePlaybookId = options.samespacePlaybookId;
+
+    // Register playbook in our database
+    const [newPlaybook] = await db
+      .insert(playbooks)
+      .values({
+        samespace_playbook_id: samespacePlaybookId,
+        name: options.name,
+        description: options.description,
+        created_by: options.createdBy,
+        is_active: true,
+        auto_sync_enabled: options.autoSyncEnabled ?? true,
+        sync_frequency: options.syncFrequency ?? 'daily',
+        // Store filters as JSON
+        filter_status: options.filters.status,
+        filter_include_unassigned: options.filters.includeUnassigned,
+        filter_sources: options.filters.sources,
+        filter_amount_min: options.filters.amountMin,
+        filter_amount_max: options.filters.amountMax,
+        call_script: options.callScript,
+        timeset_id: options.timesetId,
+        team_id: options.teamId,
+      })
+      .returning();
+
+    if (!newPlaybook) {
+      return {
+        success: false,
+        message: 'Failed to create playbook record in database',
+      };
+    }
+
+    // Assign agents to the playbook
+    const agentRecords = options.agentIds.map((agentId, index) => ({
+      playbook_id: newPlaybook.id,
+      agent_id: agentId,
+      assigned_by: options.createdBy,
+      is_primary: index === 0, // First agent is primary
+    }));
+
+    await db.insert(playbook_agents).values(agentRecords);
+
+    // Create contact records for tracking
+    const contactRecords = filteredLeads.map(lead => {
+      const [firstName, ...lastNameParts] = (lead.full_name ?? 'Unknown').split(' ');
+      return {
+        playbook_id: newPlaybook.id,
+        lead_id: lead.id,
+        phone_number: lead.phone_number,
+        first_name: firstName ?? 'Unknown',
+        last_name: lastNameParts.join(' ') ?? '',
+        data_source: lead.source ?? 'Unknown',
+        status: 'created',
+        sync_status: 'synced',
+      };
+    });
+
+    await db.insert(playbook_contacts).values(contactRecords);
+
+    return {
+      success: true,
+      message: `Successfully registered playbook "${options.name}" with ${filteredLeads.length} leads and ${options.agentIds.length} agents`,
+      data: {
+        playbookId: newPlaybook.id,
+        samespacePlaybookId: samespacePlaybookId,
+        leadCount: filteredLeads.length,
+        agentCount: options.agentIds.length,
+      },
+    };
+
+  } catch (error) {
+    console.error('Error creating and registering playbook with filters:', error);
+    return {
+      success: false,
+      message: 'Failed to create and register playbook with filters',
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
@@ -498,7 +872,7 @@ export async function registerPlaybook(
       .values({
         samespace_playbook_id: samespacePlaybookId,
         name: name,
-        agent_id: agentId,
+        created_by: agentId, // Use agentId as created_by for now
         is_active: true,
       })
       .returning();
@@ -656,8 +1030,9 @@ export async function getAgentPlaybooks(agentId: string): Promise<PlaybookResult
         contact_count: playbook_contacts.id,
       })
       .from(playbooks)
+      .innerJoin(playbook_agents, eq(playbook_agents.playbook_id, playbooks.id))
       .leftJoin(playbook_contacts, eq(playbooks.id, playbook_contacts.playbook_id))
-      .where(eq(playbooks.agent_id, agentId));
+      .where(eq(playbook_agents.agent_id, agentId));
 
     // Group by playbook and count contacts
     const playbookMap = new Map();
@@ -670,7 +1045,7 @@ export async function getAgentPlaybooks(agentId: string): Promise<PlaybookResult
         });
       }
       if (row.contact_count) {
-        playbookMap.get(key).contact_count++;
+        playbookMap.get(key)!.contact_count++;
       }
     }
 
@@ -679,7 +1054,7 @@ export async function getAgentPlaybooks(agentId: string): Promise<PlaybookResult
     return {
       success: true,
       message: `Found ${result.length} playbooks`,
-      data: result,
+      data: { playbooks: result },
     };
 
   } catch (error) {
@@ -692,7 +1067,7 @@ export async function getAgentPlaybooks(agentId: string): Promise<PlaybookResult
   }
 }
 
-// Morning sync: Create contacts and update playbook
+// Sync playbook contacts based on original filters and update Samespace
 export async function syncPlaybookContacts(playbookId: number): Promise<PlaybookResult> {
   try {
     console.log('Starting playbook contact sync:', { playbookId });
@@ -711,92 +1086,88 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
       };
     }
 
-    // Get agent's follow-up leads that are not already in this playbook
-    // UNION query approach: Get leads to create + contacts to update
-    console.log('Executing UNION query to get leads for processing...');
+    // Get the agent IDs for this playbook
+    const playbookAgents = await db
+      .select({ agent_id: playbook_agents.agent_id })
+      .from(playbook_agents)
+      .where(eq(playbook_agents.playbook_id, playbookId));
 
-    // Part 1: New leads with status 'assigned' NOT in playbook_contacts yet
-    const newLeadsToCreate = await db
-      .select({
-        id: leads.id,
-        phone_number: leads.phone_number,
-        full_name: leads.full_name,
-        source: leads.source,
-        lead_status: leads.status,
-        samespace_status: sql<string>`NULL`.as('samespace_status'),
-        action: sql<string>`'create'`.as('action'),
-      })
-      .from(leads)
-      .leftJoin(playbook_contacts, eq(playbook_contacts.lead_id, leads.id))
-      .where(
-        and(
-          eq(leads.assigned_to, playbook.agent_id),
-          eq(leads.status, 'assigned'),
-          eq(leads.is_deleted, false),
-          sql`${playbook_contacts.lead_id} IS NULL` // NOT in playbook_contacts
-        )
-      )
-      .limit(300);
-
-    // Part 2: Existing playbook_contacts where lead status ≠ playbook_contact status  
-    const existingContactsToUpdate = await db
-      .select({
-        id: leads.id,
-        phone_number: leads.phone_number,
-        full_name: leads.full_name,
-        source: leads.source,
-        lead_status: leads.status,
-        samespace_status: playbook_contacts.status,
-        action: sql<string>`'update'`.as('action'),
-        contact_id: playbook_contacts.id,
-      })
-      .from(leads)
-      .innerJoin(playbook_contacts, eq(playbook_contacts.lead_id, leads.id))
-      .where(
-        and(
-          eq(leads.assigned_to, playbook.agent_id),
-          eq(playbook_contacts.playbook_id, playbookId),
-          not(eq(leads.status, playbook_contacts.status)), // Different statuses
-          eq(playbook_contacts.status, 'assigned'),
-          eq(leads.is_deleted, false)
-        )
-      );
-
-    console.log(`Found ${newLeadsToCreate.length} new leads to create and ${existingContactsToUpdate.length} contacts to update`);
-
-    if (newLeadsToCreate.length === 0 && existingContactsToUpdate.length === 0) {
+    if (playbookAgents.length === 0) {
       return {
-        success: true,
-        message: 'No leads to sync or contacts to update',
-        data: {
-          contactsCreated: 0,
-          contactsFailed: 0,
-          contactsUpdated: 0,
-          playbookUpdated: false,
-        },
+        success: false,
+        message: 'No agents found for this playbook',
       };
     }
 
-    // Process results
-    const results = [];
+    const agentIds = playbookAgents.map(pa => pa.agent_id);
+
+    // Build lead query conditions based on stored playbook filters
+    const leadConditions = buildLeadQueryConditions({
+      status: (playbook.filter_status as string[]) || [],
+      sources: (playbook.filter_sources as string[]) || [],
+      includeUnassigned: playbook.filter_include_unassigned || false,
+      amountMin: playbook.filter_amount_min || undefined,
+      amountMax: playbook.filter_amount_max || undefined,
+    });
+
+    // Get current leads matching the playbook filters
+    const currentMatchingLeads = await db
+      .select({
+        id: leads.id,
+        phone_number: leads.phone_number,
+        full_name: leads.full_name,
+        source: leads.source,
+        status: leads.status,
+      })
+      .from(leads)
+      .where(and(...leadConditions))
+      .limit(500);
+
+    console.log(`Found ${currentMatchingLeads.length} leads matching current playbook filters`);
+
+    // Get existing playbook contacts
+    const existingContacts = await db
+      .select({
+        id: playbook_contacts.id,
+        lead_id: playbook_contacts.lead_id,
+        phone_number: playbook_contacts.phone_number,
+        samespace_contact_id: playbook_contacts.samespace_contact_id,
+        status: playbook_contacts.status,
+      })
+      .from(playbook_contacts)
+      .where(eq(playbook_contacts.playbook_id, playbookId));
+
+    // Find leads to add (matching filters but not in contacts)
+    const leadsToAdd = currentMatchingLeads.filter(lead => 
+      !existingContacts.some(contact => contact.lead_id === lead.id)
+    );
+
+    // Find contacts to remove (in contacts but no longer matching filters)
+    const contactsToRemove = existingContacts.filter(contact => 
+      !currentMatchingLeads.some(lead => lead.id === contact.lead_id)
+    );
+
+    console.log(`Leads to add: ${leadsToAdd.length}, Contacts to remove: ${contactsToRemove.length}`);
+
     let contactsCreated = 0;
     let contactsFailed = 0;
-    let contactsUpdated = 0;
+    let contactsRemoved = 0;
+    const results = [];
 
-    // PART 1: Create new Samespace contacts
-    for (const lead of newLeadsToCreate) {
-      console.log('Creating contact for lead:', lead);
+    // PART 1: Add new leads that match filters
+    for (const lead of leadsToAdd) {
       try {
-        const name = lead.full_name?.replace(/[^\p{L}\p{N} ]/ug, ' ');
-        const firstName = (name ?? 'Lead');
-        const lastName = 'AirConnect';
+        console.log('Creating Samespace contact for lead:', lead.id);
+        
+        const firstName = (lead.full_name ?? 'Lead').split(' ')[0] || 'Lead';
+        const lastName = 'Demo'; // Use "Demo" as last name for AirConnect Demo
 
         // Create contact in Samespace
         const contact = await createSamespaceContact({
-          firstName: firstName ?? 'AirConnect',
+          firstName: firstName,
           lastName: lastName,
           phoneNumber: lead.phone_number.replace(/^\+65/, '65'),
-          dataSource: lead.source ?? 'AirConnect',
+          dataSource: lead.source ?? 'AirConnect Demo',
         });
 
         if (contact?._id) {
@@ -806,10 +1177,10 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
             lead_id: lead.id,
             samespace_contact_id: contact._id,
             phone_number: lead.phone_number,
-            first_name: firstName || 'Unknown',
+            first_name: firstName,
             last_name: lastName,
             data_source: lead.source || 'Unknown',
-            status: 'assigned', // Match the lead status
+            status: lead.status,
             sync_status: 'synced',
             api_response: contact,
           });
@@ -834,7 +1205,7 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
           lead_id: lead.id,
           phone_number: lead.phone_number,
           first_name: (lead.full_name ?? 'Unknown').split(' ')[0] ?? 'Unknown',
-          last_name: (lead.full_name ?? 'Unknown').split(' ').slice(1).join(' ') ?? '',
+          last_name: 'Demo',
           data_source: lead.source ?? 'Unknown',
           status: 'failed',
           sync_status: 'failed',
@@ -853,49 +1224,46 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
       }
     }
 
-    // PART 2: Update existing playbook_contacts database records to match lead status
-    for (const contact of existingContactsToUpdate) {
+    // PART 2: Remove contacts that no longer match filters (but don't delete from database)
+    for (const contact of contactsToRemove) {
       try {
-        console.log(`Updating playbook_contact ${contact.contact_id} status from '${contact.samespace_status}' to '${contact.lead_status}'`);
+        console.log(`Removing contact ${contact.id} from playbook (no longer matches filters)`);
         
-        // Update the playbook_contacts database record
+        // Update status to 'removed' instead of deleting
         await db
           .update(playbook_contacts)
           .set({ 
-            status: contact.lead_status,
-            sync_status: 'synced',
+            status: 'removed',
+            sync_status: 'removed',
             updated_at: new Date(),
           })
-          .where(eq(playbook_contacts.id, contact.contact_id));
+          .where(eq(playbook_contacts.id, contact.id));
 
         results.push({
-          leadId: contact.id,
-          leadName: contact.full_name ?? 'Unknown',
+          leadId: contact.lead_id,
           phone: contact.phone_number,
-          status: 'updated',
-          oldStatus: contact.samespace_status,
-          newStatus: contact.lead_status,
+          status: 'removed',
+          reason: 'No longer matches playbook filters',
         });
 
-        contactsUpdated++;
+        contactsRemoved++;
       } catch (error) {
-        console.error(`Failed to update playbook_contact ${contact.contact_id}:`, error);
+        console.error(`Failed to remove contact ${contact.id}:`, error);
         
         results.push({
-          leadId: contact.id,
-          leadName: contact.full_name ?? 'Unknown',
+          leadId: contact.lead_id,
           phone: contact.phone_number,
-          status: 'update_failed',
+          status: 'remove_failed',
           error: error instanceof Error ? error.message : 'Unknown error',
         });
       }
     }
 
-    // FINAL STEP: Update playbook filters with only 'assigned' contacts
+    // PART 3: Update playbook filters in Samespace with current matching leads
     let playbookUpdated = false;
     try {
-      // Get all playbook_contacts with status 'assigned' 
-      const assignedContacts = await db
+      // Get all active contacts (not removed)
+      const activeContacts = await db
         .select({
           phone_number: playbook_contacts.phone_number,
         })
@@ -903,17 +1271,22 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
         .where(
           and(
             eq(playbook_contacts.playbook_id, playbookId),
-            eq(playbook_contacts.status, 'assigned')
+            not(eq(playbook_contacts.status, 'removed'))
           )
         );
 
-      const assignedPhoneNumbers = assignedContacts.map(contact => 
+      const activePhoneNumbers = activeContacts.map(contact => 
         contact.phone_number.replace(/^\+65/, '65')
       );
 
-      console.log(`Updating playbook filters with ${assignedPhoneNumbers.length} assigned contacts only`);
+      console.log(`Updating Samespace playbook filters with ${activePhoneNumbers.length} active contacts`);
       
-      await updatePlaybookContacts(playbook.samespace_playbook_id, assignedPhoneNumbers);
+      // Update playbook filters in Samespace
+      await updatePlaybookFilters(playbook.samespace_playbook_id, {
+        phoneNumbers: activePhoneNumbers,
+        company: 'AirConnect Demo',
+      });
+
       playbookUpdated = true;
       
       // Update last synced timestamp
@@ -922,18 +1295,18 @@ export async function syncPlaybookContacts(playbookId: number): Promise<Playbook
         .set({ last_synced_at: new Date() })
         .where(eq(playbooks.id, playbookId));
 
-      console.log(`Updated playbook ${playbook.samespace_playbook_id} filters with ${assignedPhoneNumbers.length} assigned contacts`);
+      console.log(`Updated Samespace playbook ${playbook.samespace_playbook_id} filters`);
     } catch (error) {
-      console.error('Failed to update playbook filters:', error);
+      console.error('Failed to update Samespace playbook filters:', error);
     }
 
     return {
       success: true,
-      message: `Sync completed: ${contactsCreated} created, ${contactsFailed} failed, ${contactsUpdated} updated, playbook ${playbookUpdated ? 'updated' : 'not updated'}`,
+      message: `Sync completed: ${contactsCreated} created, ${contactsFailed} failed, ${contactsRemoved} removed, playbook ${playbookUpdated ? 'updated' : 'not updated'}`,
       data: {
         contactsCreated,
         contactsFailed,
-        contactsUpdated,
+        contactsRemoved,
         playbookUpdated,
         details: results,
       },
@@ -1216,14 +1589,14 @@ export async function getAllPlaybooks(): Promise<PlaybookResult> {
         id: playbooks.id,
         samespace_playbook_id: playbooks.samespace_playbook_id,
         name: playbooks.name,
-        agent_id: playbooks.agent_id,
+        created_by: playbooks.created_by,
         agent_name: users.first_name,
         is_active: playbooks.is_active,
         last_synced_at: playbooks.last_synced_at,
         created_at: playbooks.created_at,
       })
       .from(playbooks)
-      .leftJoin(users, eq(playbooks.agent_id, users.id))
+      .leftJoin(users, eq(playbooks.created_by, users.id))
       .orderBy(playbooks.created_at);
 
     // Get contact counts for each playbook
@@ -1244,8 +1617,8 @@ export async function getAllPlaybooks(): Promise<PlaybookResult> {
         
         return {
           ...playbook,
-          contact_count: contactCount?.count || 0,
-          samespace_status: samespaceStatus?.status || 'unknown',
+          contact_count: contactCount?.count ?? 0,
+          samespace_status: samespaceStatus?.status ?? 'unknown',
           is_running: isRunning,
         };
       })
@@ -1678,8 +2051,17 @@ export async function syncBorrowerPlaybookContacts(playbookId: number, borrowerF
       borrowerConditions.push(eq(borrowers.aa_status, borrowerFilters.aa_status));
     }
 
-    if (borrowerFilters.assigned_filter === 'assigned_to_me' && playbook.agent_id) {
-      borrowerConditions.push(eq(borrowers.assigned_to, playbook.agent_id));
+    if (borrowerFilters.assigned_filter === 'assigned_to_me') {
+      // Get the agent IDs for this playbook
+      const playbookAgents = await db
+        .select({ agent_id: playbook_agents.agent_id })
+        .from(playbook_agents)
+        .where(eq(playbook_agents.playbook_id, playbookId));
+
+      if (playbookAgents.length > 0) {
+        const agentIds = playbookAgents.map(pa => pa.agent_id);
+        borrowerConditions.push(inArray(borrowers.assigned_to, agentIds));
+      }
     } else if (borrowerFilters.assigned_filter === 'unassigned') {
       borrowerConditions.push(sql`${borrowers.assigned_to} IS NULL`);
     }
@@ -1716,7 +2098,7 @@ export async function syncBorrowerPlaybookContacts(playbookId: number, borrowerF
       .where(and(...borrowerConditions))
       .limit(300);
 
-    console.log(`Found ${newBorrowers.length} new borrowers for agent ${playbook.agent_id}`);
+    console.log(`Found ${newBorrowers.length} new borrowers for playbook ${playbookId}`);
 
     if (newBorrowers.length === 0) {
       return {

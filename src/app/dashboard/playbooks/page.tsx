@@ -6,7 +6,7 @@ interface Playbook {
   id: number;
   samespace_playbook_id: string;
   name: string;
-  agent_id: string;
+  created_by: string; // Changed from agent_id
   agent_name: string;
   is_active: boolean;
   last_synced_at: string;
@@ -59,6 +59,15 @@ export default function PlaybooksPage() {
     samespacePlaybookId: "",
     name: "",
     agentId: "",
+    description: "",
+    agentIds: [] as string[],
+    filters: {
+      status: [] as string[],
+      sources: [] as string[],
+      includeUnassigned: false,
+      amountMin: undefined as number | undefined,
+      amountMax: undefined as number | undefined,
+    },
   });
 
   // Register borrower playbook form with filters
@@ -508,6 +517,65 @@ export default function PlaybooksPage() {
     );
   };
 
+  const handleCreateAdvancedPlaybook = async () => {
+    if (!newPlaybook.samespacePlaybookId) {
+      alert("Samespace Playbook ID is required.");
+      return;
+    }
+    if (!newPlaybook.name) {
+      alert("Playbook name is required.");
+      return;
+    }
+    if (!newPlaybook.agentIds || newPlaybook.agentIds.length === 0) {
+      alert("Please select at least one agent.");
+      return;
+    }
+
+    setIsLoading(true);
+    setResult(null);
+
+    try {
+      const response = await fetch("/api/playbooks/advanced", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newPlaybook),
+      });
+
+      const data = await response.json() as ApiResponse<ResultData>;
+      setResult(data);
+
+      if (data.success) {
+        setNewPlaybook({
+          samespacePlaybookId: "",
+          name: "",
+          agentId: "",
+          description: "",
+          agentIds: [],
+          filters: {
+            status: [],
+            sources: [],
+            includeUnassigned: false,
+            amountMin: undefined,
+            amountMax: undefined,
+          },
+        });
+        setShowRegisterForm(false);
+        loadPlaybooks();
+      }
+    } catch (error) {
+      console.error("Error creating advanced playbook:", error);
+      setResult({
+        success: false,
+        message: "Failed to create advanced playbook",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-6">
@@ -600,12 +668,12 @@ export default function PlaybooksPage() {
         {/* Register Lead Playbook Modal */}
         {showRegisterForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
-              <h3 className="text-lg font-bold mb-4">Register Lead Playbook</h3>
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <h3 className="text-lg font-bold mb-4">Create Advanced Lead Playbook</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Samespace Playbook ID
+                    Samespace Playbook ID *
                   </label>
                   <input
                     type="text"
@@ -614,12 +682,14 @@ export default function PlaybooksPage() {
                       setNewPlaybook({ ...newPlaybook, samespacePlaybookId: e.target.value })
                     }
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    placeholder="Enter Samespace playbook ID"
+                    placeholder="Enter Samespace playbook ID (required)"
                   />
+                  <p className="text-xs text-gray-500 mt-1">This is the ID from your Samespace platform</p>
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Playbook Name
+                    Playbook Name *
                   </label>
                   <input
                     type="text"
@@ -628,27 +698,246 @@ export default function PlaybooksPage() {
                       setNewPlaybook({ ...newPlaybook, name: e.target.value })
                     }
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    placeholder="Enter playbook name"
+                    placeholder="Enter playbook name (required)"
                   />
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Agent
+                    Description (Optional)
                   </label>
-                  <select
-                    value={newPlaybook.agentId}
+                  <textarea
+                    value={newPlaybook.description}
                     onChange={(e) =>
-                      setNewPlaybook({ ...newPlaybook, agentId: e.target.value })
+                      setNewPlaybook({ ...newPlaybook, description: e.target.value })
                     }
                     className="w-full border border-gray-300 rounded-md px-3 py-2"
-                  >
-                    <option value="">Select an agent</option>
+                    placeholder="Enter playbook description"
+                    rows={2}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Assign Agents to Playbook
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-300 rounded-md p-3">
                     {agents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.first_name} {agent.last_name}
-                      </option>
+                      <label key={agent.id} className="flex items-center p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newPlaybook.agentIds.includes(agent.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewPlaybook({ ...newPlaybook, agentIds: [...newPlaybook.agentIds, agent.id] });
+                            } else {
+                              setNewPlaybook({ ...newPlaybook, agentIds: newPlaybook.agentIds.filter(id => id !== agent.id) });
+                            }
+                          }}
+                          className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{agent.first_name} {agent.last_name}</div>
+                          <div className="text-xs text-gray-500">{agent.email}</div>
+                        </div>
+                      </label>
                     ))}
-                  </select>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewPlaybook({ ...newPlaybook, agentIds: agents.map(a => a.id) })}
+                      className="text-xs text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Select All Agents
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewPlaybook({ ...newPlaybook, agentIds: [] })}
+                      className="text-xs text-red-600 hover:text-red-800 underline"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+
+                {/* Advanced Filters Section */}
+                <div className="border-t pt-4 mt-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Lead Filters</h4>
+                  
+                  <div className="space-y-4">
+                    {/* Lead Status Filter */}
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Lead Status
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNewPlaybook({ 
+                              ...newPlaybook, 
+                              filters: { ...newPlaybook.filters, status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'done', 'missed/RS', 'unqualified', 'give_up', 'blacklisted'] }
+                            })}
+                            className="text-xs text-blue-600 hover:text-blue-800 underline"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewPlaybook({ 
+                              ...newPlaybook, 
+                              filters: { ...newPlaybook.filters, status: [] }
+                            })}
+                            className="text-xs text-red-600 hover:text-red-800 underline"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'done', 'missed/RS', 'unqualified', 'give_up', 'blacklisted'].map((status) => (
+                          <label key={status} className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={newPlaybook.filters.status.includes(status)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setNewPlaybook({ 
+                                    ...newPlaybook, 
+                                    filters: { ...newPlaybook.filters, status: [...newPlaybook.filters.status, status] }
+                                  });
+                                } else {
+                                  setNewPlaybook({ 
+                                    ...newPlaybook, 
+                                    filters: { ...newPlaybook.filters, status: newPlaybook.filters.status.filter(s => s !== status) }
+                                  });
+                                }
+                              }}
+                              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <span className="text-sm text-gray-700 capitalize">{status.replace('_', ' ')}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Lead Source Filter */}
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Lead Source
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNewPlaybook({ 
+                              ...newPlaybook, 
+                              filters: { ...newPlaybook.filters, sources: ['MoneyRight', 'MoneyIQ', 'SEO', 'LendingPot', 'Loanable', 'Lendela', '1% Loan', 'OMY.sg'] }
+                            })}
+                            className="text-xs text-blue-600 hover:text-blue-800 underline"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewPlaybook({ 
+                              ...newPlaybook, 
+                              filters: { ...newPlaybook.filters, sources: [] }
+                            })}
+                            className="text-xs text-red-600 hover:text-red-800 underline"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {['MoneyRight', 'MoneyIQ', 'SEO', 'LendingPot', 'Loanable', 'Lendela', '1% Loan', 'OMY.sg'].map((source) => (
+                          <label key={source} className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={newPlaybook.filters.sources.includes(source)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setNewPlaybook({ 
+                                    ...newPlaybook, 
+                                    filters: { ...newPlaybook.filters, sources: [...newPlaybook.filters.sources, source] }
+                                  });
+                                } else {
+                                  setNewPlaybook({ 
+                                    ...newPlaybook, 
+                                    filters: { ...newPlaybook.filters, sources: newPlaybook.filters.sources.filter(s => s !== source) }
+                                  });
+                                }
+                              }}
+                              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <span className="text-sm text-gray-700">{source}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+
+
+
+                  </div>
+
+                  {/* Additional Options */}
+                  <div className="space-y-3">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newPlaybook.filters.includeUnassigned}
+                        onChange={(e) =>
+                          setNewPlaybook({ 
+                            ...newPlaybook, 
+                            filters: { ...newPlaybook.filters, includeUnassigned: e.target.checked }
+                          })
+                        }
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm text-gray-700">Include unassigned leads</span>
+                    </label>
+                  </div>
+
+                  {/* Amount Range */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Amount Range (Min)
+                      </label>
+                      <input
+                        type="number"
+                        value={newPlaybook.filters.amountMin ?? ''}
+                        onChange={(e) =>
+                          setNewPlaybook({ 
+                            ...newPlaybook, 
+                            filters: { ...newPlaybook.filters, amountMin: e.target.value ? parseInt(e.target.value) : undefined }
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        placeholder="Min amount"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Amount Range (Max)
+                      </label>
+                      <input
+                        type="number"
+                        value={newPlaybook.filters.amountMax ?? ''}
+                        onChange={(e) =>
+                          setNewPlaybook({ 
+                            ...newPlaybook, 
+                            filters: { ...newPlaybook.filters, amountMax: e.target.value ? parseInt(e.target.value) : undefined }
+                          })
+                        }
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        placeholder="Max amount"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="flex space-x-3 mt-6">
@@ -659,11 +948,11 @@ export default function PlaybooksPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={handleRegisterPlaybook}
+                  onClick={handleCreateAdvancedPlaybook}
                   disabled={isLoading}
                   className="flex-1 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 disabled:opacity-50"
                 >
-                  {isLoading ? "Registering..." : "Register"}
+                  {isLoading ? "Creating..." : "Create Playbook"}
                 </button>
               </div>
             </div>

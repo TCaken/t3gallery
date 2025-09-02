@@ -1193,7 +1193,7 @@ export async function fetchFilteredLeads({
       return { success: false, error: 'Not authenticated' };
     }
 
-    console.log('🔍 fetchFilteredLeads called with:', { 
+    console.log('🔍 [DEBUG] fetchFilteredLeads called with:', { 
       userId, 
       searchQuery, 
       searchOptions, 
@@ -1345,7 +1345,13 @@ export async function fetchFilteredLeads({
       }
     }
 
-    console.log ('conditions', conditions);
+    console.log('🔍 [DEBUG] SQL conditions built:', conditions);
+    console.log('🔍 [DEBUG] Total conditions count:', conditions.length);
+    
+    // Log each condition for debugging
+    conditions.forEach((condition, index) => {
+      console.log(`🔍 [DEBUG] Condition ${index + 1}:`, condition);
+    });
 
     // Recently assigned filter (assigned in last X days)
     if (searchOptions.assignedInLastDays) {
@@ -1508,10 +1514,19 @@ export async function fetchFilteredLeads({
     }
 
     // Execute query
-    console.log('🚀 Executing query...');
+    console.log('🚀 [DEBUG] Executing final query...');
+    console.log('🚀 [DEBUG] Query structure:', {
+      hasConditions: conditions.length > 0,
+      conditionCount: conditions.length,
+      sortBy: sortOptions.sortBy,
+      sortOrder: sortOptions.sortOrder,
+      page,
+      limit,
+      offset
+    });
     
     const results = await finalQuery;
-    console.log(`📊 Query returned ${results.length} results`);
+    console.log(`📊 [DEBUG] Query returned ${results.length} results`);
     
     // Transform the results to match the Lead type
     const transformedLeads = results.map((result) => ({

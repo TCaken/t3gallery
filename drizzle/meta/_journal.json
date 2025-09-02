@@ -8,6 +8,20 @@
       "when": 1745463660796,
       "tag": "0000_slimy_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1745463660797,
+      "tag": "0001_appointment_reminder_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1745463660798,
+      "tag": "0002_playbook_schema_update",
+      "breakpoints": true
     }
   ]
 }

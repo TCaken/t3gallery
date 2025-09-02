@@ -700,15 +700,58 @@ export const playbooks = createTable(
     id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
     samespace_playbook_id: d.varchar({ length: 255 }).notNull().unique(), // ID from Samespace
     name: d.varchar({ length: 255 }).notNull(),
-    agent_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    description: d.text(), // Optional description
     is_active: d.boolean().default(true),
     last_synced_at: d.timestamp({ withTimezone: true }),
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     updated_at: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+    created_by: d.varchar({ length: 256 }).references(() => users.id), // Who created the playbook
+    
+    // Filtering criteria (similar to fetchFilteredLeads)
+    filter_status: d.json(), // Array of status values
+    filter_assigned_to: d.json(), // Array of agent IDs
+    filter_include_unassigned: d.boolean().default(false),
+    filter_sources: d.json(), // Array of source values
+    filter_employment_statuses: d.json(), // Array of employment status values
+    filter_loan_purposes: d.json(), // Array of loan purpose values
+    filter_residential_statuses: d.json(), // Array of residential status values
+    filter_lead_types: d.json(), // Array of lead type values
+    filter_eligibility_statuses: d.json(), // Array of eligibility status values
+    filter_amount_min: d.integer(), // Minimum amount
+    filter_amount_max: d.integer(), // Maximum amount
+    filter_date_from: d.varchar({ length: 20 }), // Date string (YYYY-MM-DD)
+    filter_date_to: d.varchar({ length: 20 }), // Date string (YYYY-MM-DD)
+    filter_follow_up_date_from: d.varchar({ length: 20 }), // Date string (YYYY-MM-DD)
+    filter_follow_up_date_to: d.varchar({ length: 20 }), // Date string (YYYY-MM-DD)
+    filter_assigned_in_last_days: d.integer(), // Days ago
+    
+    // Playbook settings
+    call_script: d.text(), // Call script for Samespace
+    timeset_id: d.varchar({ length: 255 }), // Samespace timeset ID
+    team_id: d.varchar({ length: 255 }), // Samespace team ID
+    auto_sync_enabled: d.boolean().default(true), // Whether to auto-sync contacts
+    sync_frequency: d.varchar({ length: 50 }).default('daily'), // daily, weekly, manual
   }),
   (t) => [
-    index("playbooks_agent_idx").on(t.agent_id),
-    index("playbooks_samespace_idx").on(t.samespace_playbook_id)
+    index("playbooks_samespace_idx").on(t.samespace_playbook_id),
+    index("playbooks_created_by_idx").on(t.created_by),
+    index("playbooks_active_idx").on(t.is_active)
+  ]
+);
+
+export const playbook_agents = createTable(
+  "playbook_agents",
+  (d) => ({
+    playbook_id: d.integer().references(() => playbooks.id, { onDelete: "cascade" }).notNull(),
+    agent_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    assigned_by: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    assigned_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  }),
+  (t) => [
+    primaryKey({ columns: [t.playbook_id, t.agent_id] }),
+    index("playbook_agents_playbook_idx").on(t.playbook_id),
+    index("playbook_agents_agent_idx").on(t.agent_id),
+    index("playbook_agents_assigned_by_idx").on(t.assigned_by)
   ]
 );
 
@@ -1115,6 +1158,41 @@ export const pinnedBorrowersRelations = relations(pinned_borrowers, ({ one }) =>
   }),
 }));
 
+export const playbookRelations = relations(playbooks, ({ one, many }) => ({
+  createdBy: one(users, {
+    fields: [playbooks.created_by],
+    references: [users.id],
+  }),
+  agents: many(playbook_agents),
+  contacts: many(playbook_contacts),
+}));
+
+export const playbookAgentsRelations = relations(playbook_agents, ({ one }) => ({
+  playbook: one(playbooks, {
+    fields: [playbook_agents.playbook_id],
+    references: [playbooks.id],
+  }),
+  agent: one(users, {
+    fields: [playbook_agents.agent_id],
+    references: [users.id],
+  }),
+  assignedBy: one(users, {
+    fields: [playbook_agents.assigned_by],
+    references: [users.id],
+  }),
+}));
+
+export const playbookContactsRelations = relations(playbook_contacts, ({ one }) => ({
+  playbook: one(playbooks, {
+    fields: [playbook_contacts.playbook_id],
+    references: [playbooks.id],
+  }),
+  lead: one(leads, {
+    fields: [playbook_contacts.lead_id],
+    references: [leads.id],
+  }),
+}));
+
 // // Create a view for leads with appointment status and computed fields
 // export const leadsWithAppointmentStatusAgentName = pgView("leads_with_appointment_status_agent_name", {
 //   id: integer(),
@@ -1161,7 +1239,7 @@ export const pinnedBorrowersRelations = relations(pinned_borrowers, ({ one }) =>
 //   has_exported: boolean(),
 //   exported_at: timestamp({ withTimezone: true }),
 //   loan_status: varchar({ length: 50 }),
-//   loan_notes: text(),
+//   loan_notes
 // }).as(sql`
 //   SELECT 
 //     l.id,

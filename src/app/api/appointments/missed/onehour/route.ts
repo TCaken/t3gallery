@@ -86,8 +86,8 @@ export async function POST(request: NextRequest) {
       oneAndHalfHourAgo: oneAndHalfHourAgo.toISOString()
     });
     
-    // Fetch missed appointments from today that were updated between 1-1.5 hours ago
-    const missedAppointments = await db
+    // Fetch upcoming appointments from today that are already late by 1-1.5 hours
+    const lateAppointments = await db
       .select({
         appointment_id: appointments.id,
         appointment_date: appointments.start_datetime,
@@ -105,25 +105,23 @@ export async function POST(request: NextRequest) {
       .leftJoin(leads, eq(appointments.lead_id, leads.id))
       .where(
         and(
-          // Appointment is from today
-          sql`DATE(${appointments.start_datetime}) = ${targetDate}`,
-          // Status is missed
-          eq(appointments.status, 'missed'),
-          // Updated time is between 1-1.5 hours ago
-          sql`${appointments.updated_at} >= ${oneAndHalfHourAgo.toISOString()}`,
-          sql`${appointments.updated_at} <= ${oneHourAgo.toISOString()}`,
+          // Status is still upcoming (not yet marked as missed)
+          eq(appointments.status, 'upcoming'),
+          // Start datetime is already late by 1-1.5 hours
+          sql`${appointments.start_datetime} <= ${oneAndHalfHourAgo.toISOString()}`,
+          sql`${appointments.start_datetime} >= ${oneHourAgo.toISOString()}`,
           // Has lead phone number
           sql`${leads.phone_number} IS NOT NULL`
         )
       );
     
-    console.log(`📋 Found ${missedAppointments.length} missed appointments eligible for one-hour reminder`);
+    console.log(`📋 Found ${lateAppointments.length} upcoming appointments that are already late by 1-1.5 hours`);
     
-    // If no missed appointments found, return early
-    if (missedAppointments.length === 0) {
+    // If no late appointments found, return early
+    if (lateAppointments.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'No missed appointments eligible for one-hour reminder',
+        message: 'No upcoming appointments found that are already late by 1-1.5 hours',
         data: {
           targetDate,
           currentTime: currentTime,
@@ -142,13 +140,13 @@ export async function POST(request: NextRequest) {
     let successCount = 0;
     let failureCount = 0;
     
-    for (const appointment of missedAppointments) {
+    for (const appointment of lateAppointments) {
       try {
-        console.log(`📱 Sending one-hour reminder for appointment ${appointment.appointment_id}:`, {
+        console.log(`📱 Sending one-hour reminder for late appointment ${appointment.appointment_id}:`, {
           customerName: appointment.lead_name ?? 'Customer',
           phoneNumber: appointment.lead_phone,
           appointmentTime: appointment.appointment_time,
-          updatedAt: appointment.updated_at
+          status: appointment.status
         });
         
         // Send the WhatsApp reminder
@@ -159,16 +157,18 @@ export async function POST(request: NextRequest) {
         
         if (result.success) {
           successCount++;
-          console.log(`✅ Reminder sent successfully for appointment ${appointment.appointment_id}`);
+          console.log(`✅ Reminder sent successfully for late appointment ${appointment.appointment_id}`);
         } else {
           failureCount++;
-          console.error(`❌ Failed to send reminder for appointment ${appointment.appointment_id}:`, result.error);
+          console.error(`❌ Failed to send reminder for late appointment ${appointment.appointment_id}:`, result.error);
         }
         
         results.push({
           appointmentId: appointment.appointment_id,
           customerName: appointment.lead_name ?? 'Customer',
           phoneNumber: appointment.lead_phone,
+          appointmentTime: appointment.appointment_time,
+          status: appointment.status,
           success: result.success,
           error: result.error ?? null,
           whatsappResponse: result.whatsappResponse ?? null
@@ -176,11 +176,13 @@ export async function POST(request: NextRequest) {
         
       } catch (error) {
         failureCount++;
-        console.error(`❌ Error processing appointment ${appointment.appointment_id}:`, error);
+        console.error(`❌ Error processing late appointment ${appointment.appointment_id}:`, error);
         results.push({
           appointmentId: appointment.appointment_id,
           customerName: appointment.lead_name ?? 'Customer',
           phoneNumber: appointment.lead_phone,
+          appointmentTime: appointment.appointment_time,
+          status: appointment.status,
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',
           whatsappResponse: null
@@ -192,7 +194,7 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
-      message: `One hour missed appointment reminders processed`,
+      message: `One hour reminders sent for late upcoming appointments`,
       data: {
         targetDate,
         currentTime: currentTime,
@@ -200,7 +202,7 @@ export async function POST(request: NextRequest) {
         singaporeTime: singaporeTime.toISOString(),
         oneHourAgo: oneHourAgo.toISOString(),
         oneAndHalfHourAgo: oneAndHalfHourAgo.toISOString(),
-        eligibleAppointments: missedAppointments.length,
+        eligibleAppointments: lateAppointments.length,
         remindersSent: successCount,
         remindersFailed: failureCount,
         results

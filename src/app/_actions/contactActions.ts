@@ -114,7 +114,7 @@ async function updatePlaybookContacts(playbookId: string, phoneNumbers: string[]
             {
               key: 'dataSource',
               condition: 'IS',
-              value: 'AirConnect',
+              value: 'AirConnect Demo',
             },
           ],
         },

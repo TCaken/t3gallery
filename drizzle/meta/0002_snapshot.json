@@ -1,0 +1,105 @@
+{
+  "id": "0002_playbook_schema_update",
+  "prevId": "0001_appointment_reminder_log",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "t3gallery_playbook_agents": {
+      "name": "t3gallery_playbook_agents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "hasDefault": true,
+          "isNullable": false
+        },
+        "playbook_id": {
+          "name": "playbook_id",
+          "type": "integer",
+          "primaryKey": false,
+          "hasDefault": false,
+          "isNullable": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "varchar(256)",
+          "primaryKey": false,
+          "hasDefault": false,
+          "isNullable": false
+        },
+        "assigned_at": {
+          "name": "assigned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "hasDefault": true,
+          "isNullable": false
+        },
+        "assigned_by": {
+          "name": "assigned_by",
+          "type": "varchar(256)",
+          "primaryKey": false,
+          "hasDefault": false,
+          "isNullable": true
+        },
+        "is_primary": {
+          "name": "is_primary",
+          "type": "boolean",
+          "primaryKey": false,
+          "hasDefault": true,
+          "isNullable": false
+        }
+      },
+      "foreignKeys": [
+        {
+          "name": "t3gallery_playbook_agents_playbook_id_fkey",
+          "tableName": "t3gallery_playbook_agents",
+          "columnName": "playbook_id",
+          "referencedTableName": "t3gallery_playbooks",
+          "referencedColumnName": "id",
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        {
+          "name": "t3gallery_playbook_agents_agent_id_fkey",
+          "tableName": "t3gallery_playbook_agents",
+          "columnName": "agent_id",
+          "referencedTableName": "t3gallery_users",
+          "referencedColumnName": "id",
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        {
+          "name": "t3gallery_playbook_agents_assigned_by_fkey",
+          "tableName": "t3gallery_playbook_agents",
+          "columnName": "assigned_by",
+          "referencedTableName": "t3gallery_users",
+          "referencedColumnName": "id",
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "playbook_agents_playbook_idx",
+          "tableName": "t3gallery_playbook_agents",
+          "columns": ["playbook_id"]
+        },
+        {
+          "name": "playbook_agents_agent_idx",
+          "tableName": "t3gallery_playbook_agents",
+          "columns": ["agent_id"]
+        },
+        {
+          "name": "playbook_agents_unique_idx",
+          "tableName": "t3gallery_playbook_agents",
+          "columns": ["playbook_id", "agent_id"],
+          "isUnique": true
+        }
+      ]
+    }
+  },
+  "enums": {},
+  "schemas": {}
+}
