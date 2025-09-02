@@ -272,7 +272,7 @@ export default function LeadCard({
       </div>
 
       {/* Debug: Show ascend_status */}
-      {process.env.NODE_ENV === 'development' && (
+      {process.env.NEXT_PUBLIC_ENVIRONMENT === 'development' && (
         <div className="mb-2 p-2 bg-gray-100 text-xs">
           Debug: ascend_status = "{lead.ascend_status}", airconnect_link = "{lead.airconnect_verification_link}"
         </div>
@@ -316,7 +316,7 @@ export default function LeadCard({
             </div>
           )}
           
-          {lead.ascend_status === 'new' && (
+          {/* {lead.ascend_status === 'new' && (
             <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
               <div className="flex items-center space-x-2">
                 <span className="text-sm font-medium text-gray-800">New Lead (Ascend)</span>
@@ -331,7 +331,7 @@ export default function LeadCard({
                 <span className="text-sm font-medium text-green-800">Completed (Ascend)</span>
               </div>
             </div>
-          )}
+          )} */}
         </div>
       )}
 

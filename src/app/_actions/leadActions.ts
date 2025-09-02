@@ -1174,6 +1174,7 @@ export async function fetchFilteredLeads({
     residentialStatuses?: string[];
     leadTypes?: string[];
     eligibilityStatuses?: string[];
+    ascendStatuses?: string[];
     amountMin?: number;
     amountMax?: number;
     dateFrom?: string;
@@ -1297,6 +1298,15 @@ export async function fetchFilteredLeads({
       const eligOr = or(...eligConditions);
       if (eligOr) {
         conditions.push(eligOr);
+      }
+    }
+
+    // Ascend status filter
+    if (searchOptions.ascendStatuses && searchOptions.ascendStatuses.length > 0) {
+      const ascendConditions = searchOptions.ascendStatuses.map(status => eq(leads.ascend_status, status));
+      const ascendOr = or(...ascendConditions);
+      if (ascendOr) {
+        conditions.push(ascendOr);
       }
     }
 

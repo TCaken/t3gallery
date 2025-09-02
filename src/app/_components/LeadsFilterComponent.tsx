@@ -16,6 +16,7 @@ export interface FilterOptions {
   residentialStatuses?: string[];
   leadTypes?: string[];
   eligibilityStatuses?: string[];
+  ascendStatuses?: string[];
   amountMin?: number;
   amountMax?: number;
   dateFrom?: string;
@@ -82,6 +83,14 @@ const LEAD_STATUSES = [
   { value: 'blacklisted', label: 'Blacklisted', color: 'bg-black text-white' },
 ];
 
+// Ascend status options
+const ASCEND_STATUSES = [
+  { value: 'new', label: 'New (Ascend)', color: 'bg-gray-100 text-gray-800' },
+  { value: 'manual_verification_required', label: 'Manual Verification Required', color: 'bg-orange-100 text-orange-800' },
+  { value: 'booking_appointment', label: 'Ready for Booking', color: 'bg-blue-100 text-blue-800' },
+  { value: 'done', label: 'Completed (Ascend)', color: 'bg-green-100 text-green-800' },
+];
+
 export default function LeadsFilterComponent({
   filterOptions,
   sortOptions,
@@ -137,6 +146,7 @@ export default function LeadsFilterComponent({
   useEffect(() => {
     let count = 0;
     if (filterOptions.status && filterOptions.status.length > 0) count++;
+    if (filterOptions.ascendStatuses && filterOptions.ascendStatuses.length > 0) count++;
     if (filterOptions.assignedTo && filterOptions.assignedTo.length > 0) count++;
     if (filterOptions.includeUnassigned) count++;
     if (filterOptions.bookedBy && filterOptions.bookedBy.length > 0) count++;
@@ -160,6 +170,7 @@ export default function LeadsFilterComponent({
     if (value.trim() !== '') {
       onFilterChange({
         status: LEAD_STATUSES.map(s => s.value) as FilterOptions['status'],
+        ascendStatuses: ASCEND_STATUSES.map(s => s.value),
         assignedTo: availableAgents.map(a => a.id), // All agents
         includeUnassigned: true,
         bookedBy: [] // Don't filter by bookedBy when searching
@@ -171,12 +182,14 @@ export default function LeadsFilterComponent({
       if (userRole === 'admin') {
         // Admin default: All leads (all statuses, all assigned, no bookedBy filter)
         defaultFilters.status = LEAD_STATUSES.map(s => s.value) as FilterOptions['status'];
+        defaultFilters.ascendStatuses = ASCEND_STATUSES.map(s => s.value);
         defaultFilters.includeUnassigned = true;
         defaultFilters.assignedTo = availableAgents.map(a => a.id);
         defaultFilters.bookedBy = []; // Don't filter by bookedBy for admin default
       } else if (userRole === 'agent' && userId) {
         // Agent default: My Leads (filtered statuses, only their assigned leads)
         defaultFilters.status = ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'];
+        defaultFilters.ascendStatuses = ASCEND_STATUSES.map(s => s.value);
         defaultFilters.assignedTo = [userId];
         defaultFilters.includeUnassigned = false;
         defaultFilters.bookedBy = [];
@@ -203,7 +216,9 @@ export default function LeadsFilterComponent({
     
     const newFilterOptions = {
       ...filterOptions,
-      [field]: field === 'status' ? newValues as FilterOptions['status'] : newValues
+      [field]: field === 'status' ? newValues as FilterOptions['status'] : 
+               field === 'ascendStatuses' ? newValues as FilterOptions['ascendStatuses'] : 
+               newValues
     };
     
     // Update parent state
@@ -382,6 +397,53 @@ export default function LeadsFilterComponent({
                       checked={filterOptions.status?.some(s => s === status.value) ?? false}
                       onChange={(e) => {
                         const newFilters = handleMultiSelectChange('status', status.value, e.target.checked);
+                        onApplyFilters(newFilters);
+                      }}
+                      className="rounded border-gray-300"
+                    />
+                    <span className={`text-sm px-2 py-1 rounded-full ${status.color}`}>
+                      {status.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Ascend Status Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Ascend Status
+              </label>
+              <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-md p-2">
+                {/* All Ascend Statuses Option */}
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={filterOptions.ascendStatuses?.length === ASCEND_STATUSES.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        const allAscendStatuses = ASCEND_STATUSES.map(s => s.value);
+                        const newFilters = { ...filterOptions, ascendStatuses: allAscendStatuses };
+                        onFilterChange(newFilters);
+                        onApplyFilters(newFilters);
+                      } else {
+                        const newFilters = { ...filterOptions, ascendStatuses: [] };
+                        onFilterChange(newFilters);
+                        onApplyFilters(newFilters);
+                      }
+                    }}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-sm font-bold text-purple-600">All Ascend Statuses</span>
+                </label>
+                
+                {ASCEND_STATUSES.map((status) => (
+                  <label key={status.value} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={filterOptions.ascendStatuses?.some(s => s === status.value) ?? false}
+                      onChange={(e) => {
+                        const newFilters = handleMultiSelectChange('ascendStatuses', status.value, e.target.checked);
                         onApplyFilters(newFilters);
                       }}
                       className="rounded border-gray-300"
