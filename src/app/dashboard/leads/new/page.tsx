@@ -168,6 +168,7 @@ export default function NewLeadPage() {
             "MoneyRight",
             "OMY.sg",
             "SEO",
+            "Ascend",
             "Other"
           ]
         } as SelectField,

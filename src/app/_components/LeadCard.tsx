@@ -274,7 +274,14 @@ export default function LeadCard({
       {/* Debug: Show ascend_status */}
       {process.env.NEXT_PUBLIC_ENVIRONMENT === 'development' && (
         <div className="mb-2 p-2 bg-gray-100 text-xs">
-          Debug: ascend_status = "{lead.ascend_status}", airconnect_link = "{lead.airconnect_verification_link}"
+          Debug: ascend_status = "{lead.ascend_status}"<br/>
+          airconnect_link = "{lead.airconnect_verification_link}"<br/>
+          {lead.airconnect_verification_link?.startsWith('Appointment:') && (
+            <span className="text-blue-600">📅 Appointment Info: {lead.airconnect_verification_link.replace('Appointment: ', '')}</span>
+          )}
+          {lead.airconnect_verification_link?.startsWith('http') && (
+            <span className="text-orange-600">🔗 Verification Link: {lead.airconnect_verification_link}</span>
+          )}
         </div>
       )}
 
@@ -287,7 +294,7 @@ export default function LeadCard({
                 <ExclamationTriangleIcon className="h-5 w-5 text-orange-500" />
                 <span className="text-sm font-medium text-orange-800">Manual Verification Required</span>
               </div>
-              {lead.airconnect_verification_link && lead.airconnect_verification_link.trim() !== '' && (
+              {lead.airconnect_verification_link && lead.airconnect_verification_link.trim() !== '' && lead.airconnect_verification_link.startsWith('http') && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -311,7 +318,14 @@ export default function LeadCard({
             <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="flex items-center space-x-2">
                 <CalendarIcon className="h-5 w-5 text-blue-500" />
-                <span className="text-sm font-medium text-blue-800">Ready for Booking</span>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-blue-800">Ready for Booking</span>
+                  {lead.airconnect_verification_link && lead.airconnect_verification_link.startsWith('Appointment:') && (
+                    <span className="text-xs text-blue-600 mt-1">
+                      {lead.airconnect_verification_link.replace('Appointment: ', '')}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           )}

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { ascendAppointmentReminder } from '~/app/_actions/whatsappActions';
+import { processAppointmentReminderWithLeadProcessing } from '~/app/_actions/ascendLeadProcessing';
 
 export async function POST(request: Request) {
   try {
@@ -79,13 +79,14 @@ export async function POST(request: Request) {
       app: appName
     });
 
-    // Call the ascendAppointmentReminder function
-    const result = await ascendAppointmentReminder(
+    // Call the enhanced appointment reminder function with lead processing
+    const result = await processAppointmentReminderWithLeadProcessing(
       customerName,
       phoneNumber,
       appointmentDate,
       timeSlot,
-      appName
+      appName,
+      body // Pass the complete request body for debugging
     );
 
     if (result.success) {

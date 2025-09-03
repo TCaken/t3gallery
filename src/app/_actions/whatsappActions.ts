@@ -341,7 +341,8 @@ export async function ascendAppointmentReminder(
   phoneNumber: string,
   appointmentDate: string,
   timeSlot: string,
-  app = 'unknown' // Who is requesting this reminder
+  app = 'unknown', // Who is requesting this reminder
+  requestBody?: any // Optional request body for debugging
 ) {
   try {
     console.log('🔔 Sending Ascend appointment reminder:', {
@@ -349,7 +350,8 @@ export async function ascendAppointmentReminder(
       phoneNumber,
       appointmentDate,
       timeSlot,
-      app
+      app,
+      requestBody
     });
 
     // Hardcoded template configuration based on your provided structure
@@ -380,6 +382,7 @@ export async function ascendAppointmentReminder(
       time_slot: timeSlot,
       app: app,
       status: 'pending',
+      request_body: requestBody, // Store the complete request body
       workspace_id: workspaceId,
       channel_id: channelId,
       project_id: projectId,
@@ -935,14 +938,16 @@ export async function storeManualVerification(
   customerName: string,
   phoneNumber: string,
   customerHyperLink: string,
-  app = 'ascend'
+  app = 'ascend',
+  requestBody?: any // Optional request body for debugging
 ): Promise<{ success: boolean; message?: string; error?: string; data?: unknown }> {
   try {
     console.log('📝 Storing manual verification data:', {
       customerName,
       phoneNumber,
       customerHyperLink,
-      app
+      app,
+      requestBody
     });
 
     // Insert into manual verification log
@@ -952,6 +957,7 @@ export async function storeManualVerification(
       customer_hyperlink: customerHyperLink,
       app: app,
       status: 'verified',
+      request_body: requestBody, // Store the complete request body
       created_at: new Date()
     }).returning();
 

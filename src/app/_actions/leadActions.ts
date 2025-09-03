@@ -195,6 +195,8 @@ interface CreateLeadInput {
   received_time?: Date;
   bypassEligibility?: boolean;
   pushToWebhook?: boolean; // New flag to control webhook push
+  ascend_status?: string; // Ascend status for lead processing
+  airconnect_verification_link?: string; // Verification link for manual verification
 }
 
 interface CreateLeadSuccessResult {
@@ -294,6 +296,8 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
       eligibility_checked: true,
       eligibility_status: eligibilityStatus,
       eligibility_notes: eligibilityNotes,
+      ascend_status: input.ascend_status,
+      airconnect_verification_link: input.airconnect_verification_link,
       created_by: input.created_by ?? userId,
       updated_by: input.updated_by ?? userId,
     };

@@ -665,6 +665,7 @@ export const appointmentReminderLog = createTable(
     time_slot: d.varchar({ length: 100 }).notNull(),
     app: d.varchar({ length: 100 }).notNull(), // Who requested this (e.g., "dashboard", "mobile-app", "cron-job")
     status: d.varchar({ length: 50 }).default('pending').notNull(), // pending, sent, failed
+    request_body: d.json(), // Store the complete request body for debugging/review
     api_response: d.json(), // Store API response for debugging
     error_message: d.text(),
     workspace_id: d.varchar({ length: 255 }).notNull(),
@@ -692,6 +693,7 @@ export const manualVerificationLog = createTable(
     customer_hyperlink: d.text().notNull(), // Store the full hyperlink
     app: d.varchar({ length: 100 }).notNull(), // Who requested this (e.g., "ascend", "dashboard", "mobile-app")
     status: d.varchar({ length: 50 }).default('verified').notNull(), // verified, pending, failed
+    request_body: d.json(), // Store the complete request body for debugging/review
     created_at: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
     created_by: d.varchar({ length: 256 }), // User ID who triggered the verification
   }),
