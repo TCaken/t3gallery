@@ -1317,7 +1317,7 @@ export async function sendMissedAppointmentAfterOneHourReminder(
     // Project ID for missed appointment after one hour reminders
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
     const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
-    const projectId = "48003f9b-09a4-4aed-9d39-57fd05de0ab9";
+    const projectId = "36911679-ca85-45cf-8352-30759ef6aa21";
 
     // Format phone number
     const formattedPhone = formatPhoneNumber(phoneNumber);
