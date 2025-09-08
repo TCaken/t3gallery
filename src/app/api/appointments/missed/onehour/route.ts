@@ -107,11 +107,11 @@ export async function POST(request: NextRequest) {
         and(
           // Appointment is from today
           sql`DATE(${appointments.start_datetime}) = ${targetDate}`,
-          // Status is missed
-          eq(appointments.status, 'missed'),
+          // Status is upcoming
+          eq(appointments.status, 'upcoming'),
           // Updated time is between 1-1.5 hours ago
-          sql`${appointments.updated_at} >= ${oneAndHalfHourAgo.toISOString()}`,
-          sql`${appointments.updated_at} <= ${oneHourAgo.toISOString()}`,
+          sql`${appointments.end_datetime} >= ${oneAndHalfHourAgo.toISOString()}`,
+          sql`${appointments.end_datetime} <= ${oneHourAgo.toISOString()}`,
           // Has lead phone number
           sql`${leads.phone_number} IS NOT NULL`
         )
