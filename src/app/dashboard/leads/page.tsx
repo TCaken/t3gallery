@@ -120,6 +120,7 @@ interface LeadFilters {
   dateTo?: string;
   leadType?: string[];
   eligibilityStatus?: string[];
+  ascendStatus?: string[];
 }
 
 // Interface for fetchFilteredLeads parameters
@@ -136,6 +137,7 @@ interface FetchLeadsParams {
     residentialStatuses?: string[];
     leadTypes?: string[];
     eligibilityStatuses?: string[];
+    ascendStatuses?: string[];
     amountMin?: number;
     amountMax?: number;
     dateFrom?: string;
@@ -191,8 +193,10 @@ interface DefaultFilters {
   showResidentialStatus: boolean;
   showLeadType: boolean;
   showEligibilityStatus: boolean;
+  showAscendStatus: boolean;
   // Fine-grained status control
   visibleStatuses: Record<LeadStatus, boolean>;
+  visibleAscendStatuses: Record<string, boolean>;
 }
 
 export default function LeadsPage() {
@@ -237,7 +241,8 @@ export default function LeadsPage() {
     sortBy: 'created_at',
     sortOrder: 'desc',
     page: 1,
-    limit: 100
+    limit: 100,
+    ascendStatus: []
   });
   const [statusFilter, setStatusFilter] = useState<LeadStatus>('new');
   const validStatuses = LEAD_STATUSES;
@@ -541,7 +546,8 @@ export default function LeadsPage() {
       followUpDateTo: undefined,
       assignedTo: [userId],
       includeUnassigned: false,
-      bookedBy: []
+      bookedBy: [],
+      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,  
@@ -566,6 +572,7 @@ export default function LeadsPage() {
       includeUnassigned: false,
       bookedBy: [],
       assignedTo: [userId],
+      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,
@@ -591,7 +598,8 @@ export default function LeadsPage() {
       followUpDateFrom: undefined,
       followUpDateTo: undefined,
       includeUnassigned: false,
-      assignedTo: []
+      assignedTo: [],
+      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,
@@ -615,6 +623,7 @@ export default function LeadsPage() {
       dateTo: undefined,
       followUpDateFrom: undefined,
       followUpDateTo: undefined,
+      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,
@@ -640,7 +649,8 @@ export default function LeadsPage() {
       followUpDateFrom: today,
       followUpDateTo: today,
       includeUnassigned: false,
-      bookedBy: []
+      bookedBy: [],
+      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
     };
     const newSortOptions = {
       sortBy: 'follow_up_date' as const,
@@ -664,6 +674,7 @@ export default function LeadsPage() {
       dateTo: undefined,
       followUpDateFrom: undefined,
       followUpDateTo: undefined,
+      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
     };
     const newSortOptions = {
       sortBy: 'updated_at' as const,
@@ -710,6 +721,7 @@ export default function LeadsPage() {
           residentialStatuses: filtersToUse.residentialStatuses,
           leadTypes: filtersToUse.leadTypes,
           eligibilityStatuses: filtersToUse.eligibilityStatuses,
+          ascendStatuses: filtersToUse.ascendStatuses,
           amountMin: filtersToUse.amountMin,
           amountMax: filtersToUse.amountMax,
           dateFrom: filtersToUse.dateFrom,
@@ -1094,7 +1106,8 @@ export default function LeadsPage() {
               status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
               includeUnassigned: true,
               assignedTo: validAgents.map(a => a.id), // Use loaded agents
-              bookedBy: [] // Don't filter by bookedBy for admin default
+              bookedBy: [], // Don't filter by bookedBy for admin default
+              ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done'] // Include all Ascend statuses by default
             };
           } else if (userRole === 'agent' && userId) {
             // Agent sees "My Leads" by default (same as handleMyLeadsAll)
@@ -1102,7 +1115,8 @@ export default function LeadsPage() {
               status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
               assignedTo: [userId],
               includeUnassigned: false,
-              bookedBy: []
+              bookedBy: [],
+              ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done'] // Include all Ascend statuses by default
             };
           }
           
@@ -1456,6 +1470,18 @@ export default function LeadsPage() {
           break;
 
         case 'schedule':
+          break;
+
+        case 'ascend_manual_verification':
+          // Track that user clicked on manual verification link
+          showNotification('Opening AirConnect verification link', 'info');
+          break;
+
+        case 'ascend_booking_appointment':
+          // Handle booking appointment action - same as schedule_appointment
+          setSelectedLead(lead);
+          setIsEditOpen(true);
+          showNotification('Opening appointment booking', 'info');
           break;
 
         case 'assign':
@@ -1939,7 +1965,8 @@ export default function LeadsPage() {
                     status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
                     assignedTo: availableAgents.map(a => a.id), // All agents
                     includeUnassigned: true,
-                    bookedBy: [] // Don't filter by bookedBy when searching
+                    bookedBy: [], // Don't filter by bookedBy when searching
+                    ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
                   };
                 } else {
                   // Restore role-based defaults when search is cleared
@@ -1948,14 +1975,16 @@ export default function LeadsPage() {
                       status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'unqualified', 'blacklisted'] as FilterOptions['status'],
                       includeUnassigned: true,
                       assignedTo: availableAgents.map(a => a.id), // All agents
-                      bookedBy: [] // Don't filter by bookedBy for admin default
+                      bookedBy: [], // Don't filter by bookedBy for admin default
+                      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
                     };
                   } else if (userRole === 'agent' && userId) {
                     searchFilters = {
                       status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
                       assignedTo: [userId],
                       includeUnassigned: false,
-                      bookedBy: []
+                      bookedBy: [],
+                      ascendStatuses: ['new', 'manual_verification_required', 'booking_appointment', 'done']
                     };
                   }
                 }

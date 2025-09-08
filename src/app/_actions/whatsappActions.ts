@@ -341,7 +341,8 @@ export async function ascendAppointmentReminder(
   phoneNumber: string,
   appointmentDate: string,
   timeSlot: string,
-  app = 'unknown' // Who is requesting this reminder
+  app = 'unknown', // Who is requesting this reminder
+  requestBody?: any // Optional request body for debugging
 ) {
   try {
     console.log('🔔 Sending Ascend appointment reminder:', {
@@ -349,12 +350,13 @@ export async function ascendAppointmentReminder(
       phoneNumber,
       appointmentDate,
       timeSlot,
-      app
+      app,
+      requestBody
     });
 
     // Hardcoded template configuration based on your provided structure
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
     const projectId = "20144ad5-88f2-4336-be9e-9c30b2c0a89b";
 
     // Format phone number early for use in both data and logging
@@ -380,6 +382,7 @@ export async function ascendAppointmentReminder(
       time_slot: timeSlot,
       app: app,
       status: 'pending',
+      request_body: requestBody, // Store the complete request body
       workspace_id: workspaceId,
       channel_id: channelId,
       project_id: projectId,
@@ -935,14 +938,16 @@ export async function storeManualVerification(
   customerName: string,
   phoneNumber: string,
   customerHyperLink: string,
-  app = 'ascend'
+  app = 'ascend',
+  requestBody?: any // Optional request body for debugging
 ): Promise<{ success: boolean; message?: string; error?: string; data?: unknown }> {
   try {
     console.log('📝 Storing manual verification data:', {
       customerName,
       phoneNumber,
       customerHyperLink,
-      app
+      app,
+      requestBody
     });
 
     // Insert into manual verification log
@@ -952,6 +957,7 @@ export async function storeManualVerification(
       customer_hyperlink: customerHyperLink,
       app: app,
       status: 'verified',
+      request_body: requestBody, // Store the complete request body
       created_at: new Date()
     }).returning();
 
@@ -998,7 +1004,7 @@ export async function sendAppointmentWhatsAppReminder(
 
     // New project ID configuration
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
     const projectId = "6e3429ea-0cd8-42e9-8ac4-5d67d926373f"; // New project ID
 
     // Use the existing formatPhoneNumber function from this file
@@ -1074,7 +1080,7 @@ export async function sendNewLeadReminder1(
 
     // Project ID for new lead reminder 1
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
     const projectId = "e23f7aca-9ff2-4b2d-a98d-6e86feda08e2";
 
     // Format phone number
@@ -1136,7 +1142,7 @@ export async function sendNewLeadReminder2(
 
     // Project ID for new lead reminder 2
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
     const projectId = "aa8cad3a-7452-42e9-bc39-d781052521cf";
 
     // Format phone number
@@ -1248,7 +1254,7 @@ export async function sendMissedAppointmentReminder(
 
     // Project ID for missed appointment reminders
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
     const projectId = "91891f46-fb65-43d0-ac3f-562224ba9462";
 
     // Format phone number
@@ -1310,7 +1316,7 @@ export async function sendMissedAppointmentAfterOneHourReminder(
 
     // Project ID for missed appointment after one hour reminders
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "36f8cbb8-4397-48b5-a9d7-0036ba9c2c77";
+    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
     const projectId = "48003f9b-09a4-4aed-9d39-57fd05de0ab9";
 
     // Format phone number

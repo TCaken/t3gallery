@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { storeManualVerificationWithLeadProcessing } from '~/app/_actions/ascendLeadProcessing';
+import { processReloanCustomer } from '~/app/_actions/ascendLeadProcessing';
+import { storeManualVerification } from '~/app/_actions/whatsappActions';
 
 export async function POST(request: Request) {
   try {
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('✅ Valid API key provided for Ascend manual verification');
+    console.log('✅ Valid API key provided for Ascend reloan customer processing');
 
     const body = await request.json();
     
@@ -69,17 +70,38 @@ export async function POST(request: Request) {
     }
 
     // App parameter is optional but must be string if provided
-    const appName = app && typeof app === 'string' ? app : 'ascend-manual-verify';
+    const appName = app && typeof app === 'string' ? app : 'ascend-reloan';
 
-    console.log('📝 API: Storing manual verification data for:', {
+    console.log('🔄 API: Processing reloan customer:', {
       customerName,
       phoneNumber,
       customerHyperLink,
       app: appName
     });
 
-    // Call the enhanced storeManualVerification function with lead processing
-    const result = await storeManualVerificationWithLeadProcessing(
+    // Process the reloan customer
+    const reloanResult = await processReloanCustomer(
+      phoneNumber,
+      customerName,
+      customerHyperLink,
+      {
+        app: appName,
+        source: 'Ascend Reloan'
+      }
+    );
+
+    if (!reloanResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: reloanResult.error
+        },
+        { status: 500 }
+      );
+    }
+
+    // Store the manual verification log entry
+    const verificationResult = await storeManualVerification(
       customerName,
       phoneNumber,
       customerHyperLink,
@@ -87,24 +109,27 @@ export async function POST(request: Request) {
       body // Pass the complete request body for debugging
     );
 
-    if (result.success) {
+    if (verificationResult.success) {
       return NextResponse.json({
         success: true,
-        message: result.message,
-        data: result.data
+        message: `${reloanResult.message}. ${verificationResult.message}`,
+        data: {
+          reloanProcessing: reloanResult.data,
+          verification: verificationResult.data
+        }
       });
     } else {
       return NextResponse.json(
         {
           success: false,
-          error: result.error
+          error: verificationResult.error
         },
         { status: 500 }
       );
     }
 
   } catch (error) {
-    console.error('❌ Error in manual verification API:', error);
+    console.error('❌ Error in reloan customer API:', error);
     return NextResponse.json(
       { 
         success: false, 

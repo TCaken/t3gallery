@@ -129,6 +129,8 @@ export async function fetchLeadById(leadId: number) {
         eligibility_notes: leads.eligibility_notes,
         loan_status: leads.loan_status,
         loan_notes: leads.loan_notes,
+        ascend_status: leads.ascend_status,
+        airconnect_verification_link: leads.airconnect_verification_link,
         source: leads.source,
         created_by: leads.created_by,
         updated_by: leads.updated_by,
@@ -193,6 +195,8 @@ interface CreateLeadInput {
   received_time?: Date;
   bypassEligibility?: boolean;
   pushToWebhook?: boolean; // New flag to control webhook push
+  ascend_status?: string; // Ascend status for lead processing
+  airconnect_verification_link?: string; // Verification link for manual verification
 }
 
 interface CreateLeadSuccessResult {
@@ -292,6 +296,8 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
       eligibility_checked: true,
       eligibility_status: eligibilityStatus,
       eligibility_notes: eligibilityNotes,
+      ascend_status: input.ascend_status,
+      airconnect_verification_link: input.airconnect_verification_link,
       created_by: input.created_by ?? userId,
       updated_by: input.updated_by ?? userId,
     };
@@ -1172,6 +1178,7 @@ export async function fetchFilteredLeads({
     residentialStatuses?: string[];
     leadTypes?: string[];
     eligibilityStatuses?: string[];
+    ascendStatuses?: string[];
     amountMin?: number;
     amountMax?: number;
     dateFrom?: string;
@@ -1298,6 +1305,15 @@ export async function fetchFilteredLeads({
       }
     }
 
+    // Ascend status filter
+    if (searchOptions.ascendStatuses && searchOptions.ascendStatuses.length > 0) {
+      const ascendConditions = searchOptions.ascendStatuses.map(status => eq(leads.ascend_status, status));
+      const ascendOr = or(...ascendConditions);
+      if (ascendOr) {
+        conditions.push(ascendOr);
+      }
+    }
+
     // Amount range filter
     if (searchOptions.amountMin !== undefined || searchOptions.amountMax !== undefined) {
       const amountConditions: SQL[] = [];
@@ -1414,6 +1430,8 @@ export async function fetchFilteredLeads({
       is_deleted: leads.is_deleted,
       loan_status: leads.loan_status,
       loan_notes: leads.loan_notes,
+      ascend_status: leads.ascend_status,
+      airconnect_verification_link: leads.airconnect_verification_link,
       assigned_user: {
         id: users.id,
         first_name: users.first_name,

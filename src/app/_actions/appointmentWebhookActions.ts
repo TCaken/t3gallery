@@ -103,6 +103,7 @@ export async function sendAppointmentToWebhook(leadId: number, appointmentData?:
         "L.A": "L.A", 
         "MoneyRight": "M.R",
         "OMY.sg": "OMY",
+        "Ascend": "ASCEND",
         "LendingPot": "LDP",
         "ROSHI": "ROSHI",
         "Loanable": "L.A", // Assuming Loanable maps to L.A

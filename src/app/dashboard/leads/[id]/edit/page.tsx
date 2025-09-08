@@ -119,6 +119,7 @@ export default function EditLeadPage({ params }: { params: { id: string } }) {
           "MoneyRight",
           "OMY.sg",
           "SEO",
+          "Ascend",
           "Other"
         ] } as SelectField,
         { name: "lead_type", label: "Lead Type", type: "select", options: ["new", "reloan"] } as SelectField,
