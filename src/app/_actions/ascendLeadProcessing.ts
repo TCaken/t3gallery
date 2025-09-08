@@ -199,9 +199,7 @@ export async function processAscendLead(
   }
 }
 
-/**
- * Process reloan customer - separate flow for customers found in CAPC lists
- */
+
 export async function processReloanCustomer(
   phoneNumber: string,
   customerName: string,
