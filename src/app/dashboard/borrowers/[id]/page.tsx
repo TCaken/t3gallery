@@ -81,6 +81,8 @@ type Borrower = {
   is_deleted: boolean | null;
   assigned_agent_name: string | null;
   assigned_agent_email: string | null;
+  ascend_status: string | null;
+  airconnect_verification_link: string | null;
 };
 
 type LoanPlan = {
@@ -919,7 +921,7 @@ export default function BorrowerDetailPage() {
               </div>
 
               {/* Lead Source */}
-              <div>
+              <div style={{ marginBottom: "20px" }}>
                 <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                   Lead Source
                 </h4>
@@ -935,6 +937,96 @@ export default function BorrowerDetailPage() {
                   }}>
                     {borrower.source}
                   </span>
+                </div>
+              </div>
+
+              {/* Ascend Status */}
+              <div>
+                <h4 style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Ascend Status
+                </h4>
+                <div style={{ textAlign: "center" }}>
+                  {borrower.ascend_status ? (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                      <span style={{ 
+                        padding: "6px 12px",
+                        borderRadius: "8px",
+                        fontSize: "13px",
+                        fontWeight: "600",
+                        display: "inline-block",
+                        backgroundColor: 
+                          borrower.ascend_status === 'new' ? '#e3f2fd' :
+                          borrower.ascend_status === 'manual_verification_required' ? '#fff3cd' :
+                          borrower.ascend_status === 'booking_appointment' ? '#e8f5e8' :
+                          borrower.ascend_status === 'done' ? '#f5f5f5' :
+                          '#f5f5f5',
+                        color: 
+                          borrower.ascend_status === 'new' ? '#1976d2' :
+                          borrower.ascend_status === 'manual_verification_required' ? '#856404' :
+                          borrower.ascend_status === 'booking_appointment' ? '#2e7d32' :
+                          borrower.ascend_status === 'done' ? '#666' :
+                          '#666'
+                      }}>
+                        {borrower.ascend_status === 'new' ? 'New' :
+                         borrower.ascend_status === 'manual_verification_required' ? 'Manual Verification Required' :
+                         borrower.ascend_status === 'booking_appointment' ? 'Booking Appointment' :
+                         borrower.ascend_status === 'done' ? 'Done' :
+                         borrower.ascend_status}
+                      </span>
+                      
+                      {/* Manual Verification - Clean display with window.open */}
+                      {borrower.ascend_status === 'manual_verification_required' && borrower.airconnect_verification_link && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (borrower.airconnect_verification_link) {
+                              window.open(borrower.airconnect_verification_link, '_blank', 'noopener,noreferrer');
+                            }
+                          }}
+                          style={{
+                            padding: "6px 12px",
+                            backgroundColor: "#ffc107",
+                            color: "#000",
+                            border: "none",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: "500",
+                            cursor: "pointer",
+                            transition: "all 0.2s"
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.backgroundColor = "#ffb300";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.backgroundColor = "#ffc107";
+                          }}
+                        >
+                          Verify in Ascend
+                        </button>
+                      )}
+                      
+                      {/* Booking Appointment - Show the link value */}
+                      {borrower.ascend_status === 'booking_appointment' && borrower.airconnect_verification_link && (
+                        <div style={{ 
+                          fontSize: "11px", 
+                          color: "#666", 
+                          wordBreak: "break-all",
+                          maxWidth: "200px",
+                          textAlign: "center"
+                        }}>
+                          {borrower.airconnect_verification_link}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span style={{ 
+                      color: "#999",
+                      fontSize: "13px",
+                      fontStyle: "italic"
+                    }}>
+                      N/A
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

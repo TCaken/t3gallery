@@ -787,7 +787,9 @@ export async function POST(request: NextRequest) {
                     
                   await updateLead(createLeadResult.lead.id, {
                     status: leadStatus,
-                    updated_by: safeUserId
+                    updated_by: safeUserId,
+                    ascend_status: 'done',
+                    airconnect_verification_link: ``
                   });
                 }
                 results.push({
@@ -955,7 +957,9 @@ export async function POST(request: NextRequest) {
                         
                       await updateLead(existingLead.id, {
                         status: leadStatus,
-                        updated_by: authenticatedUserId
+                        updated_by: authenticatedUserId,
+                        ascend_status: 'done',
+                        airconnect_verification_link: ''
                       });
                     }
 
@@ -1031,7 +1035,9 @@ export async function POST(request: NextRequest) {
                       
                     await updateLead(existingLead.id, {
                       status: leadStatus,
-                      updated_by: safeUserId
+                      updated_by: safeUserId,
+                      ascend_status: 'done',
+                      airconnect_verification_link: ``
                     });
                   }
                   results.push({
@@ -1193,7 +1199,9 @@ export async function POST(request: NextRequest) {
                   loan_status: newLoanStatus,
                   loan_notes: newLoanNotes,
                   eligibility_notes: newEligibilityNotes,
-                  updated_by: authenticatedUserId
+                  updated_by: authenticatedUserId,
+                  ascend_status: 'done',
+                  airconnect_verification_link: ''
                 });
                 
 
@@ -1493,6 +1501,8 @@ export async function POST(request: NextRequest) {
             loan_status: newBorrowerLoanStatus,
             loan_notes: newBorrowerLoanNotes,
             updated_at: new Date(),
+            ascend_status: 'done',
+            airconnect_verification_link: ''
             // updated_by: fallbackUserId  // KEEP COMMENTED AS IN ORIGINAL
           })
           .where(eq(borrowers.id, borrower.id));
@@ -1577,6 +1587,8 @@ export async function POST(request: NextRequest) {
             .set({
               status: 'missed/RS',
               updated_at: new Date(),
+              ascend_status: 'done',
+              airconnect_verification_link: ''
               // updated_by: fallbackUserId  // KEEP COMMENTED AS IN ORIGINAL
             })
             .where(eq(borrowers.id, borrower.id));

@@ -45,6 +45,9 @@ export type CreateBorrowerInput = {
   communication_language?: string;
   follow_up_date?: Date | null;
   assigned_to?: string | null;
+  // Ascend integration fields
+  ascend_status?: string;
+  airconnect_verification_link?: string;
   // Performance bucket fields
   is_in_closed_loan?: string | null;
   is_in_2nd_reloan?: string | null;
@@ -68,6 +71,7 @@ export type BorrowerFilters = {
   status?: string;
   assigned_to?: string;
   aa_status?: string;
+  ascend_status?: string;
   id_type?: string;
   source?: string;
   lead_score_range?: string; // 'high', 'medium', 'low'
@@ -173,11 +177,6 @@ function createPhoneSearchConditions(searchTerm: string) {
 
 // Create borrower
 export async function createBorrower(input: CreateBorrowerInput) {
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error("Unauthorized");
-  }
-
   try {
     // Check for duplicate phone number
     const existingBorrower = await db
@@ -238,9 +237,9 @@ export async function createBorrower(input: CreateBorrowerInput) {
       contact_preference: input.contact_preference ?? "No Preferences",
       communication_language: input.communication_language ?? "No Preferences",
       follow_up_date: input.follow_up_date ?? null,
+      ascend_status: input.ascend_status ?? "new",
+      airconnect_verification_link: input.airconnect_verification_link ?? "",
       assigned_to: input.assigned_to,
-      created_by: userId,
-      updated_by: userId,
       created_at: new Date(),
       is_deleted: false,
     };
@@ -261,14 +260,14 @@ export async function createBorrower(input: CreateBorrowerInput) {
       newBorrower.id,
       "create",
       `Created new borrower: ${input.full_name}`,
-      userId,
+      "system",
       "note"
     );
 
     // Auto-add to playbooks if assigned to an agent
-    if (input.assigned_to) {
-      await addBorrowerToPlaybooks(newBorrower.id, input.assigned_to, userId);
-    }
+    // if (input.assigned_to) {
+    //   await addBorrowerToPlaybooks(newBorrower.id, input.assigned_to, userId);
+    // }
 
     revalidatePath("/dashboard/borrowers");
     return { success: true, data: newBorrower };
@@ -292,6 +291,7 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
       status,
       assigned_to,
       aa_status,
+      ascend_status,
       id_type,
       source,
       lead_score_range,
@@ -327,6 +327,9 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
     if (status) conditions.push(eq(borrowers.status, status));
     if (assigned_to) conditions.push(eq(borrowers.assigned_to, assigned_to));
     if (aa_status) conditions.push(eq(borrowers.aa_status, aa_status));
+    if (ascend_status) {
+      conditions.push(eq(borrowers.ascend_status, ascend_status));
+    }
     if (id_type) conditions.push(eq(borrowers.id_type, id_type));
     if (source) conditions.push(eq(borrowers.source, source));
 
@@ -486,6 +489,8 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
         follow_up_date: borrowers.follow_up_date,
         created_at: borrowers.created_at,
         updated_at: borrowers.updated_at,
+        ascend_status: borrowers.ascend_status,
+        airconnect_verification_link: borrowers.airconnect_verification_link,
         assigned_agent_name: sql<string>`
           CASE 
             WHEN ${users.first_name} IS NOT NULL AND ${users.last_name} IS NOT NULL 
@@ -515,6 +520,7 @@ export async function getBorrowers(filters: BorrowerFilters = {}) {
       .where(and(...conditions));
 
     const totalCount = totalCountResult[0]?.count ?? 0;
+
 
     return {
       success: true,
@@ -579,6 +585,8 @@ export async function getBorrower(id: number) {
         assigned_to: borrowers.assigned_to,
         created_at: borrowers.created_at,
         updated_at: borrowers.updated_at,
+        ascend_status: borrowers.ascend_status,
+        airconnect_verification_link: borrowers.airconnect_verification_link,
         assigned_agent_name: sql<string>`
           CASE 
             WHEN ${users.first_name} IS NOT NULL AND ${users.last_name} IS NOT NULL 
@@ -613,11 +621,6 @@ export async function getBorrower(id: number) {
 
 // Update borrower
 export async function updateBorrower(input: UpdateBorrowerInput) {
-  const { userId } = await auth();
-  if (!userId) {
-    throw new Error("Unauthorized");
-  }
-
   try {
     const { id, ...updateData } = input;
 
@@ -636,7 +639,6 @@ export async function updateBorrower(input: UpdateBorrowerInput) {
 
     // Build update object with only provided fields
     const fieldsToUpdate: Partial<typeof borrowers.$inferInsert> = {
-      updated_by: userId,
       updated_at: new Date()
     };
 
@@ -675,7 +677,7 @@ export async function updateBorrower(input: UpdateBorrowerInput) {
       id,
       "update",
       `Updated borrower: ${updatedBorrower.full_name}. Changes: ${changes.join(", ")}`,
-      userId,
+      "system",
       "note"
     );
 
@@ -686,7 +688,7 @@ export async function updateBorrower(input: UpdateBorrowerInput) {
         id,
         "assigned",
         `Assigned borrower to agent: ${updateData.assigned_to}`,
-        userId,
+        "system",
         "assigned"
       );
     }
