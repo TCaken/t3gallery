@@ -21,6 +21,8 @@ const geist = Geist({
   variable: "--font-geist-sans",
 });
 
+// # Testing for claude code bug finder
+// # again
 export default function RootLayout({
   children
 }: Readonly<{ children: React.ReactNode, modal: React.ReactNode }>) {

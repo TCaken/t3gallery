@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 // Removed useRouter import - using window.open() instead
 import { useAuth } from '@clerk/nextjs';
 import { 
   PlusIcon, 
-  FunnelIcon,
   MagnifyingGlassIcon as SearchIcon,
   UserGroupIcon,
   PhoneIcon,
@@ -15,11 +14,10 @@ import {
   AdjustmentsHorizontalIcon,
   ChevronDownIcon,
   ArrowDownTrayIcon,
-  CalendarIcon,
   XMarkIcon,
   PencilSquareIcon
 } from '@heroicons/react/24/outline';
-import { getBorrowers, updateBorrower } from '~/app/_actions/borrowers';
+import { getBorrowers } from '~/app/_actions/borrowers';
 import { fetchAgentReloan } from '~/app/_actions/userActions';
 import { useUserRole } from '../leads/useUserRole';
 import AssignBorrowerModal from '~/app/_components/AssignBorrowerModal';
@@ -45,6 +43,13 @@ const allStatuses = [
 // Enhanced filter options
 const sourceOptions = [
   'Closed Loan', 'Attrition Risk', '2nd Reloan', 'Last Payment Due', 'BHV1', 'Not Eligible'
+];
+
+const ascendStatusOptions = [
+  { id: 'new', name: 'New' },
+  { id: 'manual_verification_required', name: 'Manual Verification Required' },
+  { id: 'booking_appointment', name: 'Booking Appointment' },
+  { id: 'done', name: 'Done' }
 ];
 
 const leadScoreRanges = [
@@ -98,6 +103,8 @@ type BorrowerRecord = {
   follow_up_date: Date | null;
   created_at: Date;
   updated_at: Date | null;
+  ascend_status: string | null;
+  airconnect_verification_link: string | null;
   assigned_agent_name: string | null;
   assigned_agent_email: string | null;
 };
@@ -115,6 +122,7 @@ export default function BorrowersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [aaStatusFilter, setAaStatusFilter] = useState('');
+  const [ascendStatusFilter, setAscendStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState(''); // Will be set based on role
   const [leadScoreFilter, setLeadScoreFilter] = useState('');
   const [performanceBucketFilter, setPerformanceBucketFilter] = useState('');
@@ -166,6 +174,7 @@ export default function BorrowersPage() {
         search: searchQuery,
         status: statusFilter || undefined,
         aa_status: aaStatusFilter || undefined,
+        ascend_status: ascendStatusFilter || undefined,
         source: sourceFilter || undefined,
         lead_score_range: leadScoreFilter || undefined,
         performance_bucket: performanceBucketFilter || undefined,
@@ -218,7 +227,7 @@ export default function BorrowersPage() {
   };
 
   // Load borrowers with backend filtering
-  const fetchBorrowers = async (pageNum = 1, isLoadMore = false) => {
+  const fetchBorrowers = useCallback(async (pageNum = 1, isLoadMore = false) => {
     if (!userId) return;
 
     try {
@@ -230,10 +239,23 @@ export default function BorrowersPage() {
         setSelectedBorrowerIds(new Set());
       }
 
+      // Debug logging for ascend status filter
+      if (ascendStatusFilter) {
+        console.log('🔍 Filtering by Ascend Status:', ascendStatusFilter);
+        console.log('📊 Current filters being applied:', {
+          statusFilter,
+          sourceFilter,
+          assignedFilter,
+          aaStatusFilter,
+          ascendStatusFilter
+        });
+      }
+
       const result = await getBorrowers({
         search: searchQuery,
         status: statusFilter || undefined,
         aa_status: aaStatusFilter || undefined,
+        ascend_status: ascendStatusFilter || undefined,
         source: sourceFilter || undefined,
         lead_score_range: leadScoreFilter || undefined,
         performance_bucket: performanceBucketFilter || undefined,
@@ -247,6 +269,21 @@ export default function BorrowersPage() {
         offset: (pageNum - 1) * 50,
         limit: 50
       });
+
+      // Debug logging for results
+      if (ascendStatusFilter) {
+        console.log('📊 Results found:', result.data?.length || 0);
+        if (result.data && result.data.length > 0) {
+          console.log('📋 Sample results:', result.data.slice(0, 3).map(b => ({
+            id: b.id,
+            name: b.full_name,
+            status: b.status,
+            ascend_status: b.ascend_status,
+            source: b.source
+          })));
+        }
+      }
+
 
       if (result.success && result.data) {
         const borrowersData = result.data as BorrowerRecord[];
@@ -267,18 +304,18 @@ export default function BorrowersPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  };
+  }, [userId, searchQuery, statusFilter, aaStatusFilter, ascendStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, createdDateStart, createdDateEnd, followUpDateStart, followUpDateEnd, lastLoanDateStart, lastLoanDateEnd]);
 
   // Set role-based default filters
   useEffect(() => {
     if (userRole) {
       if (userRole.includes('agent-reloan')) {
         // For agent-reloan: Default to Attrition Risk source and My Assignment
-        setSourceFilter('Attrition Risk');
-        setAssignedFilter('my_borrowers');
+        setSourceFilter('');
+        setAssignedFilter('');
       } else {
         // For admin: Default to Attrition Risk source, no assignment filter
-        setSourceFilter('Attrition Risk');
+        setSourceFilter('');
         setAssignedFilter('');
       }
       setDefaultFiltersLoaded(true); // Mark default filters as loaded
@@ -316,7 +353,7 @@ export default function BorrowersPage() {
     }, 500); // Increased delay for search to 500ms
 
     return () => clearTimeout(delayedSearch);
-  }, [searchQuery, userId, defaultFiltersLoaded]); // Only searchQuery triggers this
+  }, [searchQuery, userId, defaultFiltersLoaded, fetchBorrowers]); // Only searchQuery triggers this
 
   // Immediate effect for filter changes (dropdowns, dates, etc.)
   useEffect(() => {
@@ -325,7 +362,7 @@ export default function BorrowersPage() {
     setPage(1);
     setBorrowers([]);
     void fetchBorrowers(1);
-  }, [statusFilter, aaStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, createdDateStart, createdDateEnd, followUpDateStart, followUpDateEnd, lastLoanDateStart, lastLoanDateEnd, userId, defaultFiltersLoaded]); // All filters except searchQuery
+  }, [statusFilter, aaStatusFilter, ascendStatusFilter, sourceFilter, leadScoreFilter, performanceBucketFilter, assignedFilter, createdDateStart, createdDateEnd, followUpDateStart, followUpDateEnd, lastLoanDateStart, lastLoanDateEnd, userId, defaultFiltersLoaded, fetchBorrowers]); // All filters except searchQuery
 
   // Handle scroll for infinite loading
   const handleScroll = () => {
@@ -355,6 +392,7 @@ export default function BorrowersPage() {
     setSearchQuery('');
     setStatusFilter('');
     setAaStatusFilter('');
+    setAscendStatusFilter('');
     setLeadScoreFilter('');
     setPerformanceBucketFilter('');
     setCreatedDateStart('');
@@ -542,17 +580,6 @@ export default function BorrowersPage() {
     void fetchBorrowers(1);
   };
 
-  // Utility function for quick status updates with pre-selected status
-  const handleQuickStatusUpdate = (borrower: BorrowerRecord, status: 'follow_up' | 'no_answer' | 'give_up' | 'blacklisted') => {
-    setStatusUpdateBorrower({
-      id: borrower.id,
-      full_name: borrower.full_name,
-      phone_number: borrower.phone_number,
-      status: borrower.status
-    });
-    setPreSelectedStatus(status);
-    setShowStatusUpdateModal(true);
-  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -636,6 +663,7 @@ export default function BorrowersPage() {
                 <span>Add Borrower</span>
               </button>
               )}
+              
             </div>
           </div>
         </div>
@@ -675,7 +703,7 @@ export default function BorrowersPage() {
           {showAdvancedFilters && (
             <div className="border-t pt-4 space-y-4">
               {/* Main Filters Row */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                   <select
@@ -704,7 +732,6 @@ export default function BorrowersPage() {
                   </select>
                 </div>
 
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Assignment</label>
                   <select
@@ -730,6 +757,20 @@ export default function BorrowersPage() {
                     <option value="">All</option>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ascend Status</label>
+                  <select
+                    value={ascendStatusFilter}
+                    onChange={(e) => setAscendStatusFilter(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">All</option>
+                    {ascendStatusOptions.map(status => (
+                      <option key={status.id} value={status.id}>{status.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -807,7 +848,7 @@ export default function BorrowersPage() {
               </div>
 
               {/* Active Filters Display */}
-              {(statusFilter || aaStatusFilter || (sourceFilter && sourceFilter !== 'Attrition Risk') || leadScoreFilter || performanceBucketFilter || assignedFilter || createdDateStart || createdDateEnd || followUpDateStart || followUpDateEnd || lastLoanDateStart || lastLoanDateEnd) && (
+              {(statusFilter || aaStatusFilter || ascendStatusFilter || (sourceFilter && sourceFilter !== 'Attrition Risk') || leadScoreFilter || performanceBucketFilter || assignedFilter || createdDateStart || createdDateEnd || followUpDateStart || followUpDateEnd || lastLoanDateStart || lastLoanDateEnd) && (
                 <div className="border-t pt-3">
                   <div className="flex flex-wrap gap-2 items-center">
                     <span className="text-sm font-medium text-gray-600">Active Filters:</span>
@@ -823,10 +864,16 @@ export default function BorrowersPage() {
                         <button onClick={() => setAaStatusFilter('')} className="ml-2 text-purple-600 hover:text-purple-800">×</button>
                       </span>
                     )}
+                    {ascendStatusFilter && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                        Ascend: {ascendStatusOptions.find(s => s.id === ascendStatusFilter)?.name}
+                        <button onClick={() => setAscendStatusFilter('')} className="ml-2 text-indigo-600 hover:text-indigo-800">×</button>
+                      </span>
+                    )}
                     {sourceFilter && sourceFilter !== 'Attrition Risk' && (
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                         Source: {sourceFilter}
-                        <button onClick={() => setSourceFilter('Attrition Risk')} className="ml-2 text-green-600 hover:text-green-800">×</button>
+                        <button onClick={() => setSourceFilter('')} className="ml-2 text-green-600 hover:text-green-800">×</button>
                       </span>
                     )}
                     {leadScoreFilter && (
@@ -909,10 +956,13 @@ export default function BorrowersPage() {
                     Source
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    Borrower Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Assigned To
+                  </th> */}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Ascend Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -922,14 +972,14 @@ export default function BorrowersPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading && borrowers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center">
+                    <td colSpan={8} className="px-6 py-12 text-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                       <p className="mt-2 text-sm text-gray-600">Loading borrowers...</p>
                     </td>
                   </tr>
                 ) : borrowers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                       No borrowers found
                     </td>
                   </tr>
@@ -989,7 +1039,7 @@ export default function BorrowersPage() {
                         </div>
                       </td>
 
-                      {/* Status */}
+                      {/* Borrower Status */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(borrower.status)}`}>
                           {borrower.status}
@@ -997,7 +1047,7 @@ export default function BorrowersPage() {
                       </td>
 
                       {/* Assigned To */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      {/* <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
                           {borrower.assigned_agent_name && borrower.assigned_agent_name !== 'Unknown Agent' 
                             ? borrower.assigned_agent_name 
@@ -1008,6 +1058,53 @@ export default function BorrowersPage() {
                             {borrower.assigned_agent_email}
                           </div>
                         )}
+                      </td> */}
+
+                      {/* Ascend Status */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {borrower.ascend_status ? (
+                            <div className="space-y-2">
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                borrower.ascend_status === 'new' ? 'bg-blue-100 text-blue-800' :
+                                borrower.ascend_status === 'manual_verification_required' ? 'bg-yellow-100 text-yellow-800' :
+                                borrower.ascend_status === 'booking_appointment' ? 'bg-green-100 text-green-800' :
+                                borrower.ascend_status === 'done' ? 'bg-gray-100 text-gray-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {ascendStatusOptions.find(s => s.id === borrower.ascend_status)?.name ?? borrower.ascend_status}
+                              </span>
+                              
+                              {/* Manual Verification - Clean display with window.open */}
+                              {borrower.ascend_status === 'manual_verification_required' && borrower.airconnect_verification_link && (
+                                <div className="mt-2">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (borrower.airconnect_verification_link) {
+                                        window.open(borrower.airconnect_verification_link, '_blank', 'noopener,noreferrer');
+                                      }
+                                    }}
+                                    className="inline-flex items-center px-2 py-1 text-xs font-medium text-white bg-yellow-600 rounded hover:bg-yellow-700 transition-colors"
+                                  >
+                                    Verify in Ascend
+                                  </button>
+                                </div>
+                              )}
+                              
+                              {/* Booking Appointment - Show the link value */}
+                              {borrower.ascend_status === 'booking_appointment' && borrower.airconnect_verification_link && (
+                                <div className="mt-2">
+                                  <div className="text-xs text-gray-600 break-all">
+                                    {borrower.airconnect_verification_link}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">N/A</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Actions */}

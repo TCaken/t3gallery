@@ -884,8 +884,8 @@ export const borrowers = createTable(
     created_by: d.varchar({ length: 256 }).references(() => users.id),
     updated_by: d.varchar({ length: 256 }).references(() => users.id),
     is_deleted: d.boolean().default(false),
-    ascend_status: d.varchar({ length: 50 }).default(sql`NULL`), // Status from Ascend: new, manual_verification_required, booking_appointment, done
-    airconnect_verification_link: d.text().default(sql`NULL`), // Link for manual verification in AirConnect
+    ascend_status: d.varchar({ length: 50 }).default('new'), // Status from Ascend: new, manual_verification_required, booking_appointment, done
+    airconnect_verification_link: d.text().default(''), // Link for manual verification in AirConnect
   }),
   (t) => [
     index("borrower_phone_idx").on(t.phone_number),

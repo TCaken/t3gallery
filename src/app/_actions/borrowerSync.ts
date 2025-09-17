@@ -674,6 +674,8 @@ export async function getBorrowerWithLoanPlans(borrowerId: number) {
         created_by: borrowers.created_by,
         updated_by: borrowers.updated_by,
         is_deleted: borrowers.is_deleted,
+        ascend_status: borrowers.ascend_status,
+        airconnect_verification_link: borrowers.airconnect_verification_link,
         assigned_agent_name: sql<string>`
           CASE 
             WHEN ${users.first_name} IS NOT NULL AND ${users.last_name} IS NOT NULL 

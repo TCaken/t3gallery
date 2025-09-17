@@ -1,8 +1,9 @@
 import { db } from "~/server/db";
-import { leads } from "~/server/db/schema";
-import { eq } from "drizzle-orm";
+import { leads, borrowers } from "~/server/db/schema";
+import { eq, or, and, ilike } from "drizzle-orm";
 import { checkLeadEligibility } from "./leadEligibility";
 import { createLead } from "./leadActions";
+import { createBorrower, updateBorrower } from "./borrowers";
 
 // Singapore phone number formatting function
 const formatSGPhoneNumber = (phone: string) => {
@@ -27,6 +28,133 @@ const formatSGPhoneNumber = (phone: string) => {
   return cleaned;
 };
 
+// Helper function to normalize phone numbers for search
+function normalizePhoneForSearch(phone: string): string[] {
+  if (!phone) return [];
+  
+  // Remove all non-digit characters
+  const digitsOnly = phone.replace(/\D/g, '');
+  
+  const variations: string[] = [];
+  
+  // If it's an 8-digit Singapore number, add all variations
+  if (digitsOnly.length === 8) {
+    variations.push(digitsOnly);           // 91234567
+    variations.push(`65${digitsOnly}`);    // 6591234567  
+    variations.push(`+65${digitsOnly}`);   // +6591234567
+  }
+  
+  // If it starts with 65 and has 10 digits total, extract the 8-digit part
+  if (digitsOnly.length === 10 && digitsOnly.startsWith('65')) {
+    const eightDigit = digitsOnly.substring(2);
+    variations.push(eightDigit);           // 91234567
+    variations.push(digitsOnly);           // 6591234567
+    variations.push(`+${digitsOnly}`);     // +6591234567
+  }
+  
+  // If it starts with +65, handle it
+  if (phone.startsWith('+65') && digitsOnly.length === 10) {
+    const eightDigit = digitsOnly.substring(2);
+    variations.push(eightDigit);           // 91234567
+    variations.push(digitsOnly);           // 6591234567
+    variations.push(`+${digitsOnly}`);     // +6591234567
+  }
+  
+  // Always include the original search term
+  variations.push(phone);
+  variations.push(digitsOnly);
+  
+  // Remove duplicates and empty strings
+  return [...new Set(variations.filter(v => v.length > 0))];
+}
+
+// Check if borrower exists by phone number
+async function checkBorrowerExists(phoneNumber: string) {
+  const phoneVariations = normalizePhoneForSearch(phoneNumber);
+  
+  // Create search conditions for all phone variations across all phone fields
+  const phoneConditions = phoneVariations.flatMap(variation => [
+    ilike(borrowers.phone_number, `%${variation}%`),
+    ilike(borrowers.phone_number_2, `%${variation}%`),
+    ilike(borrowers.phone_number_3, `%${variation}%`)
+  ]);
+  
+  if (phoneConditions.length === 0) return null;
+  
+  const existingBorrower = await db
+    .select()
+    .from(borrowers)
+    .where(
+      or(
+        ...phoneConditions,
+      )
+    )
+    .limit(1);
+  
+  return existingBorrower.length > 0 ? existingBorrower[0] : null;
+}
+
+// Update or create borrower with Ascend status
+async function handleBorrowerWithAscendStatus(
+  phoneNumber: string, 
+  fullName: string, 
+  ascendStatus: string, 
+  airconnectLink: string,
+  eligibilityResult: { notes: string; isEligible: boolean }
+) {
+  const existingBorrower = await checkBorrowerExists(phoneNumber);
+  
+  if (existingBorrower) {
+    // Update existing borrower with Ascend status
+    console.log(`🔄 Updating existing borrower ${existingBorrower.id} with Ascend status: ${ascendStatus}`);
+    
+    const updateResult = await updateBorrower({
+      id: existingBorrower.id,
+      ascend_status: ascendStatus,
+      airconnect_verification_link: airconnectLink
+    });
+    
+    return {
+      success: true,
+      action: 'updated' as const,
+      borrowerId: existingBorrower.id,
+      message: `Updated existing borrower with Ascend status: ${ascendStatus}`,
+      data: updateResult.data
+    };
+  } else {
+    // Create new borrower with Ascend status
+    console.log(`➕ Creating new borrower with Ascend status: ${ascendStatus}`);
+    
+    // Determine borrower source based on eligibility
+    let source = 'Ascend Lead';
+    if (eligibilityResult.notes.includes('CAPC lists')) {
+      source = 'Reloan Customer (CAPC)';
+    }
+    
+    const createResult = await createBorrower({
+      full_name: fullName,
+      phone_number: phoneNumber,
+      status: 'new',
+      source: source,
+      id_type: 'NRIC', // Default, can be updated later
+      ascend_status: ascendStatus,
+      airconnect_verification_link: airconnectLink,
+      // Add other default fields as needed
+      aa_status: 'pending',
+      contact_preference: 'No Preferences',
+      communication_language: 'English'
+    });
+    
+    return {
+      success: true,
+      action: 'created' as const,
+      borrowerId: createResult.data.id,
+      message: `Created new borrower with Ascend status: ${ascendStatus}`,
+      data: createResult.data
+    };
+  }
+}
+
 interface LeadProcessingResult {
   success: boolean;
   message: string;
@@ -36,6 +164,13 @@ interface LeadProcessingResult {
     ascendStatus: string;
     airconnectLink?: string;
     eligibilityResult?: unknown;
+    borrowerResult?: {
+      success: boolean;
+      action: 'created' | 'updated';
+      borrowerId: number;
+      message: string;
+      data: unknown;
+    };
     note?: string;
   };
   error?: string;
@@ -83,6 +218,17 @@ export async function processAscendLead(
 
     const systemUser = process.env.SYSTEM_USER_ID ?? 'system';
 
+    // Step 1.5: Check if borrower exists and handle accordingly
+    const borrowerResult = await handleBorrowerWithAscendStatus(
+      formattedPhone,
+      customerName,
+      'manual_verification_required',
+      customerHyperLink,
+      eligibilityResult
+    );
+    
+    console.log('👤 Borrower handling result:', borrowerResult);
+
     // Step 2: Determine lead type and action based on eligibility result
     if (eligibilityResult.isEligible) {
       // New lead - not found in any lists or existing leads
@@ -103,13 +249,14 @@ export async function processAscendLead(
       if (createResult.success && createResult.lead) {
         return {
           success: true,
-          message: `New lead created successfully. Lead ID: ${createResult.lead.id}`,
+          message: `New lead created successfully. Lead ID: ${createResult.lead.id}. Borrower ${borrowerResult.action}: ${borrowerResult.borrowerId}`,
           data: {
             leadId: createResult.lead.id,
-            leadType: 'new',
+            leadType: 'new' as const,
             ascendStatus: 'manual_verification_required',
             airconnectLink: customerHyperLink,
-            eligibilityResult
+            eligibilityResult,
+            borrowerResult
           }
         };
               } else {
@@ -128,12 +275,13 @@ export async function processAscendLead(
         
         return {
           success: true,
-          message: `Reloan customer identified in CAPC lists. No new lead created - separate reloan flow required.`,
+          message: `Reloan customer identified in CAPC lists. Borrower ${borrowerResult.action}: ${borrowerResult.borrowerId}. No new lead created - separate reloan flow required.`,
           data: {
-            leadType: 'reloan',
+            leadType: 'reloan' as const,
             ascendStatus: 'reloan_customer_identified',
             airconnectLink: customerHyperLink,
             eligibilityResult,
+            borrowerResult,
             note: 'This customer should be processed through the reloan customer flow'
           }
         };
@@ -376,6 +524,17 @@ export async function processAscendLeadForAppointment(
 
     const systemUser = process.env.SYSTEM_USER_ID ?? 'system';
 
+    // Step 1.5: Check if borrower exists and handle accordingly
+    const borrowerResult = await handleBorrowerWithAscendStatus(
+      formattedPhone,
+      customerName,
+      'booking_appointment',
+      `Appointment: ${appointmentDate} ${timeSlot}`,
+      eligibilityResult
+    );
+    
+    console.log('👤 Borrower handling result for appointment:', borrowerResult);
+
     // Step 2: Determine lead type and action based on eligibility result
     if (eligibilityResult.isEligible) {
       // New lead - not found in any lists or existing leads
@@ -531,6 +690,7 @@ export async function storeManualVerificationWithLeadProcessing(
 
     // Import the original storeManualVerification function
     const { storeManualVerification } = await import('./whatsappActions');
+    
     
     // Store the manual verification log entry
     const verificationResult = await storeManualVerification(
