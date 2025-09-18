@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -33,7 +35,6 @@ import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrato
 import { type InferSelectModel } from 'drizzle-orm';
 import { leads, appointments } from "~/server/db/schema";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, addDays, isSameMonth, isSameDay, parseISO } from 'date-fns';
-import router from 'next/router';
 
 type Lead = InferSelectModel<typeof leads>;
 type Appointment = EnhancedAppointment;
@@ -875,13 +876,13 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
                 <span className="text-xs text-gray-500">
                   #{appointment.id}
                 </span>
-                <button
+                {/* <button
                   onClick={() => router.push(`/dashboard/appointments/${appointment.id}`)}
                   className="text-xs text-blue-600 hover:text-blue-800 underline"
                   title="Edit appointment (Admin only)"
                 >
                   Edit
-                </button>
+                </button> */}
               </div>
             </div>
             

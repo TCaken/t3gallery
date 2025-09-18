@@ -108,7 +108,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { agent_id, created_by, loan_status, loan_notes, updated_by } = body;
+    const { agent_id, loan_status, loan_notes, updated_by } = body;
 
     // Validate required fields
     if (!agent_id) {
@@ -132,47 +132,16 @@ export async function PATCH(
       );
     }
 
-    // Validate agent exists
-    if (agent_id) {
-      const agent = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, agent_id))
-        .limit(1);
-
-      if (agent.length === 0) {
-        return NextResponse.json(
-          { message: 'Invalid agent ID' },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Validate creator exists (if provided)
-    if (created_by) {
-      const creator = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, created_by))
-        .limit(1);
-
-      if (creator.length === 0) {
-        return NextResponse.json(
-          { message: 'Invalid creator ID' },
-          { status: 400 }
-        );
-      }
-    }
 
     // Update appointment
     const updatedAppointment = await db
       .update(appointments)
       .set({
         agent_id,
-        created_by: created_by || null,
-        loan_status: loan_status || null,
-        loan_notes: loan_notes || null,
-        updated_by: updated_by || userId,
+        created_by: agent_id ?? null,
+        loan_status: loan_status ?? null,
+        loan_notes: loan_notes ?? null,
+        updated_by: updated_by ?? userId,
         updated_at: new Date(),
       })
       .where(eq(appointments.id, appointmentId))
