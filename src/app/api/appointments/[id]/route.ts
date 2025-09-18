@@ -65,6 +65,7 @@ export async function GET(
       .where(eq(appointments.id, appointmentId))
       .limit(1);
 
+      
     if (appointment.length === 0) {
       return NextResponse.json(
         { message: 'Appointment not found' },
