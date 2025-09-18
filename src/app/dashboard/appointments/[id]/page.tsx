@@ -1,305 +1,541 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
+import { fetchUserData } from '~/app/_actions/userActions';
 import { 
   ArrowLeftIcon, 
   CalendarIcon, 
   ClockIcon, 
-  UserCircleIcon,
-  PhoneIcon,
-  EnvelopeIcon,
+  UserIcon,
+  PencilIcon,
   CheckCircleIcon,
   XCircleIcon,
-  ExclamationCircleIcon
+  ExclamationTriangleIcon,
+  InformationCircleIcon
 } from '@heroicons/react/24/outline';
-import { 
-  getAppointmentById,
-  updateAppointmentStatus,
-  type AppointmentWithLead
-} from '~/app/_actions/appointmentAction';
 import { format, parseISO } from 'date-fns';
 
-export default function AppointmentDetailPage({ params }: { params: { id: string } }) {
+// Types
+type Appointment = {
+  id: number;
+  lead_id: number;
+  agent_id: string;
+  status: string;
+  loan_status: string | null;
+  loan_notes: string | null;
+  notes: string | null;
+  lead_source: string | null;
+  start_datetime: Date;
+  end_datetime: Date;
+  created_at: Date;
+  updated_at: Date | null;
+  created_by: string | null;
+  updated_by: string | null;
+  // Related data
+  lead?: {
+    id: number;
+    full_name: string;
+    phone_number: string;
+    email: string | null;
+    status: string;
+  };
+  agent?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+  };
+  creator?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+  };
+};
+
+type User = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+};
+
+export default function AppointmentEditPage() {
+  const params = useParams();
   const router = useRouter();
-  const appointmentId = parseInt(params.id);
+  const { userId, isLoaded } = useAuth();
+  const appointmentId = parseInt(params.id as string);
   
-  const [appointment, setAppointment] = useState<AppointmentWithLead | null>(null);
+  const [appointment, setAppointment] = useState<Appointment | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [userRoles, setUserRoles] = useState<{roleId: number, roleName: string}[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
   
+  // Form state
+  const [agentId, setAgentId] = useState('');
+  const [loanStatus, setLoanStatus] = useState('');
+  const [loanNotes, setLoanNotes] = useState('');
+  const [rsReason, setRsReason] = useState('');
+  
+  // Check if user is admin
+  const isAdmin = userRoles.some(role => role.roleName === 'admin');
+
+  // Load user roles
   useEffect(() => {
-    const fetchAppointment = async () => {
+    const loadUserRoles = async () => {
+      if (isLoaded && userId) {
+        try {
+          const { roles } = await fetchUserData();
+          setUserRoles(roles);
+        } catch (error) {
+          console.error('Error fetching user roles:', error);
+        }
+      }
+    };
+
+    void loadUserRoles();
+  }, [isLoaded, userId]);
+
+  // Load appointment data
+  useEffect(() => {
+    const loadAppointmentData = async () => {
       try {
         setLoading(true);
-        const result = await getAppointmentById(appointmentId);
         
-        if (result.success) {
-          setAppointment(result.appointment);
-        } else {
-          setError(result.message || 'Failed to load appointment');
+        // Load appointment details
+        const appointmentResponse = await fetch(`/api/appointments/${appointmentId}`);
+        if (!appointmentResponse.ok) {
+          throw new Error('Failed to load appointment');
         }
-      } catch (error) {
-        console.error('Error loading appointment:', error);
-        setError('An error occurred while loading the appointment');
+        const appointmentData = await appointmentResponse.json();
+        setAppointment(appointmentData);
+        
+        // Set form state
+        setAgentId(appointmentData.agent_id ?? '');
+        setLoanStatus(appointmentData.loan_status || '');
+        setLoanNotes(appointmentData.loan_notes || '');
+        
+        // Load users for dropdowns
+        const usersResponse = await fetch('/api/users');
+        if (usersResponse.ok) {
+          const usersData = await usersResponse.json();
+          setUsers(usersData);
+        }
+        
+      } catch (err) {
+        console.error('Error loading appointment data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load appointment');
       } finally {
         setLoading(false);
       }
     };
-    
-    void fetchAppointment();
+
+    if (appointmentId) {
+      void loadAppointmentData();
+    }
   }, [appointmentId]);
-  
-  const handleStatusChange = async (newStatus: string) => {
-    if (!appointment) return;
+
+  // Show notification
+  const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    const confirmationMessages: Record<string, string> = {
-      'done': 'Mark this appointment as completed?',
-      'missed': 'Mark this appointment as missed?', 
-      'upcoming': 'Return this appointment to upcoming status?'
-    };
-    
-    if (!confirm(confirmationMessages[newStatus] || `Change status to ${newStatus}?`)) {
+    if (!isAdmin) {
+      showNotification('Only administrators can edit appointments', 'error');
       return;
     }
-    
-    setUpdatingStatus(true);
+
+    setSaving(true);
     
     try {
-      const result = await updateAppointmentStatus(appointmentId, newStatus);
-      
-      if (result.success) {
-        // Update the appointment in state
-        setAppointment({
-          ...appointment,
-          status: newStatus
-        });
-      } else {
-        alert(`Failed to update status: ${result.message}`);
+      const updateData = {
+        agent_id: agentId,
+        loan_status: loanStatus || null,
+        loan_notes: loanNotes || null,
+        updated_by: userId
+      };
+
+      // Loan notes are now automatically updated based on loan status selection
+
+      const response = await fetch(`/api/appointments/${appointmentId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        throw new Error(errorData.message ?? 'Failed to update appointment');
       }
-    } catch (error) {
-      console.error('Error updating appointment status:', error);
-      alert('An error occurred while updating the status');
+
+      const updatedAppointment = await response.json();
+      setAppointment(updatedAppointment);
+      showNotification('Appointment updated successfully!', 'success');
+      router.back();
+      
+    } catch (err) {
+      console.error('Error updating appointment:', err);
+      showNotification(err instanceof Error ? err.message : 'Failed to update appointment', 'error');
     } finally {
-      setUpdatingStatus(false);
+      setSaving(false);
     }
   };
-  
-  const formatAppointmentDate = (date: Date) => {
-    return format(date, 'EEEE, MMMM d, yyyy');
+
+  // Format date/time for display
+  const formatDateTime = (date: Date | string) => {
+    const dateObj = typeof date === 'string' ? parseISO(date) : date;
+    return format(dateObj, 'EEEE, MMMM d, yyyy \'at\' h:mm a');
   };
-  
-  const formatAppointmentTime = (startTime: Date, endTime: Date) => {
-    return `${format(startTime, 'h:mm a')} - ${format(endTime, 'h:mm a')}`;
-  };
-  
-  const getStatusBadge = (status: string) => {
-    const statusConfig: Record<string, { color: string, icon: React.ReactNode }> = {
-      'upcoming': { 
-        color: 'bg-blue-100 text-blue-800', 
-        icon: <ClockIcon className="h-4 w-4 mr-1" /> 
-      },
-      'done': { 
-        color: 'bg-green-100 text-green-800', 
-        icon: <CheckCircleIcon className="h-4 w-4 mr-1" /> 
-      },
-      'missed': { 
-        color: 'bg-red-100 text-red-800', 
-        icon: <XCircleIcon className="h-4 w-4 mr-1" /> 
-      },
-      'cancelled': { 
-        color: 'bg-gray-100 text-gray-800', 
-        icon: <XCircleIcon className="h-4 w-4 mr-1" /> 
-      }
+
+  // Get status badge color
+  const getStatusBadgeColor = (status: string) => {
+    const colors: Record<string, string> = {
+      upcoming: "bg-blue-100 text-blue-800",
+      done: "bg-green-100 text-green-800",
+      missed: "bg-red-100 text-red-800",
+      cancelled: "bg-gray-100 text-gray-800"
     };
-    
-    const config = statusConfig[status] || statusConfig.upcoming;
-    
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium ${config.color}`}>
-        {config.icon}
-        {status.charAt(0).toUpperCase() + status.slice(1)}
-      </span>
-    );
+    return colors[status] ?? "bg-gray-100 text-gray-800";
   };
-  
+
+  // Get loan status badge color
+  const getLoanStatusBadgeColor = (status: string) => {
+    const colors: Record<string, string> = {
+      P: "bg-green-100 text-green-800",
+      PRS: "bg-blue-100 text-blue-800", 
+      RS: "bg-orange-100 text-orange-800",
+      R: "bg-red-100 text-red-800"
+    };
+    return colors[status] ?? "bg-gray-100 text-gray-800";
+  };
+
   if (loading) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>;
-  }
-  
-  if (error || !appointment) {
     return (
-      <div className="p-4 text-center">
-        <p className="text-red-500">{error || "Appointment not found"}</p>
-        <button
-          onClick={() => router.push("/dashboard/appointments")}
-          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          Back to Appointments
-        </button>
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-pulse text-gray-500">Loading appointment...</div>
       </div>
     );
   }
-  
+
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <XCircleIcon className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-red-800 mb-2">Error Loading Appointment</h2>
+          <p className="text-red-600 mb-4">{error}</p>
+          <button
+            onClick={() => router.back()}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!appointment) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+          <ExclamationTriangleIcon className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-yellow-800 mb-2">Appointment Not Found</h2>
+          <p className="text-yellow-600 mb-4">The requested appointment could not be found.</p>
+          <button
+            onClick={() => router.back()}
+            className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <XCircleIcon className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-red-800 mb-2">Access Denied</h2>
+          <p className="text-red-600 mb-4">Only administrators can edit appointments.</p>
+          <button
+            onClick={() => router.back()}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto p-6">
+      {/* Notification */}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
+          notification.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' :
+          notification.type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' :
+          'bg-blue-100 text-blue-800 border border-blue-200'
+        }`}>
+          <div className="flex items-center">
+            {notification.type === 'success' && <CheckCircleIcon className="h-5 w-5 mr-2" />}
+            {notification.type === 'error' && <XCircleIcon className="h-5 w-5 mr-2" />}
+            {notification.type === 'info' && <InformationCircleIcon className="h-5 w-5 mr-2" />}
+            <span>{notification.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
       <div className="mb-6 flex items-center">
         <button
-          onClick={() => router.push("/dashboard/appointments")}
+          onClick={() => router.back()}
           className="mr-4 p-2 rounded-full hover:bg-gray-100"
         >
           <ArrowLeftIcon className="h-5 w-5" />
         </button>
-        <h1 className="text-2xl font-bold">Appointment Details</h1>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Lead information sidebar */}
         <div>
-          <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-            <h2 className="font-semibold text-lg mb-4 flex items-center">
-              <UserCircleIcon className="h-5 w-5 mr-2 text-blue-600" />
-              Lead Information
-            </h2>
+          <h1 className="text-2xl font-bold">Edit Appointment #{appointment.id}</h1>
+          <p className="text-gray-600">Admin Edit Mode</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Appointment Details */}
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-lg font-semibold mb-4 flex items-center">
+            <CalendarIcon className="h-5 w-5 mr-2 text-blue-600" />
+            Appointment Details
+          </h2>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date & Time</label>
+              <div className="flex items-center text-gray-900">
+                <ClockIcon className="h-4 w-4 mr-2 text-gray-500" />
+                {formatDateTime(appointment.start_datetime)}
+              </div>
+            </div>
             
-            <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Duration</label>
+              <div className="text-gray-900">
+                {format(parseISO(appointment.start_datetime.toString()), 'h:mm a')} - {format(parseISO(appointment.end_datetime.toString()), 'h:mm a')}
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeColor(appointment.status)}`}>
+                {appointment.status.toUpperCase()}
+              </span>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Lead Source</label>
+              <div className="text-gray-900">{appointment.lead_source || 'N/A'}</div>
+            </div>
+            
+            {appointment.notes && (
               <div>
-                <h3 className="font-medium">
-                  {appointment.lead.first_name} {appointment.lead.last_name}
-                </h3>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <div className="text-gray-900 bg-gray-50 p-3 rounded-md">{appointment.notes}</div>
               </div>
-              <div className="flex items-center text-sm text-gray-600">
-                <PhoneIcon className="h-4 w-4 mr-2" />
-                {appointment.lead.phone_number}
-              </div>
-              {appointment.lead.email && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <EnvelopeIcon className="h-4 w-4 mr-2" />
-                  {appointment.lead.email}
-                </div>
-              )}
-              <div className="flex items-center text-sm text-gray-600">
-                <div className="flex justify-between w-full">
-                  <span>Status:</span>
-                  <span className="font-medium">{appointment.lead.status}</span>
-                </div>
-              </div>
-              <div className="flex items-center text-sm text-gray-600">
-                <div className="flex justify-between w-full">
-                  <span>Type:</span>
-                  <span>{appointment.lead.lead_type}</span>
-                </div>
-              </div>
-              {appointment.lead.source && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <div className="flex justify-between w-full">
-                    <span>Source:</span>
-                    <span>{appointment.lead.source}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="mt-4 pt-3 border-t border-gray-200">
-              <button
-                onClick={() => router.push(`/dashboard/leads/${appointment.lead.id}`)}
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                View Lead Details
-              </button>
-            </div>
+            )}
           </div>
-          
-          {/* Appointment Actions */}
-          {appointment.status === 'upcoming' && (
-            <div className="bg-white rounded-lg shadow-md p-4">
-              <h2 className="font-semibold text-lg mb-4">Update Status</h2>
-              
-              <div className="space-y-3">
-                <button
-                  onClick={() => handleStatusChange('done')}
-                  disabled={updatingStatus}
-                  className="w-full flex items-center justify-center py-2 px-4 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-                >
-                  <CheckCircleIcon className="h-5 w-5 mr-2" />
-                  Mark as Completed
-                </button>
-                
-                <button
-                  onClick={() => handleStatusChange('missed')}
-                  disabled={updatingStatus}
-                  className="w-full flex items-center justify-center py-2 px-4 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                >
-                  <XCircleIcon className="h-5 w-5 mr-2" />
-                  Mark as Missed
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {/* Allow returning to upcoming status if missed */}
-          {appointment.status === 'missed' && (
-            <div className="bg-white rounded-lg shadow-md p-4">
-              <button
-                onClick={() => handleStatusChange('upcoming')}
-                disabled={updatingStatus}
-                className="w-full flex items-center justify-center py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-              >
-                <ClockIcon className="h-5 w-5 mr-2" />
-                Return to Upcoming
-              </button>
-            </div>
-          )}
         </div>
-        
-        {/* Appointment details */}
-        <div className="md:col-span-2">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex justify-between items-start mb-6">
-              <h2 className="text-xl font-semibold">Appointment Details</h2>
-              {getStatusBadge(appointment.status)}
-            </div>
-            
+
+        {/* Lead Information */}
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-lg font-semibold mb-4 flex items-center">
+            <UserIcon className="h-5 w-5 mr-2 text-green-600" />
+            Lead Information
+          </h2>
+          
+          {appointment.lead ? (
             <div className="space-y-4">
-              <div className="flex items-start">
-                <CalendarIcon className="h-5 w-5 text-gray-500 mt-0.5 mr-3" />
-                <div>
-                  <h3 className="font-medium">Date & Time</h3>
-                  <p className="text-gray-700">{formatAppointmentDate(appointment.start_datetime)}</p>
-                  <p className="text-gray-700">{formatAppointmentTime(appointment.start_datetime, appointment.end_datetime)}</p>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <div className="text-gray-900">{appointment.lead.full_name}</div>
               </div>
               
-              {appointment.is_urgent && (
-                <div className="flex items-start">
-                  <ExclamationCircleIcon className="h-5 w-5 text-amber-500 mt-0.5 mr-3" />
-                  <div>
-                    <h3 className="font-medium">Priority</h3>
-                    <p className="text-amber-700">This appointment is marked as urgent</p>
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <div className="text-gray-900">{appointment.lead.phone_number}</div>
+              </div>
+              
+              {appointment.lead.email && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <div className="text-gray-900">{appointment.lead.email}</div>
                 </div>
               )}
               
-              <div className="flex items-start">
-                <ClockIcon className="h-5 w-5 text-gray-500 mt-0.5 mr-3" />
-                <div>
-                  <h3 className="font-medium">Created</h3>
-                  <p className="text-gray-700">{format(new Date(appointment.created_at), 'MMM d, yyyy, h:mm a')}</p>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Lead Status</label>
+                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeColor(appointment.lead.status)}`}>
+                  {appointment.lead.status.toUpperCase()}
+                </span>
               </div>
-              
-              {appointment.notes && (
-                <div className="pt-4 mt-4 border-t border-gray-200">
-                  <h3 className="font-medium mb-2">Notes</h3>
-                  <div className="p-3 bg-gray-50 rounded-md">
-                    <p className="text-gray-700 whitespace-pre-wrap">{appointment.notes}</p>
-                  </div>
-                </div>
-              )}
+            </div>
+          ) : (
+            <div className="text-gray-500 italic">Lead information not available</div>
+          )}
+        </div>
+      </div>
+
+      {/* Edit Form */}
+      <div className="mt-6 bg-white p-6 rounded-lg shadow-md">
+        <h2 className="text-lg font-semibold mb-4 flex items-center">
+          <PencilIcon className="h-5 w-5 mr-2 text-purple-600" />
+          Edit Appointment
+        </h2>
+        
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Agent Assignment */}
+            <div>
+              <label htmlFor="agentId" className="block text-sm font-medium text-gray-700 mb-2">
+                Assigned Agent *
+              </label>
+              <select
+                id="agentId"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              >
+                <option value="">Select an agent</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.first_name} {user.last_name} ({user.email})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-        </div>
+
+          {/* Loan Status */}
+          <div>
+            <label htmlFor="loanStatus" className="block text-sm font-medium text-gray-700 mb-2">
+              Loan Status
+            </label>
+            <select
+              id="loanStatus"
+              value={loanStatus}
+              onChange={(e) => {
+                const status = e.target.value;
+                setLoanStatus(status);
+                
+                // Auto-update loan notes based on status
+                let newLoanNotes = '';
+                switch (status) {
+                  case 'P':
+                    newLoanNotes = 'P - Done';
+                    break;
+                  case 'PRS':
+                    newLoanNotes = 'P - Customer Rejected';
+                    break;
+                  case 'R':
+                    newLoanNotes = 'R - Rejected';
+                    break;
+                  case 'RS':
+                    // For RS, we'll wait for the reason to be filled
+                    newLoanNotes = 'RS - Rejected With Special Reason - ';
+                    break;
+                  default:
+                    newLoanNotes = '';
+                }
+                
+                setLoanNotes(newLoanNotes);
+                
+                if (status !== 'RS') {
+                  setRsReason('');
+                }
+              }}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select loan status</option>
+              <option value="P">P - Done</option>
+              <option value="PRS">PRS - Customer Rejected</option>
+              <option value="RS">RS - Rejected With Special Reason - </option>
+              <option value="R">R - Rejected</option>
+            </select>
+          </div>
+
+          {/* RS Reason (only show if loan status is RS) */}
+          {loanStatus === 'RS' && (
+            <div>
+              <label htmlFor="rsReason" className="block text-sm font-medium text-gray-700 mb-2">
+                RS Reason *
+              </label>
+              <textarea
+                id="rsReason"
+                value={rsReason}
+                onChange={(e) => {
+                  const reason = e.target.value;
+                  setRsReason(reason);
+                  if (loanStatus === 'RS') {
+                    setLoanNotes(`RS - ${reason}`);
+                  }
+                }}
+                placeholder="Please provide the reason for RS (Rejected Special) status..."
+                rows={3}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required={loanStatus === 'RS'}
+              />
+            </div>
+          )}
+
+          {/* Loan Notes */}
+          <div>
+            <label htmlFor="loanNotes" className="block text-sm font-medium text-gray-700 mb-2">
+              Loan Notes
+            </label>
+            <textarea
+              id="loanNotes"
+              value={loanNotes}
+              onChange={(e) => setLoanNotes(e.target.value)}
+              placeholder="Enter any additional loan notes..."
+              rows={4}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
