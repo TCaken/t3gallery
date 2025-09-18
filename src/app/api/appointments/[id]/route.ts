@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '~/server/db';
 import { appointments, leads, users } from '~/server/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 
 // GET - Fetch appointment details
@@ -61,11 +61,11 @@ export async function GET(
       })
       .from(appointments)
       .leftJoin(leads, eq(appointments.lead_id, leads.id))
-      .leftJoin(users, eq(appointments.agent_id, users.id))
+      .leftJoin(users, and(eq(appointments.agent_id, users.id), eq(appointments.created_by, users.id)))
       .where(eq(appointments.id, appointmentId))
       .limit(1);
 
-      
+
     if (appointment.length === 0) {
       return NextResponse.json(
         { message: 'Appointment not found' },
@@ -220,8 +220,7 @@ export async function PATCH(
       })
       .from(appointments)
       .leftJoin(leads, eq(appointments.lead_id, leads.id))
-      .leftJoin(users, eq(appointments.agent_id, users.id))
-      .leftJoin(users, eq(appointments.created_by, users.id))
+      .leftJoin(users, and(eq(appointments.agent_id, users.id), eq(appointments.created_by, users.id)))
       .where(eq(appointments.id, appointmentId))
       .limit(1);
 
