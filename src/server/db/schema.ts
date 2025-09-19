@@ -966,7 +966,7 @@ export const borrower_actions = createTable(
   (d) => ({
     action_id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
     borrower_id: d.integer().references(() => borrowers.id, { onDelete: "cascade" }).notNull(),
-    user_id: d.varchar({ length: 256 }).references(() => users.id).notNull(),
+    user_id: d.varchar({ length: 256 }),
     action_type: d.varchar({ length: 50 }).notNull(),
     content: d.text(),
     timestamp: d.timestamp({ withTimezone: true }).default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -974,7 +974,6 @@ export const borrower_actions = createTable(
   }),
   (t) => [
     index("borrower_action_borrower_id_idx").on(t.borrower_id),
-    index("borrower_action_user_id_idx").on(t.user_id),
     index("borrower_action_type_idx").on(t.action_type)
   ]
 );
@@ -1092,16 +1091,6 @@ export const borrowerNotesRelations = relations(borrower_notes, ({ one }) => ({
   }),
 }));
 
-export const borrowerActionsRelations = relations(borrower_actions, ({ one }) => ({
-  borrower: one(borrowers, {
-    fields: [borrower_actions.borrower_id],
-    references: [borrowers.id],
-  }),
-  user: one(users, {
-    fields: [borrower_actions.user_id],
-    references: [users.id],
-  }),
-}));
 
 export const borrowerTagsRelations = relations(borrower_tags, ({ one }) => ({
   borrower: one(borrowers, {
@@ -1115,17 +1104,6 @@ export const borrowerTagsRelations = relations(borrower_tags, ({ one }) => ({
   createdBy: one(users, {
     fields: [borrower_tags.created_by],
     references: [users.id],
-  }),
-}));
-
-export const pinnedBorrowersRelations = relations(pinned_borrowers, ({ one }) => ({
-  user: one(users, {
-    fields: [pinned_borrowers.user_id],
-    references: [users.id],
-  }),
-  borrower: one(borrowers, {
-    fields: [pinned_borrowers.borrower_id],
-    references: [borrowers.id],
   }),
 }));
 

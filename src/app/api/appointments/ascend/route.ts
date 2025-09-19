@@ -78,6 +78,7 @@ export async function POST(request: Request) {
       timeSlot,
       app: appName
     });
+    
 
     // Call the enhanced appointment reminder function with lead processing
     const result = await processAppointmentReminderWithLeadProcessing(
