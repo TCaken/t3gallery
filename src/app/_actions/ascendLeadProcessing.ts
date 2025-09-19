@@ -79,6 +79,7 @@ async function checkBorrowerExists(phoneNumber: string) {
     ilike(borrowers.phone_number_3, `%${variation}%`)
   ]);
   
+  
   if (phoneConditions.length === 0) return null;
   
   const existingBorrower = await db

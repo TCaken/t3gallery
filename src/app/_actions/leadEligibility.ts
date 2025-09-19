@@ -55,7 +55,10 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
       body: JSON.stringify({ phone: cleanPhone })
     });
 
-    if (!response.ok) {
+    if (response.status === 403) {
+
+    }
+    else if (!response.ok) {
       throw new Error('Failed to check eligibility');
     }
 
