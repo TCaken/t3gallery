@@ -78,7 +78,7 @@ async function checkBorrowerExists(phoneNumber: string) {
     ilike(borrowers.phone_number_2, `%${variation}%`),
     ilike(borrowers.phone_number_3, `%${variation}%`)
   ]);
-  
+
   
   if (phoneConditions.length === 0) return null;
   
@@ -218,15 +218,6 @@ export async function processAscendLead(
     console.log('📊 Eligibility check result:', eligibilityResult);
 
     const systemUser = process.env.SYSTEM_USER_ID ?? 'system';
-
-    // Step 1.5: Check if borrower exists and handle accordingly
-    const borrowerResult = await handleBorrowerWithAscendStatus(
-      formattedPhone,
-      customerName,
-      'manual_verification_required',
-      customerHyperLink,
-      eligibilityResult
-    );
     
     console.log('👤 Borrower handling result:', borrowerResult);
 
@@ -272,6 +263,14 @@ export async function processAscendLead(
       if (eligibilityResult.notes.includes('CAPC lists')) {
         // Found in ATOM/CAPC lists - this is a reloan customer
         // For reloan customers, we don't create a new lead, just log the verification
+         // Step 1.5: Check if borrower exists and handle accordingly
+        const borrowerResult = await handleBorrowerWithAscendStatus(
+          formattedPhone,
+          customerName,
+          'manual_verification_required',
+          customerHyperLink,
+          eligibilityResult
+        );
         console.log('🔄 Reloan customer - found in ATOM/CAPC lists, no new lead created');
         
         return {
@@ -407,6 +406,7 @@ export async function processReloanCustomer(
   }
 }
 
+
 /**
  * Process appointment reminder with lead processing
  * This function implements the same flow as manual verification but for appointment reminders
@@ -524,15 +524,6 @@ export async function processAscendLeadForAppointment(
     console.log('📊 Eligibility check result for appointment:', eligibilityResult);
 
     const systemUser = process.env.SYSTEM_USER_ID ?? 'system';
-
-    // Step 1.5: Check if borrower exists and handle accordingly
-    const borrowerResult = await handleBorrowerWithAscendStatus(
-      formattedPhone,
-      customerName,
-      'booking_appointment',
-      `Appointment: ${appointmentDate} ${timeSlot}`,
-      eligibilityResult
-    );
     
     console.log('👤 Borrower handling result for appointment:', borrowerResult);
 
@@ -576,6 +567,14 @@ export async function processAscendLeadForAppointment(
       // Lead is not eligible - check why
       if (eligibilityResult.notes.includes('CAPC lists')) {
         // Found in ATOM/CAPC lists - this is a reloan customer
+         // Step 1.5: Check if borrower exists and handle accordingly
+        const borrowerResult = await handleBorrowerWithAscendStatus(
+          formattedPhone,
+          customerName,
+          'booking_appointment',
+          `Appointment: ${appointmentDate} ${timeSlot}`,
+          eligibilityResult
+        );
         // For reloan customers, we don't create a new lead, just log the appointment reminder
         console.log('🔄 Reloan customer appointment - found in ATOM/CAPC lists, no new lead created');
         
