@@ -218,8 +218,6 @@ export async function processAscendLead(
     console.log('📊 Eligibility check result:', eligibilityResult);
 
     const systemUser = process.env.SYSTEM_USER_ID ?? 'system';
-    
-    console.log('👤 Borrower handling result:', borrowerResult);
 
     // Step 2: Determine lead type and action based on eligibility result
     if (eligibilityResult.isEligible) {
@@ -241,14 +239,13 @@ export async function processAscendLead(
       if (createResult.success && createResult.lead) {
         return {
           success: true,
-          message: `New lead created successfully. Lead ID: ${createResult.lead.id}. Borrower ${borrowerResult.action}: ${borrowerResult.borrowerId}`,
+          message: `New lead created successfully. Lead ID: ${createResult.lead.id}.`,
           data: {
             leadId: createResult.lead.id,
             leadType: 'new' as const,
             ascendStatus: 'manual_verification_required',
             airconnectLink: customerHyperLink,
-            eligibilityResult,
-            borrowerResult
+            eligibilityResult
           }
         };
               } else {
@@ -260,7 +257,7 @@ export async function processAscendLead(
         }
     } else {
       // Lead is not eligible - check why
-      if (eligibilityResult.notes.includes('CAPC lists')) {
+      if (eligibilityResult.notes.includes('CAPC lists') || eligibilityResult.existingLead?.status === 'done') {
         // Found in ATOM/CAPC lists - this is a reloan customer
         // For reloan customers, we don't create a new lead, just log the verification
          // Step 1.5: Check if borrower exists and handle accordingly
@@ -524,8 +521,6 @@ export async function processAscendLeadForAppointment(
     console.log('📊 Eligibility check result for appointment:', eligibilityResult);
 
     const systemUser = process.env.SYSTEM_USER_ID ?? 'system';
-    
-    console.log('👤 Borrower handling result for appointment:', borrowerResult);
 
     // Step 2: Determine lead type and action based on eligibility result
     if (eligibilityResult.isEligible) {
@@ -565,7 +560,7 @@ export async function processAscendLeadForAppointment(
       }
     } else {
       // Lead is not eligible - check why
-      if (eligibilityResult.notes.includes('CAPC lists')) {
+      if (eligibilityResult.notes.includes('CAPC lists') || eligibilityResult.existingLead) {
         // Found in ATOM/CAPC lists - this is a reloan customer
          // Step 1.5: Check if borrower exists and handle accordingly
         const borrowerResult = await handleBorrowerWithAscendStatus(
@@ -586,6 +581,7 @@ export async function processAscendLeadForAppointment(
             ascendStatus: 'reloan_customer_appointment',
             airconnectLink: `Appointment: ${appointmentDate} ${timeSlot}`,
             eligibilityResult,
+            borrowerResult,
             note: 'This customer should be processed through the reloan customer flow'
           }
         };
