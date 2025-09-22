@@ -258,6 +258,9 @@ export async function processAscendLead(
     } else {
       // Lead is not eligible - check why
       if (eligibilityResult.notes.includes('CAPC lists') || eligibilityResult.existingLead?.status === 'done') {
+        console.log('🔄 Reloan customer - found in ATOM/CAPC lists, no new lead created');
+        console.log(eligibilityResult.notes.includes('CAPC lists'));
+        console.log(eligibilityResult.existingLead?.status === 'done');
         // Found in ATOM/CAPC lists - this is a reloan customer
         // For reloan customers, we don't create a new lead, just log the verification
          // Step 1.5: Check if borrower exists and handle accordingly
@@ -560,9 +563,11 @@ export async function processAscendLeadForAppointment(
       }
     } else {
       // Lead is not eligible - check why
-      if (eligibilityResult.notes.includes('CAPC lists') || eligibilityResult.existingLead) {
+      if (eligibilityResult.notes.includes('CAPC lists') || eligibilityResult.existingLead?.status === 'done') {
         // Found in ATOM/CAPC lists - this is a reloan customer
          // Step 1.5: Check if borrower exists and handle accordingly
+        console.log(eligibilityResult.notes.includes('CAPC lists'));
+        console.log(eligibilityResult.existingLead?.status === 'done');
         const borrowerResult = await handleBorrowerWithAscendStatus(
           formattedPhone,
           customerName,
