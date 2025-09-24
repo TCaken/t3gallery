@@ -357,7 +357,7 @@ export async function ascendAppointmentReminder(
     // Hardcoded template configuration based on your provided structure
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
     const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
-    const projectId = "20144ad5-88f2-4336-be9e-9c30b2c0a89b";
+    const projectId = "cf1b8317-73de-4bd0-a8dd-359d8bab1712";
 
     // Format phone number early for use in both data and logging
     const formattedPhone = formatPhoneNumber(phoneNumber);
