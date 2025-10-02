@@ -356,8 +356,8 @@ export async function ascendAppointmentReminder(
 
     // Hardcoded template configuration based on your provided structure
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
-    const projectId = "cf1b8317-73de-4bd0-a8dd-359d8bab1712";
+    const channelId = "9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b";
+    const projectId = "8b5f5518-47b0-48ab-bdb4-6ac76ad64093";
 
     // Format phone number early for use in both data and logging
     const formattedPhone = formatPhoneNumber(phoneNumber);
@@ -1004,8 +1004,8 @@ export async function sendAppointmentWhatsAppReminder(
 
     // New project ID configuration
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
-    const projectId = "6e3429ea-0cd8-42e9-8ac4-5d67d926373f"; // New project ID
+    const channelId = "9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b";
+    const projectId = "63a58176-5066-4c91-a970-77d8125f6aac"; // New project ID
 
     // Use the existing formatPhoneNumber function from this file
     const formattedPhone = formatPhoneNumber(phoneNumber);
@@ -1080,8 +1080,8 @@ export async function sendNewLeadReminder1(
 
     // Project ID for new lead reminder 1
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
-    const projectId = "e23f7aca-9ff2-4b2d-a98d-6e86feda08e2";
+    const channelId = "9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b";
+    const projectId = "df05d468-a66c-4009-ab6c-f8668b6aa6ce";
 
     // Format phone number
     const formattedPhone = formatPhoneNumber(phoneNumber);
@@ -1142,7 +1142,7 @@ export async function sendNewLeadReminder2(
 
     // Project ID for new lead reminder 2
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
+    const channelId = "9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b";
     const projectId = "aa8cad3a-7452-42e9-bc39-d781052521cf";
 
     // Format phone number
@@ -1254,8 +1254,8 @@ export async function sendMissedAppointmentReminder(
 
     // Project ID for missed appointment reminders
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
-    const projectId = "91891f46-fb65-43d0-ac3f-562224ba9462";
+    const channelId = "9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b";
+    const projectId = "b83ffab2-e27f-42a3-9edf-36868e1c2c58";
 
     // Format phone number
     const formattedPhone = formatPhoneNumber(phoneNumber);
@@ -1316,7 +1316,7 @@ export async function sendMissedAppointmentAfterOneHourReminder(
 
     // Project ID for missed appointment after one hour reminders
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
-    const channelId = "529539f8-da50-550b-8fb2-199e744e3992";
+    const channelId = "9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b";
     const projectId = "36911679-ca85-45cf-8352-30759ef6aa21";
 
     // Format phone number

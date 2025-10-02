@@ -79,7 +79,7 @@ const initialFormData: TemplateFormData = {
   name: '',
   description: '',
   workspace_id: '976e3394-ae10-4b32-9a23-8ecf78da9fe7',
-  channel_id: '529539f8-da50-550b-8fb2-199e744e3992',
+  channel_id: '9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b',
   project_id: '',
   customer_type: 'new',
   supported_methods: ['whatsapp'],
