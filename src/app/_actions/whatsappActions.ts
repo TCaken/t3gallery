@@ -1081,7 +1081,7 @@ export async function sendNewLeadReminder1(
     // Project ID for new lead reminder 1
     const workspaceId = "976e3394-ae10-4b32-9a23-8ecf78da9fe7";
     const channelId = "9e7a1a3d-48de-59aa-aeb4-dc21ab0cce8b";
-    const projectId = "df05d468-a66c-4009-ab6c-f8668b6aa6ce";
+    const projectId = "e23f7aca-9ff2-4b2d-a98d-6e86feda08e2";
 
     // Format phone number
     const formattedPhone = formatPhoneNumber(phoneNumber);
