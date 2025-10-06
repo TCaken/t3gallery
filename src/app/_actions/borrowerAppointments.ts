@@ -299,6 +299,8 @@ export async function getBorrowerAppointments(filters: BorrowerAppointmentFilter
         agent_first_name: users.first_name,
         agent_last_name: users.last_name,
         agent_email: users.email,
+        ascend_status: borrowers.ascend_status,
+        airconnect_verification_link: borrowers.airconnect_verification_link,
       })
       .from(borrower_appointments)
       .leftJoin(borrowers, eq(borrower_appointments.borrower_id, borrowers.id))

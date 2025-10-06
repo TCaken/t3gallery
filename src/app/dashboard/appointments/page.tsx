@@ -14,21 +14,15 @@ import {
   ChevronRightIcon,
   UserIcon,
   UsersIcon,
-  PhoneIcon,
-  Bars3Icon
+  PhoneIcon
 } from '@heroicons/react/24/outline';
-import { createAppointment, fetchAppointments, type AppointmentWithLead } from '~/app/_actions/appointmentAction';
+import { fetchAppointments } from '~/app/_actions/appointmentAction';
 import { fetchAvailableTimeslots, type Timeslot } from '~/app/_actions/appointmentAction';
 import { getBorrowerAppointments } from '~/app/_actions/borrowerAppointments';
 import { format, parseISO, addDays, startOfDay, endOfDay, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay, isToday } from 'date-fns';
 import { createLead } from '~/app/_actions/leadActions';
-import { truncate } from 'fs/promises';
-import { auth } from '@clerk/nextjs/server';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
-import { updateAppointmentStatusesByTime, testAppointmentStatusUpdate } from '~/app/_actions/appointmentStatusUpdateAction';
 
-// Borrower appointment type (from getBorrowerAppointments)
-type BorrowerAppointmentData = Awaited<ReturnType<typeof getBorrowerAppointments>>['data'][0];
 
 // Unified appointment type for calendar display
 type UnifiedAppointment = {
@@ -44,6 +38,9 @@ type UnifiedAppointment = {
   created_by?: string | null;
   updated_by?: string | null;
   type: 'lead' | 'borrower';
+  // Ascend status fields
+  ascend_status?: string | null;
+  airconnect_verification_link?: string | null;
   // Lead-specific fields
   lead?: {
     id: number;
@@ -131,7 +128,7 @@ export default function AppointmentsPage() {
   const router = useRouter();
   const [allAppointments, setAllAppointments] = useState<UnifiedAppointment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('week');
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['upcoming', 'done', 'missed']);
   const [searchQuery, setSearchQuery] = useState('');
@@ -147,7 +144,6 @@ export default function AppointmentsPage() {
   });
 
   // Status update state
-  const [statusUpdateLoading, setStatusUpdateLoading] = useState(false);
   const [statusUpdateResults, setStatusUpdateResults] = useState<StatusUpdateResult | null>(null);
 
   // Hover modal state
@@ -161,14 +157,6 @@ export default function AppointmentsPage() {
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const timeSlots = generateTimeSlots();
-
-  // Fetch data when date range, view changes, or when search query changes
-  useEffect(() => {
-    void fetchAppointmentData();
-  }, [currentDate, viewMode]);
-
-  // We don't need a separate effect for search since we do client-side filtering
-  // This removes potential race conditions and data mismatches
 
   const fetchAppointmentData = useCallback(async () => {
     setLoading(true);
@@ -205,6 +193,8 @@ export default function AppointmentsPage() {
         created_by: apt.created_by,
         updated_by: apt.updated_by,
         type: 'lead' as const,
+        ascend_status: apt.lead?.ascend_status ?? null,
+        airconnect_verification_link: apt.lead?.airconnect_verification_link ?? null,
         lead: apt.lead ? {
           id: apt.lead.id,
           full_name: apt.lead.full_name ?? 'Unknown Lead',
@@ -244,6 +234,8 @@ export default function AppointmentsPage() {
           created_by: apt.created_by,
           updated_by: undefined,
           type: 'borrower' as const,
+          ascend_status: apt.ascend_status ?? null,
+          airconnect_verification_link: apt.airconnect_verification_link ?? null,
           lead: null,
           borrower: {
             id: apt.borrower_id,
@@ -277,6 +269,11 @@ export default function AppointmentsPage() {
       setLoading(false);
     }
   }, [currentDate, viewMode]);
+
+  // Fetch data when date range, view changes, or when search query changes
+  useEffect(() => {
+    void fetchAppointmentData();
+  }, [fetchAppointmentData]);
 
   // Filter appointments client-side for immediate response
   const filteredAppointments = useMemo(() => {
@@ -330,63 +327,6 @@ export default function AppointmentsPage() {
     setShowQuickCreate(true);
   };
 
-  // Handle appointment status updates
-  const handleStatusUpdate = async (thresholdHours = 2.5) => {
-    setStatusUpdateLoading(true);
-    setStatusUpdateResults(null);
-    
-    try {
-      console.log('🔄 Triggering appointment status update...');
-      const result = await updateAppointmentStatusesByTime(thresholdHours);
-      
-      console.log('✅ Status update result:', result);
-      setStatusUpdateResults(result);
-      
-      // Refresh appointments after update
-      if (result.updated > 0) {
-        await fetchAppointmentData();
-      }
-      
-    } catch (error) {
-      console.error('❌ Error updating appointment statuses:', error);
-      setStatusUpdateResults({
-        success: false,
-        message: 'Failed to update appointment statuses',
-        error: (error as Error).message
-      });
-    } finally {
-      setStatusUpdateLoading(false);
-    }
-  };
-
-  // Test the status update functionality
-  const handleTestStatusUpdate = async () => {
-    setStatusUpdateLoading(true);
-    setStatusUpdateResults(null);
-    
-    try {
-      console.log('🧪 Testing appointment status update...');
-      const result = await testAppointmentStatusUpdate();
-      
-      console.log('✅ Test result:', result);
-      setStatusUpdateResults(result);
-      
-      // Refresh appointments after test
-      if (result.updated > 0) {
-        await fetchAppointmentData();
-      }
-      
-    } catch (error) {
-      console.error('❌ Error testing appointment status update:', error);
-      setStatusUpdateResults({
-        success: false,
-        message: 'Failed to test appointment status update',
-        error: (error as Error).message
-      });
-    } finally {
-      setStatusUpdateLoading(false);
-    }
-  };
 
   const handleQuickCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -413,7 +353,6 @@ export default function AppointmentsPage() {
 
       
       // Step 2: Find the appropriate timeslot
-      const selectedDate = new Date(quickCreateData.date);
       const timeslots = await fetchAvailableTimeslots(quickCreateData.date);
       const targetSlot = timeslots.find((slot: Timeslot) => slot.start_time === `${quickCreateData.timeSlot}:00`);
       
@@ -509,7 +448,6 @@ export default function AppointmentsPage() {
   const getAppointmentsForTimeSlot = (date: Date, timeSlot: string) => {
     return filteredAppointments.filter(apt => {
       const aptStartDate = new Date(apt.start_datetime);
-      const aptEndDate = new Date(apt.end_datetime);
       
       // Check if this appointment is on the same day
       if (!isSameDay(aptStartDate, date)) return false;
@@ -537,7 +475,6 @@ export default function AppointmentsPage() {
   const getDateRange = () => {
     if (viewMode === 'week') {
       const start = startOfWeek(currentDate, { weekStartsOn: 1 });
-      const end = endOfWeek(currentDate, { weekStartsOn: 1 });
       return Array.from({ length: 7 }, (_, i) => addDays(start, i));
     } else {
       return [currentDate];
@@ -569,10 +506,14 @@ export default function AppointmentsPage() {
     // console.log("Appointment: " + JSON.stringify(appointment), "Start datetime: " + startTime, "End datetime: " + endTime);
 
     const handleAppointmentClick = (e: React.MouseEvent) => {
-      if (appointment.type === 'lead' && appointment.lead?.id) {
-        router.push(`/dashboard/leads/${appointment.lead.id}/appointment`);
-      } else if (appointment.type === 'borrower' && appointment.borrower?.id) {
-        router.push(`/dashboard/borrowers/${appointment.borrower.id}/appointments`);
+      // Only navigate if clicking on specific elements (title, time, phone)
+      const target = e.target as HTMLElement;
+      if (target.closest('.appointment-title') || target.closest('.appointment-time') || target.closest('.appointment-phone')) {
+        if (appointment.type === 'lead' && appointment.lead?.id) {
+          router.push(`/dashboard/leads/${appointment.lead.id}/appointment`);
+        } else if (appointment.type === 'borrower' && appointment.borrower?.id) {
+          router.push(`/dashboard/borrowers/${appointment.borrower.id}/appointments`);
+        }
       }
     };
 
@@ -648,7 +589,7 @@ export default function AppointmentsPage() {
         {/* Name with Status Indicator and Type Badge */}
         <div className="flex items-center justify-between w-full mb-1">
           <div className="flex items-center flex-1 min-w-0">
-            <span className="font-semibold text-gray-900 truncate text-xs leading-tight">
+            <span className="appointment-title font-semibold text-gray-900 truncate text-xs leading-tight cursor-pointer">
               {appointment.type === 'lead' 
                 ? appointment.lead?.full_name ?? 'Unknown Lead'
                 : appointment.borrower?.name ?? 'Unknown Borrower'
@@ -669,7 +610,7 @@ export default function AppointmentsPage() {
         </div>
 
         {/* Time Display */}
-        <div className="text-gray-600 text-xs font-medium truncate w-full mb-1">
+        <div className="appointment-time text-gray-600 text-xs font-medium truncate w-full mb-1 cursor-pointer">
           {startTime}
         </div>
 
@@ -697,13 +638,47 @@ export default function AppointmentsPage() {
 
         {/* Phone Number */}
         {appointment.type === 'lead' && appointment.lead?.phone_number && (
-          <div className="text-gray-500 text-xs truncate w-full font-medium">
+          <div className="appointment-phone text-gray-500 text-xs truncate w-full font-medium cursor-pointer">
             {appointment.lead.phone_number}
           </div>
         )}
         {appointment.type === 'borrower' && appointment.borrower?.phone && (
-          <div className="text-gray-500 text-xs truncate w-full font-medium">
+          <div className="appointment-phone text-gray-500 text-xs truncate w-full font-medium cursor-pointer">
             +65{appointment.borrower.phone}
+          </div>
+        )}
+
+        {/* Ascend Status Display */}
+        {appointment.ascend_status && (
+          <div className="mt-1">
+            <div className={`inline-block px-2 py-1 rounded text-xs font-bold whitespace-nowrap ${
+              appointment.ascend_status === 'new' ? 'bg-blue-100 text-blue-800' :
+              appointment.ascend_status === 'manual_verification_required' ? 'bg-yellow-100 text-yellow-800' :
+              appointment.ascend_status === 'booking_appointment' ? 'bg-green-100 text-green-800' :
+              appointment.ascend_status === 'done' ? 'bg-gray-100 text-gray-800' :
+              'bg-gray-100 text-gray-800'
+            }`}>
+              {appointment.ascend_status === 'new' ? 'New' :
+               appointment.ascend_status === 'manual_verification_required' ? 'Manual Verification' :
+               appointment.ascend_status === 'booking_appointment' ? 'Booking Appointment' :
+               appointment.ascend_status === 'done' ? 'Done' :
+               appointment.ascend_status}
+            </div>
+          </div>
+        )}
+
+        {/* Manual Verification Button */}
+        {appointment.ascend_status === 'manual_verification_required' && appointment.airconnect_verification_link && (
+          <div className="mt-1">
+            <a
+              href={appointment.airconnect_verification_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-medium rounded transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Manual Verification
+            </a>
           </div>
         )}
       </div>
@@ -1206,7 +1181,7 @@ export default function AppointmentsPage() {
                       { status: 'PRS', label: 'Customer Rejected', color: 'text-blue-600 bg-blue-500' },
                       { status: 'RS', label: 'Rejected with Special Reason', color: 'text-yellow-600 bg-yellow-500' },
                       { status: 'R', label: 'Rejected', color: 'text-red-600 bg-red-500' }
-                    ].map(({ status, label, color }) => {
+                    ].map(({ status, color }) => {
                       const newLoanTur = filteredAppointments.filter(apt => apt.status === 'done' && apt.type === 'lead');
                       const count = newLoanTur.filter(apt => apt.loan_status === status).length;
                       const percentage = newLoanTur.length > 0 ? Math.round((count / newLoanTur.length) * 100) : 0;
@@ -1217,7 +1192,7 @@ export default function AppointmentsPage() {
                         <div key={status} className="flex items-center justify-between">
                           <div className="flex items-center">
                             <div className={`w-3 h-3 rounded-full mr-2 ${color.split(' ')[1]}`}></div>
-                            <span className="font-medium text-gray-700">{status} - {label}</span>
+                            <span className="font-medium text-gray-700">{status}</span>
                           </div>
                           <div className="flex items-center space-x-3">
                             <div className="w-16 bg-gray-200 rounded-full h-2">
@@ -1247,7 +1222,7 @@ export default function AppointmentsPage() {
                       { status: 'PRS', label: 'Customer Rejected', color: 'text-blue-600 bg-blue-500' },
                       { status: 'RS', label: 'Rejected with Special Reason', color: 'text-yellow-600 bg-yellow-500' },
                       { status: 'R', label: 'Rejected', color: 'text-red-600 bg-red-500' }
-                    ].map(({ status, label, color }) => {
+                    ].map(({ status, color }) => {
                       const reloanTur = filteredAppointments.filter(apt => apt.status === 'done' && apt.type === 'borrower');
                       const count = reloanTur.filter(apt => apt.loan_status === status).length;
                       const percentage = reloanTur.length > 0 ? Math.round((count / reloanTur.length) * 100) : 0;
@@ -1258,7 +1233,7 @@ export default function AppointmentsPage() {
                         <div key={status} className="flex items-center justify-between">
                           <div className="flex items-center">
                             <div className={`w-3 h-3 rounded-full mr-2 ${color.split(' ')[1]}`}></div>
-                            <span className="font-medium text-gray-700">{status} - {label}</span>
+                            <span className="font-medium text-gray-700">{status}</span>
                           </div>
                           <div className="flex items-center space-x-3">
                             <div className="w-16 bg-gray-200 rounded-full h-2">
@@ -1393,7 +1368,7 @@ export default function AppointmentsPage() {
                                     { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
                                     { status: 'RS', label: 'Rejected with Special Reason', color: 'bg-yellow-500' },
                                     { status: 'R', label: 'Rejected', color: 'bg-red-500' }
-                                  ].map(({ status, label, color }) => {
+                                  ].map(({ status, color }) => {
                                     const count = agent.newLoan.loanStatuses[status] ?? 0;
                                     if (count === 0) return null;
                                     
@@ -1459,7 +1434,7 @@ export default function AppointmentsPage() {
                                     { status: 'PRS', label: 'Customer Rejected', color: 'bg-blue-500' },
                                     { status: 'RS', label: 'Rejected with Special Reason', color: 'bg-yellow-500' },
                                     { status: 'R', label: 'Rejected', color: 'bg-red-500' }
-                                  ].map(({ status, label, color }) => {
+                                  ].map(({ status, color }) => {
                                     const count = agent.reloan.loanStatuses[status] ?? 0;
                                     if (count === 0) return null;
                                     
