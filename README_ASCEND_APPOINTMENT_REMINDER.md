@@ -162,7 +162,7 @@ const handleSendReminder = async (appointment: UnifiedAppointment) => {
 The function uses these hardcoded values:
 
 - **Workspace ID**: `976e3394-ae10-4b32-9a23-8ecf78da9fe7`
-- **Channel ID**: `36f8cbb8-4397-48b5-a9d7-0036ba9c2c77`
+- **Channel ID**: `05386982-8967-535b-839b-712eed9437ce`
 - **Project ID**: `20144ad5-88f2-4336-be9e-9c30b2c0a89b`
 
 ### Template Parameters
