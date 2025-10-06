@@ -31,7 +31,7 @@ importers:
         version: 0.12.0(typescript@5.8.3)(zod@3.24.3)
       '@uploadthing/react':
         specifier: ^7.3.0
-        version: 7.3.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)(uploadthing@7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.4))
+        version: 7.3.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)(uploadthing@7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.14))
       '@vercel/postgres':
         specifier: ^0.10.0
         version: 0.10.0
@@ -70,7 +70,7 @@ importers:
         version: 3.2.0
       uploadthing:
         specifier: ^7.6.0
-        version: 7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.4)
+        version: 7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.14)
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
@@ -118,8 +118,8 @@ importers:
         specifier: ^0.6.11
         version: 0.6.11(prettier@3.5.3)
       tailwindcss:
-        specifier: ^4.0.15
-        version: 4.1.4
+        specifier: ^4.1.14
+        version: 4.1.14
       typescript:
         specifier: ^5.8.2
         version: 5.8.3
@@ -2794,6 +2794,9 @@ packages:
   tailwind-merge@3.2.0:
     resolution: {integrity: sha512-FQT/OVqCD+7edmmJpsgCsY820RTD5AkBryuG5IUqR5YQZSdj5xlH5nLgH7YPths7WsLPSpSBNneJdM8aS8aeFA==}
 
+  tailwindcss@4.1.14:
+    resolution: {integrity: sha512-b7pCxjGO98LnxVkKjaZSDeNuljC4ueKUddjENJOADtubtdo8llTaJy7HwBMeLNSSo2N5QIAgklslK1+Ir8r6CA==}
+
   tailwindcss@4.1.4:
     resolution: {integrity: sha512-1ZIUqtPITFbv/DxRmDr5/agPqJwF69d24m9qmM1939TJehgY539CtzeZRjbLt5G6fSy/7YqqYsfvoTEw9xUI2A==}
 
@@ -3914,12 +3917,12 @@ snapshots:
 
   '@uploadthing/mime-types@0.3.4': {}
 
-  '@uploadthing/react@7.3.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)(uploadthing@7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.4))':
+  '@uploadthing/react@7.3.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react@19.1.0)(uploadthing@7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.14))':
     dependencies:
       '@uploadthing/shared': 7.1.7
       file-selector: 0.6.0
       react: 19.1.0
-      uploadthing: 7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.4)
+      uploadthing: 7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.14)
     optionalDependencies:
       next: 15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
 
@@ -5559,6 +5562,8 @@ snapshots:
 
   tailwind-merge@3.2.0: {}
 
+  tailwindcss@4.1.14: {}
+
   tailwindcss@4.1.4: {}
 
   tapable@2.2.1: {}
@@ -5670,7 +5675,7 @@ snapshots:
       '@unrs/resolver-binding-win32-ia32-msvc': 1.6.1
       '@unrs/resolver-binding-win32-x64-msvc': 1.6.1
 
-  uploadthing@7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.4):
+  uploadthing@7.6.0(next@15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.14):
     dependencies:
       '@effect/platform': 0.72.0(effect@3.12.0)
       '@standard-schema/spec': 1.0.0-beta.4
@@ -5679,7 +5684,7 @@ snapshots:
       effect: 3.12.0
     optionalDependencies:
       next: 15.3.1(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
-      tailwindcss: 4.1.4
+      tailwindcss: 4.1.14
 
   uri-js@4.4.1:
     dependencies:
