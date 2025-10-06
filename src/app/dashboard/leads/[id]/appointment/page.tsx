@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -33,10 +32,13 @@ import {
 } from '~/app/_actions/appointmentAction';
 import { createAppointmentWorkflow } from '~/app/_actions/transactionOrchestrator';
 import { type InferSelectModel } from 'drizzle-orm';
-import { leads, appointments } from "~/server/db/schema";
+import type { leads } from "~/server/db/schema";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, addDays, isSameMonth, isSameDay, parseISO } from 'date-fns';
 
-type Lead = InferSelectModel<typeof leads>;
+type Lead = InferSelectModel<typeof leads> & {
+  ascend_status?: string | null;
+  airconnect_verification_link?: string | null;
+};
 type Appointment = EnhancedAppointment;
 
 // Timezone utility functions
@@ -89,13 +91,6 @@ const convertToUTC = (localDateTimeString: string) => {
   return utcTime;
 };
 
-const SingaporeTime = (utcDate: Date) => {
-  const singaporeTime = getSingaporeTime(utcDate);
-  console.log('🕘 Displaying time:');
-  console.log('UTC input:', utcDate.toISOString());
-  console.log('Singaporeformat time:', singaporeTime.toLocaleString());
-  return singaporeTime;
-};
 
 export default function AppointmentPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -103,7 +98,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
   const leadId = parseInt(params.id);
   const calendarRef = useRef<HTMLDivElement>(null);
   
-  const [lead, setLead] = useState<Lead | null>(null);
+  const [lead, setLead] = useState<any>(null);
   const [loadingLead, setLoadingLead] = useState(true);
   const [existingAppointment, setExistingAppointment] = useState<any>(null);
   const [hasAppointment, setHasAppointment] = useState(false);
@@ -195,7 +190,7 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
     if (!selectedDate) {
       setSelectedDate(todayStr);
     }
-  }, []);
+  }, [selectedDate, todayStr]);
   
   // Close calendar when clicking outside of it
   useEffect(() => {
@@ -521,9 +516,57 @@ export default function AppointmentPage({ params }: { params: { id: string } }) 
                   <InformationCircleIcon className="h-4 w-4 mr-2" />
                   Status: <span className="ml-1 font-medium">{lead.status}</span>
                 </div>
+                
                 {lead.source && (
                   <div className="text-sm text-gray-600">
                     Source: {lead.source}
+                  </div>
+                )}
+
+                {/* Ascend Status Section */}
+                {lead.ascend_status && (
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg border">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center text-sm text-gray-700">
+                        <InformationCircleIcon className="h-4 w-4 mr-2" />
+                        <span className="font-medium">Ascend Status:</span>
+                      </div>
+                      <div className={`px-2 py-1 rounded text-xs font-bold ${
+                        lead.ascend_status === 'new' ? 'bg-blue-100 text-blue-800' :
+                        lead.ascend_status === 'manual_verification_required' ? 'bg-yellow-100 text-yellow-800' :
+                        lead.ascend_status === 'booking_appointment' ? 'bg-green-100 text-green-800' :
+                        lead.ascend_status === 'done' ? 'bg-gray-100 text-gray-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {lead.ascend_status === 'new' ? 'New' :
+                         lead.ascend_status === 'manual_verification_required' ? 'Manual Verification Required' :
+                         lead.ascend_status === 'booking_appointment' ? 'Booking Appointment' :
+                         lead.ascend_status === 'done' ? 'Done' :
+                         lead.ascend_status}
+                      </div>
+                    </div>
+                    
+                    {/* Verification Button or Date Display */}
+                    {lead.airconnect_verification_link && (
+                      <div className="mt-2">
+                        {lead.ascend_status === 'manual_verification_required' ? (
+                          <a
+                            href={lead.airconnect_verification_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-medium rounded transition-colors"
+                          >
+                            <InformationCircleIcon className="h-4 w-4 mr-1" />
+                            Manual Verification
+                          </a>
+                        ) : (
+                          <div className="inline-flex items-center px-3 py-2 bg-green-100 text-green-800 text-sm font-medium rounded border border-green-200">
+                            <CalendarIcon className="h-4 w-4 mr-1" />
+                            {lead.airconnect_verification_link}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -931,6 +974,6 @@ function PreviousAppointments({ leadId }: { leadId: number }) {
           </div>
         );
       })}
-    </div>
+      </div>
   );
 }

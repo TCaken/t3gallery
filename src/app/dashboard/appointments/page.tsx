@@ -667,18 +667,25 @@ export default function AppointmentsPage() {
           </div>
         )}
 
-        {/* Manual Verification Button */}
-        {appointment.ascend_status === 'manual_verification_required' && appointment.airconnect_verification_link && (
+        {/* Verification Button or Date Display */}
+        {appointment.airconnect_verification_link && (
           <div className="mt-1">
-            <a
-              href={appointment.airconnect_verification_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-medium rounded transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Manual Verification
-            </a>
+            {appointment.ascend_status === 'manual_verification_required' ? (
+              <a
+                href={appointment.airconnect_verification_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-medium rounded transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Manual Verification
+              </a>
+            ) : (
+              <div className="inline-block px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded border border-green-200">
+                <CalendarIcon className="h-3 w-3 inline mr-1" />
+                Date: {appointment.airconnect_verification_link}
+              </div>
+            )}
           </div>
         )}
       </div>

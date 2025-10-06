@@ -70,6 +70,8 @@ export type EnhancedAppointment = {
   lead_loan_status: string | null;
   assigned_user_name: string;
   assigned_user_email: string | null;
+  ascend_status: string | null;
+  airconnect_verification_link: string | null;
 };
 
 /**
@@ -857,6 +859,8 @@ export async function getAppointmentsForLead(leadId: number) {
         lead_name: leads.full_name,
         lead_status: leads.status,
         lead_loan_status: leads.loan_status,
+        ascend_status: leads.ascend_status,
+        airconnect_verification_link: leads.airconnect_verification_link,
         
         // Lead assigned user info
         assigned_user_first_name: sql<string | null>`assigned_user.first_name`,
@@ -906,6 +910,8 @@ export async function getAppointmentsForLead(leadId: number) {
         lead_name: row.lead_name,
         lead_status: row.lead_status,
         lead_loan_status: row.lead_loan_status,
+        ascend_status: row.ascend_status,
+        airconnect_verification_link: row.airconnect_verification_link,
         
         // Lead assigned user info (who the lead is assigned to)
         assigned_user_name: row.assigned_user_first_name && row.assigned_user_last_name 
