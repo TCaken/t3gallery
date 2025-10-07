@@ -8,13 +8,8 @@ import {
   FunnelIcon,
   MagnifyingGlassIcon as SearchIcon,
   UserGroupIcon,
-  BookmarkIcon,
-  ClockIcon,
-  EllipsisHorizontalIcon,
   ArrowUpTrayIcon,
-  CalendarIcon,
   XMarkIcon,
-  PaperAirplaneIcon,
   UserPlusIcon,
   ArrowDownOnSquareIcon,
   DocumentArrowDownIcon,
@@ -2144,7 +2139,7 @@ export default function LeadsPage() {
                 onClick={handleMyFollowUpToday}
                 className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 text-sm font-medium"
               >
-                Today's Follow Up
+                Today&apos;s Follow Up
               </button>
               
               <button
@@ -2167,23 +2162,23 @@ export default function LeadsPage() {
             <div className="flex flex-wrap gap-2">
               <button
                   onClick={handleAllMyAscendStatus}
-                  className="px-4 py-2 bg-orange-100 text-orange-800 rounded-lg hover:bg-orange-200 text-sm font-medium border border-orange-200"
-                >
-                Manual Verification + Booking Needed
+                  className="px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg hover:bg-emerald-200 text-sm font-medium border border-emerald-200"
+              >
+                Manual Verification + Ready For Booking
               </button>
 
               <button
                 onClick={handleMyManualVerificationLeads}
-                className="px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg hover:bg-yellow-200 text-sm font-medium border border-yellow-200"
+                className="px-4 py-2 bg-orange-100 text-orange-800 rounded-lg hover:bg-orange-200 text-sm font-medium border border-orange-200"                
               >
                 Manual Verification
               </button>
               
               <button
                 onClick={handleMyBookingNeeded}
-                className="px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg hover:bg-emerald-200 text-sm font-medium border border-emerald-200"
+                className="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-lg hover:bg-indigo-200 text-sm font-medium"  
               >
-                Booking Needed
+                Ready For Booking
               </button>
             </div>
           </div>
@@ -2199,7 +2194,7 @@ export default function LeadsPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={handleAllLeads}
-                className="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-lg hover:bg-indigo-200 text-sm font-medium"
+                className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-indigo-200 text-sm font-medium"
               >
                 All
               </button>

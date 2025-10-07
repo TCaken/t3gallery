@@ -548,6 +548,15 @@ export async function getAssignmentPreviewWithRoundRobin() {
 // Auto-assign a single lead (used when new leads come in)
 export async function autoAssignSingleLead(leadId: number) {
   try {
+    // Check if current Singapore time is 7:30 PM
+    const now = new Date();
+    const sgtTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+    const hour = sgtTime.getHours();
+    const minute = sgtTime.getMinutes();
+    const is730PM_SGT = hour === 19 && minute === 30;
+    
+    console.log(`🕰️ Current SGT: ${sgtTime.toLocaleString()}, Is 7:30 PM: ${is730PM_SGT}`);
+
     const isAutoAssignEnabled = await getAutoAssignmentSettings();
     if (!isAutoAssignEnabled.success || !isAutoAssignEnabled.settings?.is_enabled) {
       return {
@@ -555,29 +564,42 @@ export async function autoAssignSingleLead(leadId: number) {
         message: "Auto-assignment is not enabled"
       };
     }
-    // Get all checked-in agents (no settings check needed)
-    const availableAgents = await db.query.checkedInAgents.findMany({
-      where: and(
-        eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
-        eq(checkedInAgents.is_active, true)
-      ),
-      with: {
-        agent: {
-          columns: {
-            id: true,
-            first_name: true,
-            last_name: true
-          }
-        }
-      },
-      orderBy: [asc(checkedInAgents.id)] // Consistent ordering for round-robin
-    });
 
-    if (availableAgents.length === 0) {
+    // Skip agent check-in validation if it's 7:30 PM SGT (agents are off)
+    let availableAgents = [];
+    
+    if (is730PM_SGT) {
+      console.log("🕰️ It's 7:30 PM SGT - agents are off, skipping check-in validation");
+      // At 7:30 PM, we don't check for checked-in agents since they're off work
       return {
         success: false,
-        message: "No agents are checked in today"
+        message: "Auto-assignment not available at 7:30 PM SGT - agents are off work"
       };
+    } else {
+      // Get all checked-in agents (normal business hours)
+      availableAgents = await db.query.checkedInAgents.findMany({
+        where: and(
+          eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
+          eq(checkedInAgents.is_active, true)
+        ),
+        with: {
+          agent: {
+            columns: {
+              id: true,
+              first_name: true,
+              last_name: true
+            }
+          }
+        },
+        orderBy: [asc(checkedInAgents.id)] // Consistent ordering for round-robin
+      });
+
+      if (availableAgents.length === 0) {
+        return {
+          success: false,
+          message: "No agents are checked in today"
+        };
+      }
     }
 
     // Use round-robin based on lead_id for fair distribution
@@ -1214,7 +1236,7 @@ export async function getAutoAssignmentLeadsPreview() {
     }
 
     const currentRoundRobinIndex = currentSettings.settings.current_round_robin_index ?? 0;
-    let currentIndex = currentRoundRobinIndex % weightedCheckedInAgentsList.length;
+    const currentIndex = currentRoundRobinIndex % weightedCheckedInAgentsList.length;
 
     // Calculate distribution mathematically without simulating each lead
     const agentLeadCounts = new Map<string, number>();
