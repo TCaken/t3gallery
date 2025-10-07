@@ -1,6 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/restrict-template-expressions */
-/* eslint-disable @typescript-eslint/no-base-to-string */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
@@ -1193,16 +1191,33 @@ export async function POST(request: NextRequest) {
               const hasAppointmentChanges = newAppointmentStatus !== todayAppointment.status || newAppointmentLoanStatus !== todayAppointment.loan_status
 
               if (hasAppointmentChanges) {
-                // Update lead
-                await updateLead(existingLead.id, {
+                // Prepare lead update data
+                const leadUpdateData: {
+                  status: string;
+                  loan_status: string | null;
+                  loan_notes: string | null;
+                  eligibility_notes: string | null;
+                  updated_by: string;
+                  ascend_status?: string;
+                  airconnect_verification_link?: string;
+                } = {
                   status: newLeadStatus,
                   loan_status: newLoanStatus,
                   loan_notes: newLoanNotes,
                   eligibility_notes: newEligibilityNotes,
-                  updated_by: authenticatedUserId,
-                  ascend_status: 'done',
-                  airconnect_verification_link: ''
-                });
+                  updated_by: authenticatedUserId
+                };
+
+                // Only update ascend_status and airconnect_verification_link if appointment is completed successfully
+                // This includes: done (P, PRS, R) and missed/RS (when customer is marked as RS)
+                if (newAppointmentStatus === 'done') {
+                  leadUpdateData.ascend_status = 'done';
+                  leadUpdateData.airconnect_verification_link = '';
+                }
+                // For missed appointments (when customer is late/no-show), preserve existing ascend_status and airconnect_verification_link
+
+                // Update lead
+                await updateLead(existingLead.id, leadUpdateData);
                 
 
                 // Update appointment
@@ -1582,13 +1597,14 @@ export async function POST(request: NextRequest) {
             .where(eq(borrower_appointments.id, borrowerAppointment.id));
 
           // Update borrower status
+          // Missed Appointment Borrowers should not update their ascend status to done
           await db
             .update(borrowers)
             .set({
               status: 'missed/RS',
               updated_at: new Date(),
-              ascend_status: 'done',
-              airconnect_verification_link: ''
+              // ascend_status: 'done',
+              // airconnect_verification_link: ''
               // updated_by: fallbackUserId  // KEEP COMMENTED AS IN ORIGINAL
             })
             .where(eq(borrowers.id, borrower.id));

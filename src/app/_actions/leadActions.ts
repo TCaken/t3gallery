@@ -302,6 +302,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
       updated_by: input.updated_by ?? userId,
     };
 
+    
     // Handle reapply case - update existing lead but continue to create new duplicate lead for documentation
     let reapplyData: {
       updatedExistingLead?: InferSelectModel<typeof leads>;
@@ -388,6 +389,7 @@ export async function createLead(input: CreateLeadInput, assignedToMe = false): 
         if (shouldReassign && !updateData.assigned_to) {
           await autoAssignSingleLead(existingLeadToUpdate.id);
         }
+
 
         // Store reapply information to include in final return
         reapplyData = {

@@ -688,6 +688,105 @@ export default function LeadsPage() {
     void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
   };
 
+  const handleMyManualVerificationLeads = () => {
+    if (!userId) return;
+    const newFilters = {
+      status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS'] as FilterOptions['status'],
+      assignedTo: [userId],
+      includeUnassigned: false,
+      bookedBy: [],
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
+      ascendStatuses: ['manual_verification_required']
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleMyBookingNeeded = () => {
+    if (!userId) return;
+    const newFilters = {
+      status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS'] as FilterOptions['status'],
+      assignedTo: [userId],
+      includeUnassigned: false,
+      bookedBy: [],
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
+      ascendStatuses: ['booking_appointment']
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleAllAscendLeads = () => {
+    const newFilters = {
+      status: ['new', 'assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS', 'blacklisted'] as FilterOptions['status'],
+      includeUnassigned: true,
+      assignedTo: availableAgents.map(a => a.id), // All agents
+      bookedBy: [], // Don't filter by bookedBy for "All Ascend Leads"
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
+      ascendStatuses: ['manual_verification_required', 'booking_appointment']
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
+  const handleAllMyAscendStatus = () => {
+    if (!userId) return;
+    const newFilters = {
+      status: ['assigned', 'no_answer', 'follow_up', 'booked', 'give_up', 'done', 'missed/RS'] as FilterOptions['status'],
+      assignedTo: [userId],
+      includeUnassigned: false,
+      bookedBy: [],
+      dateFrom: undefined,
+      dateTo: undefined,
+      followUpDateFrom: undefined,
+      followUpDateTo: undefined,
+      ascendStatuses: ['manual_verification_required', 'booking_appointment']
+    };
+    const newSortOptions = {
+      sortBy: 'updated_at' as const,
+      sortOrder: 'desc' as const
+    };
+    setComponentFilterOptions(newFilters);
+    setComponentSortOptions(newSortOptions);
+    setComponentSearchQuery('');
+    setAllLoadedLeads([]);
+    setPage(1);
+    void fetchLeadsWithFilters(1, newFilters, '', newSortOptions);
+  };
+
   // Enhanced fetchLeadsWithFilters with new component integration
   const fetchLeadsWithFilters = async (pageNum = 1, customFilters?: FilterOptions, customSearchQuery?: string, customSortOptions?: SortOptions) => {
     console.log(`📥 [Fetch Leads] Starting fetch:`, {
@@ -2018,56 +2117,109 @@ export default function LeadsPage() {
           </button>
         </div>
 
-        {/* Quick Action Buttons */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={handleMyLeadsAll}
-            className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 flex items-center gap-2"
-          >
-            <UserGroupIcon className="h-4 w-4" />
-            My Leads (All)
-          </button>
-          
-            <button
-            onClick={handleMyLeadsAssigned}
-            className="px-4 py-2 bg-cyan-100 text-cyan-800 rounded-lg hover:bg-cyan-200 flex items-center gap-2"
-            >
-            <UserGroupIcon className="h-4 w-4" />
-            My Leads (Assigned)
-            </button>
-          
-          <button
-            onClick={handleMyFollowUpToday}
-            className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 flex items-center gap-2"
-          >
-            <ClockIcon className="h-4 w-4" />
-            My Follow Up Today
-          </button>
-          
-          <button
-            onClick={handleTodaysBookings}
-            className="px-4 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200 flex items-center gap-2"
-          >
-            <CalendarIcon className="h-4 w-4" />
-            My Bookings
-          </button>
-          
-          <button
-            onClick={handleGiveUpPool}
-            className="px-4 py-2 bg-red-100 text-red-800 rounded-lg hover:bg-red-200 flex items-center gap-2"
-          >
-            <XMarkIcon className="h-4 w-4" />
-            Give Up Pool
-          </button>
-          
-          <button
-            onClick={handleAllLeads}
-            className="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-lg hover:bg-indigo-200 flex items-center gap-2"
-          >
-            <BookmarkIcon className="h-4 w-4" />
-            All Leads
-          </button>
-                </div>
+        {/* Quick Action Buttons - Organized by Category */}
+        <div className="space-y-4">
+          {/* My Leads Section */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <UserGroupIcon className="h-4 w-4" />
+              My Leads
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleMyLeadsAll}
+                className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 text-sm font-medium"
+              >
+                All
+              </button>
+              
+              <button
+                onClick={handleMyLeadsAssigned}
+                className="px-4 py-2 bg-cyan-100 text-cyan-800 rounded-lg hover:bg-cyan-200 text-sm font-medium"
+              >
+                Assigned
+              </button>
+              
+              <button
+                onClick={handleMyFollowUpToday}
+                className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 text-sm font-medium"
+              >
+                Today's Follow Up
+              </button>
+              
+              <button
+                onClick={handleTodaysBookings}
+                className="px-4 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200 text-sm font-medium"
+              >
+                Bookings
+              </button>
+            </div>
+          </div>
+
+          {/* Ascend Status Section */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Ascend Status
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                  onClick={handleAllMyAscendStatus}
+                  className="px-4 py-2 bg-orange-100 text-orange-800 rounded-lg hover:bg-orange-200 text-sm font-medium border border-orange-200"
+                >
+                Manual Verification + Booking Needed
+              </button>
+
+              <button
+                onClick={handleMyManualVerificationLeads}
+                className="px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg hover:bg-yellow-200 text-sm font-medium border border-yellow-200"
+              >
+                Manual Verification
+              </button>
+              
+              <button
+                onClick={handleMyBookingNeeded}
+                className="px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg hover:bg-emerald-200 text-sm font-medium border border-emerald-200"
+              >
+                Booking Needed
+              </button>
+            </div>
+          </div>
+
+          {/* Team & Pool Section */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              Team & Pools
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleAllLeads}
+                className="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-lg hover:bg-indigo-200 text-sm font-medium"
+              >
+                All
+              </button>
+ 
+              <button
+                onClick={handleAllAscendLeads}
+                className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 text-sm font-medium border border-purple-200"
+              >
+                Ascend
+              </button>
+ 
+              <button
+                onClick={handleGiveUpPool}
+                className="px-4 py-2 bg-red-100 text-red-800 rounded-lg hover:bg-red-200 text-sm font-medium"
+              >
+                Give Up Pool
+              </button>
+            </div>
+          </div>
+        </div>
 
         {/* Advanced Filter Panel (Hidden by Default) */}
         {showAdvancedFiltersPanel && (
