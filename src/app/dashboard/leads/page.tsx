@@ -2169,7 +2169,7 @@ export default function LeadsPage() {
                   onClick={handleAllMyAscendStatus}
                   className="px-4 py-2 bg-orange-100 text-orange-800 rounded-lg hover:bg-orange-200 text-sm font-medium border border-orange-200"
                 >
-                Manual Verification + Booking Needed
+                Manual Verification + Ready For Booking
               </button>
 
               <button
@@ -2183,7 +2183,7 @@ export default function LeadsPage() {
                 onClick={handleMyBookingNeeded}
                 className="px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg hover:bg-emerald-200 text-sm font-medium border border-emerald-200"
               >
-                Booking Needed
+                Ready For Booking
               </button>
             </div>
           </div>

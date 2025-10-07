@@ -1,9 +1,10 @@
 import { db } from "~/server/db";
-import { leads, borrowers } from "~/server/db/schema";
-import { eq, or, and, ilike } from "drizzle-orm";
+import { leads, borrowers, logs } from "~/server/db/schema";
+import { eq, or, ilike } from "drizzle-orm";
 import { checkLeadEligibility } from "./leadEligibility";
 import { createLead } from "./leadActions";
 import { createBorrower, updateBorrower } from "./borrowers";
+import { autoAssignSingleLead } from "./agentActions";
 
 // Singapore phone number formatting function
 const formatSGPhoneNumber = (phone: string) => {
@@ -172,6 +173,13 @@ interface LeadProcessingResult {
       message: string;
       data: unknown;
     };
+    assignmentResult?: {
+      success: boolean;
+      message: string;
+      assignedTo?: string;
+      agentName?: string;
+      assignmentMethod?: string;
+    } | null;
     note?: string;
   };
   error?: string;
@@ -290,8 +298,13 @@ export async function processAscendLead(
         console.log('🔄 Duplicate lead found - updating existing lead:', eligibilityResult.existingLead.id);
         
         try {
+          // Check if existing lead status needs to be changed to 'new'
+          const shouldChangeStatus = ['give_up', 'done', 'blacklisted'].includes(eligibilityResult.existingLead.status);
+          const newStatus = shouldChangeStatus ? 'new' : eligibilityResult.existingLead.status;
+          
           const updatedLead = await db.update(leads)
             .set({
+              status: newStatus,
               ascend_status: 'manual_verification_required',
               airconnect_verification_link: customerHyperLink,
               updated_at: new Date(),
@@ -301,15 +314,50 @@ export async function processAscendLead(
             .returning();
 
           if (updatedLead.length > 0) {
+            // Log to logs
+            await db.insert(logs).values({
+              entity_type: 'ascend_lead_processing',
+              entity_id: eligibilityResult.existingLead.id.toString(),
+              action: 'update_lead_status',
+              description: `Updated existing lead ${eligibilityResult.existingLead.id} with Ascend status: manual_verification_required${shouldChangeStatus ? ` and changed status from ${eligibilityResult.existingLead.status} to new` : ''}`,
+              performed_by: 'ascend-system'
+            });
+
+            // Try to auto-assign the lead
+            let assignmentResult = null;
+            try {
+              console.log('🤖 Attempting to auto-assign updated lead:', eligibilityResult.existingLead.id);
+              assignmentResult = await autoAssignSingleLead(eligibilityResult.existingLead.id);
+              
+              if (assignmentResult.success) {
+                console.log('✅ Lead auto-assigned successfully:', assignmentResult.message);
+                
+                // Log assignment to logs
+                await db.insert(logs).values({
+                  entity_type: 'ascend_auto_assignment',
+                  entity_id: eligibilityResult.existingLead.id.toString(),
+                  action: 'auto_assign_lead',
+                  description: `Auto-assigned lead ${eligibilityResult.existingLead.id} to ${assignmentResult.agentName} after Ascend processing`,
+                  performed_by: 'ascend-system'
+                });
+              } else {
+                console.log('⚠️ Auto-assignment failed:', assignmentResult.message);
+              }
+            } catch (assignmentError) {
+              console.error('❌ Error during auto-assignment:', assignmentError);
+              // Don't fail the entire operation if auto-assignment fails
+            }
+
             return {
               success: true,
-              message: `Duplicate lead updated successfully. Lead ID: ${eligibilityResult.existingLead.id}`,
+              message: `Duplicate lead updated successfully. Lead ID: ${eligibilityResult.existingLead.id}. ${assignmentResult?.success ? `Auto-assigned to: ${assignmentResult.agentName}` : 'Auto-assignment not available'}`,
               data: {
                 leadId: eligibilityResult.existingLead.id,
                 leadType: 'duplicate',
                 ascendStatus: 'manual_verification_required',
                 airconnectLink: customerHyperLink,
-                eligibilityResult
+                eligibilityResult,
+                assignmentResult: assignmentResult ?? null
               }
             };
           } else {
@@ -366,6 +414,7 @@ export async function processReloanCustomer(
       additionalData
     });
 
+    
     // Format phone number
     const formattedPhone = formatSGPhoneNumber(phoneNumber);
     if (!formattedPhone) {
@@ -595,8 +644,13 @@ export async function processAscendLeadForAppointment(
         console.log('🔄 Duplicate lead found for appointment - updating existing lead:', eligibilityResult.existingLead.id);
         
         try {
+          // Check if existing lead status needs to be changed to 'new'
+          const shouldChangeStatus = ['give_up', 'done', 'blacklisted'].includes(eligibilityResult.existingLead.status);
+          const newStatus = shouldChangeStatus ? 'new' : eligibilityResult.existingLead.status;
+          
           const updatedLead = await db.update(leads)
             .set({
+              status: newStatus,
               ascend_status: 'booking_appointment',
               airconnect_verification_link: `Appointment: ${appointmentDate} ${timeSlot}`,
               updated_at: new Date(),
@@ -606,15 +660,50 @@ export async function processAscendLeadForAppointment(
             .returning();
 
           if (updatedLead.length > 0) {
+            // Log to logs
+            await db.insert(logs).values({
+              entity_type: 'ascend_appointment_processing',
+              entity_id: eligibilityResult.existingLead.id.toString(),
+              action: 'update_lead_status',
+              description: `Updated existing lead ${eligibilityResult.existingLead.id} with Ascend status: booking_appointment${shouldChangeStatus ? ` and changed status from ${eligibilityResult.existingLead.status} to new` : ''}`,
+              performed_by: 'ascend-system'
+            });
+
+            // Try to auto-assign the lead
+            let assignmentResult = null;
+            try {
+              console.log('🤖 Attempting to auto-assign updated lead for appointment:', eligibilityResult.existingLead.id);
+              assignmentResult = await autoAssignSingleLead(eligibilityResult.existingLead.id);
+              
+              if (assignmentResult.success) {
+                console.log('✅ Lead auto-assigned successfully for appointment:', assignmentResult.message);
+                
+                // Log assignment to logs
+                await db.insert(logs).values({
+                  entity_type: 'ascend_appointment_auto_assignment',
+                  entity_id: eligibilityResult.existingLead.id.toString(),
+                  action: 'auto_assign_lead',
+                  description: `Auto-assigned lead ${eligibilityResult.existingLead.id} to ${assignmentResult.agentName} after Ascend appointment processing`,
+                  performed_by: 'ascend-system'
+                });
+              } else {
+                console.log('⚠️ Auto-assignment failed for appointment:', assignmentResult.message);
+              }
+            } catch (assignmentError) {
+              console.error('❌ Error during auto-assignment for appointment:', assignmentError);
+              // Don't fail the entire operation if auto-assignment fails
+            }
+
             return {
               success: true,
-              message: `Duplicate lead updated for appointment. Lead ID: ${eligibilityResult.existingLead.id}`,
+              message: `Duplicate lead updated for appointment. Lead ID: ${eligibilityResult.existingLead.id}. ${assignmentResult?.success ? `Auto-assigned to: ${assignmentResult.agentName}` : 'Auto-assignment not available'}`,
               data: {
                 leadId: eligibilityResult.existingLead.id,
                 leadType: 'duplicate',
                 ascendStatus: 'booking_appointment',
                 airconnectLink: `Appointment: ${appointmentDate} ${timeSlot}`,
-                eligibilityResult
+                eligibilityResult,
+                assignmentResult: assignmentResult ?? null
               }
             };
           } else {

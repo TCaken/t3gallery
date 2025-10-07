@@ -1435,7 +1435,7 @@ export async function POST(request: NextRequest) {
             newBorrowerLoanNotes = additionalBorrowerNotes ? `RS - Rejected. ${additionalBorrowerNotes}` : 'RS - Rejected';
             newAppointmentLoanStatus = 'RS';
             newAppointmentLoanNotes = additionalBorrowerNotes ? `RS - Rejected. ${additionalBorrowerNotes}` : 'RS - Rejected';
-            updateReason = 'Rejected by System (RS)';
+            updateReason = 'Rejected With Special Reason (RS)';
             break;
           case 'R':
             newAppointmentStatus = 'done';
@@ -1528,7 +1528,7 @@ export async function POST(request: NextRequest) {
         const appointmentTimeUTC = new Date(borrowerAppointment.start_datetime);
         const appointmentTimeSGT = new Date(appointmentTimeUTC.getTime() + (8 * 60 * 60 * 1000));
 
-                  results.push({
+        results.push({
           appointmentId: `B${borrowerAppointment.id}`, // Prefix with 'B' for borrower appointments
           leadId: `B${borrower.id}`, // Use borrower ID with 'B' prefix
           leadName: borrower.full_name ?? 'Unknown',
@@ -1544,9 +1544,8 @@ export async function POST(request: NextRequest) {
 
         // Mark this borrower appointment as processed to avoid duplicate updates
         processedBorrowerAppointmentIds.add(borrowerAppointment.id);
-
-                  updatedCount++;
-                }
+          updatedCount++;
+        }
 
     // Then, check remaining borrower appointments for time threshold - EXACT OLD LOGIC
     // console.log(`🕐 Starting time threshold check for ${upcomingBorrowerAppointments.length} total borrower appointments (${processedBorrowerAppointmentIds.size} already processed by Excel)`);
