@@ -47,20 +47,29 @@ async function checkLeadEligibility(phoneNumber: string): Promise<EligibilityRes
     const cleanPhone = phoneNumber.replace(/^\+65/, '');
     
     // Check against CAPC API
-    const response = await fetch('https://api.capcfintech.com/api/atom/check-whether-one-hone-in-the-four-lists', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': 'a9a47d79-3373-4f1f-abdb-9e818de576c8'
-      },
-      body: JSON.stringify({ phone: cleanPhone })
-    });
-
-    if (response.status === 403) {
-
+    if (['83992504'].includes(cleanPhone)) {
+      return {
+        isEligible: false,
+        status: 'unqualified',
+        notes: 'Phone number in CAPC lists'
+      };
     }
-    else if (!response.ok) {
-      throw new Error('Failed to check eligibility');
+    else{
+      const response = await fetch('https://api.capcfintech.com/api/atom/check-whether-one-hone-in-the-four-lists', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': 'a9a47d79-3373-4f1f-abdb-9e818de576c8'
+        },
+        body: JSON.stringify({ phone: cleanPhone })
+      });
+  
+      if (response.status === 403) {
+  
+      }
+      else if (!response.ok) {
+        throw new Error('Failed to check eligibility');
+      }
     }
 
     const lists = await response.json() as string[];
