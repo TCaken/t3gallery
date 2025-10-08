@@ -72,7 +72,10 @@ export async function POST(request: NextRequest) {
       lead_email: censorEmail(row.lead_email)
     }));
 
-    return NextResponse.json({ success: true, data });
+    console.log('data', data);
+
+    // Ensure the data is a plain array for JSON serialization (for Workato compatibility)
+    return NextResponse.json({ success: true, data: Array.isArray(data) ? data : [data] });
   } catch (error) {
     console.error('❌ Error in appointments/list:', error);
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
