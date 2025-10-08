@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       lead_email: censorEmail(row.lead_email)
     }));
 
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({ success: true, data : data });
   } catch (error) {
     console.error('❌ Error in appointments/list:', error);
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
