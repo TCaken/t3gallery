@@ -5,9 +5,25 @@ import { appointments, leads, users } from '~/server/db/schema';
 import { and, gte, lte, eq } from 'drizzle-orm';
 
 function censorName(name: string | null | undefined): string {
-  if (!name || name.length < 2) return name ?? '';
-  if(name.length === 2) return name.slice(0, 1) + '*';
-  return name.slice(0, 2) + '*'.repeat(Math.max(0, name.length - 4)) + name.slice(-2);
+  if (!name) return '';
+  
+  // Normalize Unicode characters and remove problematic characters
+  const normalized = name
+    .normalize('NFD') // Decompose Unicode characters
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritical marks
+    .replace(/[^\p{L}\p{N}\s-]/gu, '') // Keep only letters, numbers, spaces, and hyphens
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
+  
+  if (normalized.length < 2) return normalized;
+  
+  // Keep first 4-5 characters and censor the rest
+  const keepLength = Math.min(2, Math.max(2, Math.floor(normalized.length / 3)));
+  const censorLength = Math.max(0, normalized.length - keepLength);
+  
+  if (censorLength <= 0) return normalized;
+  
+  return normalized.slice(0, keepLength) + '*'.repeat(censorLength);
 }
 
 function censorPhone(phone: string | null | undefined): string {
