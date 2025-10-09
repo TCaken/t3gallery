@@ -492,7 +492,7 @@ export default function LeadCard({
           {/* Edit Appointment Button */}
           <div className="mt-3 pt-2 border-t border-gray-200">
             <button
-              onClick={() => router.push(`/appointments/${lead.latest_appointment?.id}`)}
+              onClick={() => router.push(`appointments/${lead.latest_appointment?.id}`)}
               className="w-full flex items-center justify-center space-x-2 px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
               title="Edit appointment (Admin only)"
             >
