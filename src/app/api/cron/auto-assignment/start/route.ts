@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '~/server/db';
 import { autoAssignmentSettings, checkedInAgents } from '~/server/db/schema';
 import { eq, and, sql, asc } from 'drizzle-orm';
 import { autoAssignLeads } from '~/app/_actions/agentActions';
+
+
+// Define the request schema
+const RequestSchema = z.object({
+  api_key: z.string(), // Required API key for authentication
+});
 
 /**
  * API endpoint to enable auto-assignment
@@ -10,19 +17,25 @@ import { autoAssignLeads } from '~/app/_actions/agentActions';
  */
 export async function POST(request: Request) {
   try {
-    // Check for CRON_SECRET authorization (for Vercel cron jobs)
-    // const authHeader = request.headers.get('Authorization');
-    // const cronSecret = process.env.CRON_SECRET;
-    
-    // if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    //   return NextResponse.json(
-    //     { success: false, message: "Unauthorized: Invalid CRON_SECRET" },
-    //     { status: 401 }
-    //   );
-    // }
-
     // Parse request body
-    // const body = await request.json();
+    const body = await request.json();
+    const parsedBody = RequestSchema.safeParse(body);
+
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        { success: false, message: "Invalid request format", errors: parsedBody.error.errors },
+        { status: 400 }
+      );
+    }
+
+    // Validate API key
+    const apiKey = process.env.AUTO_ASSIGNMENT_API_KEY;
+    if (!apiKey || parsedBody.data.api_key !== apiKey) {
+      return NextResponse.json(
+        { success: false, message: "Invalid API key" },
+        { status: 401 }
+      );
+    }
 
     // Get current settings
     const currentSettings = await db.query.autoAssignmentSettings.findFirst({
@@ -78,7 +91,7 @@ export async function POST(request: Request) {
       .returning();
 
     // Trigger auto-assignment of leads with API key
-    const autoAssignResult = await autoAssignLeads(process.env.AUTO_ASSIGNMENT_API_KEY);
+    const autoAssignResult = await autoAssignLeads(parsedBody.data.api_key);
 
     return NextResponse.json({
       success: true,
