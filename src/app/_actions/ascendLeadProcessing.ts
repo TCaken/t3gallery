@@ -325,27 +325,29 @@ export async function processAscendLead(
 
             // Try to auto-assign the lead
             let assignmentResult = null;
-            try {
-              console.log('🤖 Attempting to auto-assign updated lead:', eligibilityResult.existingLead.id);
-              assignmentResult = await autoAssignSingleLead(eligibilityResult.existingLead.id);
-              
-              if (assignmentResult.success) {
-                console.log('✅ Lead auto-assigned successfully:', assignmentResult.message);
+            if(shouldChangeStatus) {
+              try {
+                console.log('🤖 Attempting to auto-assign updated lead:', eligibilityResult.existingLead.id);
+                assignmentResult = await autoAssignSingleLead(eligibilityResult.existingLead.id);
                 
-                // Log assignment to logs
-                await db.insert(logs).values({
-                  entity_type: 'ascend_auto_assignment',
-                  entity_id: eligibilityResult.existingLead.id.toString(),
-                  action: 'auto_assign_lead',
-                  description: `Auto-assigned lead ${eligibilityResult.existingLead.id} to ${assignmentResult.agentName} after Ascend processing`,
-                  performed_by: 'ascend-system'
-                });
-              } else {
-                console.log('⚠️ Auto-assignment failed:', assignmentResult.message);
+                if (assignmentResult.success) {
+                  console.log('✅ Lead auto-assigned successfully:', assignmentResult.message);
+                  
+                  // Log assignment to logs
+                  await db.insert(logs).values({
+                    entity_type: 'ascend_auto_assignment',
+                    entity_id: eligibilityResult.existingLead.id.toString(),
+                    action: 'auto_assign_lead',
+                    description: `Auto-assigned lead ${eligibilityResult.existingLead.id} to ${assignmentResult.agentName} after Ascend processing`,
+                    performed_by: 'ascend-system'
+                  });
+                } else {
+                  console.log('⚠️ Auto-assignment failed:', assignmentResult.message);
+                }
+              } catch (assignmentError) {
+                console.error('❌ Error during auto-assignment:', assignmentError);
+                // Don't fail the entire operation if auto-assignment fails
               }
-            } catch (assignmentError) {
-              console.error('❌ Error during auto-assignment:', assignmentError);
-              // Don't fail the entire operation if auto-assignment fails
             }
 
             return {
@@ -671,29 +673,31 @@ export async function processAscendLeadForAppointment(
 
             // Try to auto-assign the lead
             let assignmentResult = null;
-            try {
-              console.log('🤖 Attempting to auto-assign updated lead for appointment:', eligibilityResult.existingLead.id);
-              assignmentResult = await autoAssignSingleLead(eligibilityResult.existingLead.id);
-              
-              if (assignmentResult.success) {
-                console.log('✅ Lead auto-assigned successfully for appointment:', assignmentResult.message);
+            if(shouldChangeStatus) {  
+              try {
+                console.log('🤖 Attempting to auto-assign updated lead for appointment:', eligibilityResult.existingLead.id);
+                assignmentResult = await autoAssignSingleLead(eligibilityResult.existingLead.id);
                 
-                // Log assignment to logs
-                await db.insert(logs).values({
-                  entity_type: 'ascend_appointment_auto_assignment',
-                  entity_id: eligibilityResult.existingLead.id.toString(),
-                  action: 'auto_assign_lead',
-                  description: `Auto-assigned lead ${eligibilityResult.existingLead.id} to ${assignmentResult.agentName} after Ascend appointment processing`,
-                  performed_by: 'ascend-system'
-                });
-              } else {
-                console.log('⚠️ Auto-assignment failed for appointment:', assignmentResult.message);
+                if (assignmentResult.success) {
+                  console.log('✅ Lead auto-assigned successfully for appointment:', assignmentResult.message);
+                  
+                  // Log assignment to logs
+                  await db.insert(logs).values({
+                    entity_type: 'ascend_appointment_auto_assignment',
+                    entity_id: eligibilityResult.existingLead.id.toString(),
+                    action: 'auto_assign_lead',
+                    description: `Auto-assigned lead ${eligibilityResult.existingLead.id} to ${assignmentResult.agentName} after Ascend appointment processing`,
+                    performed_by: 'ascend-system'
+                  });
+                } else {
+                  console.log('⚠️ Auto-assignment failed for appointment:', assignmentResult.message);
+                }
+              } catch (assignmentError) {
+                console.error('❌ Error during auto-assignment for appointment:', assignmentError);
+                // Don't fail the entire operation if auto-assignment fails
               }
-            } catch (assignmentError) {
-              console.error('❌ Error during auto-assignment for appointment:', assignmentError);
-              // Don't fail the entire operation if auto-assignment fails
             }
-
+            
             return {
               success: true,
               message: `Duplicate lead updated for appointment. Lead ID: ${eligibilityResult.existingLead.id}. ${assignmentResult?.success ? `Auto-assigned to: ${assignmentResult.agentName}` : 'Auto-assignment not available'}`,
