@@ -177,6 +177,26 @@ export async function autoAssignLeads(apiKey?: string) {
       }
     }
 
+    // Check if current Singapore time is within business hours (10:30 AM to 7:00 PM)
+    const now = new Date();
+    const sgtTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
+    const hour = sgtTime.getHours();
+    const minute = sgtTime.getMinutes();
+    
+    // Check if current time is within business hours (10:30 AM to 7:00 PM SGT)
+    const isWithinBusinessHours = (hour > 10 || (hour === 10 && minute >= 30)) && hour < 19;
+    
+    console.log(`🕰️ Current SGT: ${sgtTime.toLocaleString()}, Within business hours (10:30 AM - 7:00 PM): ${isWithinBusinessHours}`);
+
+    // Skip auto-assignment if outside business hours
+    if (!isWithinBusinessHours) {
+      console.log("🕰️ Outside business hours - auto-assignment not available");
+      return {
+        success: false,
+        message: "Auto-assignment only available between 10:30 AM and 7:00 PM SGT"
+      };
+    }
+
     // Get all checked-in agents (no settings check needed for manual assignment)
     const checkedInAgentsList = await db.query.checkedInAgents.findMany({
       where: and(
@@ -548,14 +568,16 @@ export async function getAssignmentPreviewWithRoundRobin() {
 // Auto-assign a single lead (used when new leads come in)
 export async function autoAssignSingleLead(leadId: number) {
   try {
-    // Check if current Singapore time is 7:30 PM
+    // Check if current Singapore time is within business hours (10:30 AM to 7:00 PM)
     const now = new Date();
     const sgtTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Singapore"}));
     const hour = sgtTime.getHours();
     const minute = sgtTime.getMinutes();
-    const is730PM_SGT = hour === 19 && minute === 30;
     
-    console.log(`🕰️ Current SGT: ${sgtTime.toLocaleString()}, Is 7:30 PM: ${is730PM_SGT}`);
+    // Check if current time is within business hours (10:30 AM to 7:00 PM SGT)
+    const isWithinBusinessHours = (hour > 10 || (hour === 10 && minute >= 30)) && hour < 19;
+    
+    console.log(`🕰️ Current SGT: ${sgtTime.toLocaleString()}, Within business hours (10:30 AM - 7:00 PM): ${isWithinBusinessHours}`);
 
     const isAutoAssignEnabled = await getAutoAssignmentSettings();
     if (!isAutoAssignEnabled.success || !isAutoAssignEnabled.settings?.is_enabled) {
@@ -565,22 +587,20 @@ export async function autoAssignSingleLead(leadId: number) {
       };
     }
 
-    // Skip agent check-in validation if it's 7:30 PM SGT (agents are off)
-    let availableAgents = [];
-    
-    if (is730PM_SGT) {
-      console.log("🕰️ It's 7:30 PM SGT - agents are off, skipping check-in validation");
-      // At 7:30 PM, we don't check for checked-in agents since they're off work
+    // Skip auto-assignment if outside business hours
+    if (!isWithinBusinessHours) {
+      console.log("🕰️ Outside business hours - auto-assignment not available");
       return {
         success: false,
-        message: "Auto-assignment not available at 7:30 PM SGT - agents are off work"
+        message: "Auto-assignment only available between 10:30 AM and 7:00 PM SGT"
       };
-    } else {
-      // Get all checked-in agents (normal business hours)
-      availableAgents = await db.query.checkedInAgents.findMany({
-        where: and(
-          eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
-          eq(checkedInAgents.is_active, true)
+    }
+
+    // Get all checked-in agents (normal business hours)
+    const availableAgents = await db.query.checkedInAgents.findMany({
+      where: and(
+        eq(checkedInAgents.checked_in_date, sql`CURRENT_DATE`),
+        eq(checkedInAgents.is_active, true)
         ),
         with: {
           agent: {
@@ -594,12 +614,11 @@ export async function autoAssignSingleLead(leadId: number) {
         orderBy: [asc(checkedInAgents.id)] // Consistent ordering for round-robin
       });
 
-      if (availableAgents.length === 0) {
-        return {
-          success: false,
-          message: "No agents are checked in today"
-        };
-      }
+    if (availableAgents.length === 0) {
+      return {
+        success: false,
+        message: "No agents are checked in today"
+      };
     }
 
     // Use round-robin based on lead_id for fair distribution
