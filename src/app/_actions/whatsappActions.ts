@@ -37,8 +37,9 @@ interface WhatsAppResponse {
 interface TemplateData {
   template: {
     id: number;
-    template_id: string;
+    template_id: string | null;
     name: string;
+    description: string | null;
     workspace_id: string;
     channel_id: string;
     project_id: string;
@@ -207,17 +208,97 @@ export async function sendWhatsAppMessage(
     
     // Handle SMS-only delivery
     if (finalDeliveryMethod === 'sms') {
-      console.log('SMS delivery requested but not implemented yet');
-      // Update log for SMS
-      if (logId) {
-        await db.update(templateUsageLog)
-          .set({ 
-            status: 'sent',
-            error_message: 'SMS delivery logged (not implemented)'
-          })
-          .where(eq(templateUsageLog.id, logId));
+      console.log('SMS delivery requested - using SMS API');
+      console.log('Template data:', JSON.stringify(templateData.template, null, 2));
+      console.log('Description field:', templateData.template.description);
+      
+      const smsMessage = templateData.template.description ?? 'SMS message content';
+      
+      // Replace variables in SMS message
+      let processedMessage = smsMessage;
+      Object.entries(parameters).forEach(([key, value]) => {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+        processedMessage = processedMessage.replace(regex, String(value));
+      });
+      
+      console.log('SMS message before formatting:', JSON.stringify(processedMessage));
+      
+      // Convert line breaks to SMS format (\n -> \\n)
+      processedMessage = processedMessage.replace(/\n/g, '\\n');
+      
+      // Handle other common formatting for SMS
+      // Convert double line breaks to single line breaks
+      processedMessage = processedMessage.replace(/\n\n/g, '\\n\\n');
+      
+      // Trim any leading/trailing whitespace
+      processedMessage = processedMessage.trim();
+      
+      console.log('SMS message after formatting:', JSON.stringify(processedMessage));
+      
+      console.log('SMS message to send:', processedMessage);
+      console.log('SMS will be sent to:', formattedPhone);
+      
+      // Prepare SMS API request
+      const smsData = {
+        workspaces: templateData.template.workspace_id,
+        channels: templateData.template.channel_id,
+        identifierValue: formattedPhone,
+        text: processedMessage
+      };
+
+      console.log('SMS API request data:', JSON.stringify(smsData, null, 2));
+
+      try {
+        // Call SMS API
+        const response = await fetch('https://api.capcfintech.com/api/bird/v2/sms', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': env.WHATSAPP_API_KEY // Using the same API key as WhatsApp
+          },
+          body: JSON.stringify(smsData)
+        });
+
+        const data = await response.json();
+        
+        // Update log with response
+        if (logId) {
+          await db.update(templateUsageLog)
+            .set({ 
+              status: response.ok ? 'sent' : 'failed',
+              api_response: data,
+              error_message: response.ok ? null : (data.message ?? 'Unknown error')
+            })
+            .where(eq(templateUsageLog.id, logId));
+        }
+        
+        if (!response.ok) {
+          throw new Error(data.message ?? 'Failed to send SMS message');
+        }
+        
+        console.log('SMS sent successfully:', data);
+        return { success: true, data, logId };
+        
+      } catch (error) {
+        console.error('SMS API error:', error);
+        
+        // Update log with error
+        if (logId) {
+          await db.update(templateUsageLog)
+            .set({ 
+              status: 'failed',
+              api_response: { error: error instanceof Error ? error.message : 'Unknown error' },
+              error_message: error instanceof Error ? error.message : 'Unknown error'
+            })
+            .where(eq(templateUsageLog.id, logId));
+        }
+        
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Failed to send SMS message',
+          logId 
+        };
       }
-      return { success: true, data: { message: 'SMS delivery logged (not implemented)' }, logId };
     }
 
     return { success: false, error: 'Invalid delivery method' };
@@ -236,9 +317,17 @@ export async function sendAutoTriggeredMessage(
   newStatus: string,
   phone: string
 ) {
+  console.log(`🚀 Starting auto-triggered message process for lead ${leadId}`);
+  console.log(`📊 Parameters: status="${newStatus}", phone="${phone}"`);
+  
   try {
     const { userId } = await auth();
-    if (!userId) return { success: false, error: 'Not authenticated' };
+    if (!userId) {
+      console.log(`❌ Authentication failed for auto-trigger`);
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    console.log(`✅ User authenticated: ${userId}`);
 
     // Determine customer type by checking if this is a lead or borrower
     let customerType: 'new' | 'reloan' = 'new'; // Default to new
@@ -273,6 +362,7 @@ export async function sendAutoTriggeredMessage(
       id: whatsappTemplates.id,
       template_id: whatsappTemplates.template_id,
       name: whatsappTemplates.name,
+      description: whatsappTemplates.description,
       workspace_id: whatsappTemplates.workspace_id,
       channel_id: whatsappTemplates.channel_id,
       project_id: whatsappTemplates.project_id,
@@ -290,18 +380,28 @@ export async function sendAutoTriggeredMessage(
       )
     );
 
+    console.log(`🔍 Found ${templates.length} templates with auto-send enabled for customer type "${customerType}"`);
+    
     const applicableTemplates = templates.filter(template => {
       const triggerStatuses = template.trigger_on_status as string[];
-      return triggerStatuses?.includes(newStatus);
+      const isApplicable = triggerStatuses?.includes(newStatus);
+      console.log(`📋 Template "${template.name}": trigger_statuses=[${triggerStatuses?.join(', ')}], includes "${newStatus}"? ${isApplicable}`);
+      return isApplicable;
     });
 
+    console.log(`🎯 Found ${applicableTemplates.length} applicable templates for status "${newStatus}"`);
+
     if (applicableTemplates.length === 0) {
+      console.log(`ℹ️ No auto-trigger templates found for status "${newStatus}" and customer type "${customerType}"`);
       return { success: true, message: 'No auto-trigger templates found for this status' };
     }
 
     const results = [];
     for (const template of applicableTemplates) {
-      console.log('Sending auto-trigger template:', template.name);
+      console.log(`📤 Sending auto-trigger template: "${template.name}" (ID: ${template.template_id})`);
+      console.log(`📱 Template method: ${template.default_method}`);
+      console.log(`📝 Template description: ${template.description ?? 'No description'}`);
+      
       try {
         const result = await sendWhatsAppMessage(
           phone,
@@ -311,16 +411,19 @@ export async function sendAutoTriggeredMessage(
           leadId
         );
         
+        console.log(`✅ Auto-trigger template "${template.name}" result:`, result);
+        
         // Update the log entry to mark as auto-triggered
         if (result.success && result.logId) {
           await db.update(templateUsageLog)
             .set({ trigger_type: 'auto_status_change' })
             .where(eq(templateUsageLog.id, result.logId));
+          console.log(`📝 Updated log entry ${result.logId} with trigger_type: auto_status_change`);
         }
         
         results.push({ templateId: template.template_id, result });
       } catch (error) {
-        console.error(`Error sending auto-trigger template ${template.template_id}:`, error);
+        console.error(`❌ Error sending auto-trigger template ${template.template_id}:`, error);
         results.push({ 
           templateId: template.template_id, 
           result: { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
@@ -328,9 +431,10 @@ export async function sendAutoTriggeredMessage(
       }
     }
 
+    console.log(`🎉 Auto-trigger process completed for lead ${leadId}. Results:`, results);
     return { success: true, results };
   } catch (error) {
-    console.error('Error in sendAutoTriggeredMessage:', error);
+    console.error(`💥 Error in sendAutoTriggeredMessage for lead ${leadId}:`, error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
@@ -445,7 +549,17 @@ export async function ascendAppointmentReminder(
 // Get template configuration from database by ID
 async function getTemplateConfigurationById(templateDatabaseId: number): Promise<TemplateData | null> {
   try {
-    const templates = await db.select()
+    const templates = await db.select({
+      id: whatsappTemplates.id,
+      template_id: whatsappTemplates.template_id,
+      name: whatsappTemplates.name,
+      description: whatsappTemplates.description,
+      workspace_id: whatsappTemplates.workspace_id,
+      channel_id: whatsappTemplates.channel_id,
+      project_id: whatsappTemplates.project_id,
+      supported_methods: whatsappTemplates.supported_methods,
+      default_method: whatsappTemplates.default_method,
+    })
       .from(whatsappTemplates)
       .where(
         and(
@@ -468,6 +582,7 @@ async function getTemplateConfigurationById(templateDatabaseId: number): Promise
         id: template.id,
         template_id: template.template_id,
         name: template.name,
+        description: template.description,
         workspace_id: template.workspace_id,
         channel_id: template.channel_id,
         project_id: template.project_id,
