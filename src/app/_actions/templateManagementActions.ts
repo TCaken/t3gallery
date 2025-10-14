@@ -3,7 +3,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { db } from "~/server/db";
 import { whatsappTemplates, templateVariables } from "~/server/db/schema";
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 interface CreateTemplateInput {
   template_id?: string;
@@ -13,8 +13,9 @@ interface CreateTemplateInput {
   channel_id: string;
   project_id: string;
   customer_type?: 'reloan' | 'new';
-  supported_methods: ('sms' | 'whatsapp' | 'both')[];
-  default_method: 'sms' | 'whatsapp' | 'both';
+  template_type: 'whatsapp' | 'sms'; // Template type determines supported methods
+  supported_methods: ('sms' | 'whatsapp')[]; // Now mutually exclusive - either sms OR whatsapp
+  default_method: 'sms' | 'whatsapp'; // Must match template_type
   trigger_on_status?: string[];
   auto_send?: boolean;
   variables: Array<{
@@ -31,8 +32,106 @@ interface UpdateTemplateInput extends Partial<CreateTemplateInput> {
   id: number;
 }
 
-// Create a new WhatsApp template
-export async function createWhatsAppTemplate(input: CreateTemplateInput) {
+
+// Function to parse {{}} variables from SMS description
+function parseSMSVariables(description: string): Array<{
+  variable_key: string;
+  variable_type: 'string' | 'number' | 'date';
+  data_source: string;
+  default_value?: string;
+  format_pattern?: string;
+  is_required: boolean;
+}> {
+  const variableRegex = /\{\{(\w+)\}\}/g;
+  const variables: Array<{
+    variable_key: string;
+    variable_type: 'string' | 'number' | 'date';
+    data_source: string;
+    default_value?: string;
+    format_pattern?: string;
+    is_required: boolean;
+  }> = [];
+  
+  let match;
+  const seenVariables = new Set<string>();
+  
+  while ((match = variableRegex.exec(description)) !== null) {
+    const variableName = match[1];
+    
+    // Skip if variable name is undefined
+    if (!variableName) {
+      continue;
+    }
+    
+    // Avoid duplicates
+    if (seenVariables.has(variableName)) {
+      continue;
+    }
+    seenVariables.add(variableName);
+    
+    // Map common variable names to data sources
+    let dataSource = '';
+    let variableType: 'string' | 'number' | 'date' = 'string';
+    
+    switch (variableName.toLowerCase()) {
+      case 'name':
+      case 'fullname':
+      case 'full_name':
+        dataSource = 'lead.full_name';
+        break;
+      case 'phone':
+      case 'phonenumber':
+      case 'phone_number':
+        dataSource = 'lead.phone_number';
+        break;
+      case 'email':
+        dataSource = 'lead.email';
+        break;
+      case 'amount':
+      case 'loanamount':
+      case 'loan_amount':
+        dataSource = 'lead.amount';
+        variableType = 'number';
+        break;
+      case 'date':
+      case 'currentdate':
+      case 'current_date':
+        dataSource = 'system.current_date';
+        variableType = 'date';
+        break;
+      case 'time':
+      case 'currenttime':
+      case 'current_time':
+        dataSource = 'system.current_time';
+        break;
+      case 'agentname':
+      case 'agent_name':
+        dataSource = 'user.full_name';
+        break;
+      case 'agentphone':
+      case 'agent_phone':
+        dataSource = 'user.phone';
+        break;
+      default:
+        // For unknown variables, try to map to common lead fields
+        dataSource = `lead.${variableName}`;
+    }
+    
+    variables.push({
+      variable_key: variableName,
+      variable_type: variableType,
+      data_source: dataSource,
+      default_value: '',
+      format_pattern: variableType === 'date' ? 'YYYY-MM-DD' : '',
+      is_required: true,
+    });
+  }
+  
+  return variables;
+}
+
+// Create a new template (WhatsApp or SMS)
+export async function createTemplate(input: CreateTemplateInput) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -64,6 +163,19 @@ export async function createWhatsAppTemplate(input: CreateTemplateInput) {
       templateId += `_${Math.random().toString(36).substring(2, 8)}`;
     }
 
+    // Handle SMS template variables parsing
+    let finalVariables = input.variables;
+    if (input.template_type === 'sms' && input.description) {
+      // Parse {{}} variables from description for SMS templates
+      const smsVariables = parseSMSVariables(input.description);
+      if (smsVariables.length > 0) {
+        // Merge with existing variables, avoiding duplicates
+        const existingKeys = new Set(input.variables.map(v => v.variable_key));
+        const newSMSVariables = smsVariables.filter(v => !existingKeys.has(v.variable_key));
+        finalVariables = [...input.variables, ...newSMSVariables];
+      }
+    }
+
     // Create template
     const [template] = await db.insert(whatsappTemplates).values({
       template_id: templateId,
@@ -71,7 +183,7 @@ export async function createWhatsAppTemplate(input: CreateTemplateInput) {
       description: input.description,
       workspace_id: input.workspace_id,
       channel_id: input.channel_id,
-      project_id: input.project_id,
+      project_id: input.template_type === 'sms' ? 'SMS_TEMPLATE' : input.project_id, // Default project_id for SMS templates
       customer_type: input.customer_type ?? 'reloan', // Default to reloan for existing templates
       supported_methods: input.supported_methods,
       default_method: input.default_method,
@@ -86,8 +198,8 @@ export async function createWhatsAppTemplate(input: CreateTemplateInput) {
     }
 
     // Create variables
-    if (input.variables && input.variables.length > 0) {
-      const variableValues = input.variables.map(variable => ({
+    if (finalVariables && finalVariables.length > 0) {
+      const variableValues = finalVariables.map(variable => ({
         template_id: template.id,
         variable_key: variable.variable_key,
         variable_type: variable.variable_type,
@@ -121,7 +233,7 @@ export async function createWhatsAppTemplate(input: CreateTemplateInput) {
 }
 
 // Update an existing WhatsApp template
-export async function updateWhatsAppTemplate(input: UpdateTemplateInput) {
+export async function updateTemplate(input: UpdateTemplateInput) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -138,22 +250,36 @@ export async function updateWhatsAppTemplate(input: UpdateTemplateInput) {
       return { success: false, error: 'Template not found' };
     }
 
+    // Handle SMS template variables parsing if updating to SMS
+    let finalVariables = input.variables;
+    if (input.template_type === 'sms' && input.description) {
+      // Parse {{}} variables from description for SMS templates
+      const smsVariables = parseSMSVariables(input.description);
+      if (smsVariables.length > 0) {
+        // Merge with existing variables, avoiding duplicates
+        const existingKeys = new Set((input.variables ?? []).map(v => v.variable_key));
+        const newSMSVariables = smsVariables.filter(v => !existingKeys.has(v.variable_key));
+        finalVariables = [...(input.variables ?? []), ...newSMSVariables];
+      }
+    }
+
     // Update template
-    const updateData: any = {
+    const updateData = {
       updated_by: userId,
       updated_at: new Date(),
+      ...(input.name && { name: input.name }),
+      ...(input.description !== undefined && { description: input.description }),
+      ...(input.workspace_id && { workspace_id: input.workspace_id }),
+      ...(input.channel_id && { channel_id: input.channel_id }),
+      ...(input.project_id && { project_id: input.project_id }),
+      // For SMS templates, set a default project_id if not provided
+      ...(input.template_type === 'sms' && !input.project_id && { project_id: 'SMS_TEMPLATE' }),
+      ...(input.customer_type && { customer_type: input.customer_type }),
+      ...(input.supported_methods && { supported_methods: input.supported_methods }),
+      ...(input.default_method && { default_method: input.default_method }),
+      ...(input.trigger_on_status !== undefined && { trigger_on_status: input.trigger_on_status }),
+      ...(input.auto_send !== undefined && { auto_send: input.auto_send }),
     };
-
-    if (input.name) updateData.name = input.name;
-    if (input.description !== undefined) updateData.description = input.description;
-    if (input.workspace_id) updateData.workspace_id = input.workspace_id;
-    if (input.channel_id) updateData.channel_id = input.channel_id;
-    if (input.project_id) updateData.project_id = input.project_id;
-    if (input.customer_type) updateData.customer_type = input.customer_type;
-    if (input.supported_methods) updateData.supported_methods = input.supported_methods;
-    if (input.default_method) updateData.default_method = input.default_method;
-    if (input.trigger_on_status !== undefined) updateData.trigger_on_status = input.trigger_on_status;
-    if (input.auto_send !== undefined) updateData.auto_send = input.auto_send;
 
     const [template] = await db.update(whatsappTemplates)
       .set(updateData)
@@ -161,14 +287,14 @@ export async function updateWhatsAppTemplate(input: UpdateTemplateInput) {
       .returning();
 
     // Update variables if provided
-    if (input.variables) {
+    if (finalVariables) {
       // Delete existing variables
       await db.delete(templateVariables)
         .where(eq(templateVariables.template_id, input.id));
 
       // Insert new variables
-      if (input.variables.length > 0) {
-        const variableValues = input.variables.map(variable => ({
+      if (finalVariables.length > 0) {
+        const variableValues = finalVariables.map(variable => ({
           template_id: input.id,
           variable_key: variable.variable_key,
           variable_type: variable.variable_type,
@@ -228,7 +354,7 @@ export async function getAllWhatsAppTemplates() {
 }
 
 // Delete a WhatsApp template
-export async function deleteWhatsAppTemplate(templateId: number) {
+export async function deleteTemplate(templateId: number) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -368,8 +494,9 @@ export async function validateTemplateConfiguration(input: CreateTemplateInput |
     errors.push('Channel ID is required');
   }
 
-  if ('project_id' in input && !input.project_id) {
-    errors.push('Project ID is required');
+  // Project ID is only required for WhatsApp templates, not SMS templates
+  if ('project_id' in input && 'template_type' in input && input.template_type === 'whatsapp' && !input.project_id) {
+    errors.push('Project ID is required for WhatsApp templates');
   }
 
   if ('supported_methods' in input && (!input.supported_methods || input.supported_methods.length === 0)) {

@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { 
   getAllWhatsAppTemplates,
-  createWhatsAppTemplate,
-  updateWhatsAppTemplate,
-  deleteWhatsAppTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
   toggleTemplateStatus,
   getDataSourceSuggestions,
   validateTemplateConfiguration
@@ -15,7 +15,6 @@ import {
   PlusIcon, 
   PencilIcon, 
   TrashIcon, 
-  EyeIcon,
   CheckCircleIcon,
   XCircleIcon
 } from '@heroicons/react/24/outline';
@@ -53,8 +52,9 @@ interface TemplateFormData {
   channel_id: string;
   project_id: string;
   customer_type: 'reloan' | 'new';
-  supported_methods: ('sms' | 'whatsapp' | 'both')[];
-  default_method: 'sms' | 'whatsapp' | 'both';
+  template_type: 'whatsapp' | 'sms'; // Template type determines supported methods
+  supported_methods: ('sms' | 'whatsapp')[]; // Now mutually exclusive
+  default_method: 'sms' | 'whatsapp'; // Must match template_type
   trigger_on_status: string[];
   auto_send: boolean;
   variables: Array<{
@@ -80,8 +80,9 @@ const initialFormData: TemplateFormData = {
   description: '',
   workspace_id: '976e3394-ae10-4b32-9a23-8ecf78da9fe7',
   channel_id: '36f8cbb8-4397-48b5-a9d7-0036ba9c2c77',
-  project_id: '',
+  project_id: '', // Will be set based on template type
   customer_type: 'new',
+  template_type: 'whatsapp', // Default to WhatsApp
   supported_methods: ['whatsapp'],
   default_method: 'whatsapp',
   auto_send: false,
@@ -104,7 +105,7 @@ const leadStatuses = [
 ];
 
 export default function WhatsAppTemplatesPage() {
-  const { userId } = useAuth();
+  const { } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [dataSources, setDataSources] = useState<DataSources>({ lead: [], borrower: [], user: [], system: [], appointment: [] });
   const [loading, setLoading] = useState(true);
@@ -129,7 +130,7 @@ export default function WhatsAppTemplatesPage() {
         }
 
         setDataSources(dataSourcesResult as DataSources);
-      } catch (err) {
+      } catch {
         setError('An error occurred while loading data');
       } finally {
         setLoading(false);
@@ -148,7 +149,7 @@ export default function WhatsAppTemplatesPage() {
         return;
       }
 
-      const result = await createWhatsAppTemplate(formData);
+      const result = await createTemplate(formData) as { success: boolean; template?: any; error?: string };
       if (result.success && result.template) {
         const newTemplate = result.template as unknown as Template;
         setTemplates([...templates, newTemplate]);
@@ -158,7 +159,7 @@ export default function WhatsAppTemplatesPage() {
       } else {
         setModalError(result.error ?? 'Failed to create template');
       }
-    } catch (err) {
+    } catch {
       setModalError('An error occurred while creating the template');
     }
   };
@@ -174,7 +175,7 @@ export default function WhatsAppTemplatesPage() {
         return;
       }
 
-      const result = await updateWhatsAppTemplate({ ...formData, id: editingTemplate.id });
+      const result = await updateTemplate({ ...formData, id: editingTemplate.id }) as { success: boolean; template?: any; error?: string };
       if (result.success && result.template) {
         const updatedTemplate = result.template as unknown as Template;
         setTemplates(templates.map(t => t.id === editingTemplate.id ? updatedTemplate : t));
@@ -185,7 +186,7 @@ export default function WhatsAppTemplatesPage() {
       } else {
         setModalError(result.error ?? 'Failed to update template');
       }
-    } catch (err) {
+    } catch {
       setModalError('An error occurred while updating the template');
     }
   };
@@ -194,13 +195,13 @@ export default function WhatsAppTemplatesPage() {
     if (!confirm('Are you sure you want to delete this template?')) return;
 
     try {
-      const result = await deleteWhatsAppTemplate(templateId);
+      const result = await deleteTemplate(templateId) as { success: boolean; error?: string };
       if (result.success) {
         setTemplates(templates.filter(t => t.id !== templateId));
       } else {
         setError(result.error ?? 'Failed to delete template');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred while deleting the template');
     }
   };
@@ -215,7 +216,7 @@ export default function WhatsAppTemplatesPage() {
       } else {
         setError(result.error ?? 'Failed to toggle template status');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred while updating template status');
     }
   };
@@ -230,8 +231,9 @@ export default function WhatsAppTemplatesPage() {
       channel_id: template.channel_id,
       project_id: template.project_id,
       customer_type: (template.customer_type as 'reloan' | 'new') ?? 'reloan',
-      supported_methods: template.supported_methods as ('sms' | 'whatsapp' | 'both')[],
-      default_method: template.default_method as 'sms' | 'whatsapp' | 'both',
+      template_type: template.supported_methods.includes('sms') && !template.supported_methods.includes('whatsapp') ? 'sms' : 'whatsapp', // Infer from supported methods
+      supported_methods: template.supported_methods as ('sms' | 'whatsapp')[],
+      default_method: template.default_method as 'sms' | 'whatsapp',
       auto_send: template.auto_send,
       trigger_on_status: template.trigger_on_status ?? [],
       variables: template.variables?.map(v => ({
@@ -254,7 +256,106 @@ export default function WhatsAppTemplatesPage() {
     setModalError(null);
   };
 
+  // Function to parse variables from SMS description
+  const parseAndUpdateVariables = (description: string) => {
+    if (formData.template_type !== 'sms') return;
+    
+    console.log('Parsing variables from description:', description);
+    
+    const variableRegex = /\{\{(\w+)\}\}/g;
+    const foundVariables = new Set<string>();
+    let match;
+    
+    while ((match = variableRegex.exec(description)) !== null) {
+      const variableName = match[1];
+      if (variableName) {
+        foundVariables.add(variableName);
+      }
+    }
+    
+    console.log('Found variables:', Array.from(foundVariables));
+    
+    // Map found variables to data sources
+    const parsedVariables = Array.from(foundVariables).map(variableName => {
+      // Check if variable already exists
+      const existing = formData.variables.find(v => v.variable_key === variableName);
+      if (existing) {
+        console.log('Keeping existing variable:', variableName, existing);
+        return existing;
+      }
+      
+      // Map common variable names to data sources
+      let dataSource = '';
+      let variableType: 'string' | 'number' | 'date' = 'string';
+      
+      switch (variableName.toLowerCase()) {
+        case 'name':
+        case 'fullname':
+        case 'full_name':
+          dataSource = 'lead.full_name';
+          break;
+        case 'phone':
+        case 'phonenumber':
+        case 'phone_number':
+          dataSource = 'lead.phone_number';
+          break;
+        case 'email':
+          dataSource = 'lead.email';
+          break;
+        case 'amount':
+        case 'loanamount':
+        case 'loan_amount':
+          dataSource = 'lead.amount';
+          variableType = 'number';
+          break;
+        case 'date':
+        case 'currentdate':
+        case 'current_date':
+          dataSource = 'system.current_date';
+          variableType = 'date';
+          break;
+        case 'time':
+        case 'currenttime':
+        case 'current_time':
+          dataSource = 'system.current_time';
+          break;
+        case 'agentname':
+        case 'agent_name':
+          dataSource = 'user.full_name';
+          break;
+        case 'agentphone':
+        case 'agent_phone':
+          dataSource = 'user.phone';
+          break;
+        default:
+          dataSource = `lead.${variableName}`;
+      }
+      
+      const newVariable = {
+        variable_key: variableName,
+        variable_type: variableType,
+        data_source: dataSource,
+        default_value: '',
+        format_pattern: variableType === 'date' ? 'YYYY-MM-DD' : '',
+        is_required: true,
+      };
+      
+      console.log('Created new variable:', newVariable);
+      return newVariable;
+    });
+    
+    console.log('Final parsed variables:', parsedVariables);
+    
+    setFormData(prev => ({
+      ...prev,
+      variables: parsedVariables
+    }));
+  };
+
   const addVariable = () => {
+    // Only allow manual variable addition for WhatsApp templates
+    if (formData.template_type === 'sms') return;
+    
     setFormData({
       ...formData,
       variables: [...formData.variables, {
@@ -304,7 +405,7 @@ export default function WhatsAppTemplatesPage() {
   return (
     <div className="max-w-7xl mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">WhatsApp Template Management</h1>
+        <h1 className="text-2xl font-bold">Template Management</h1>
         <button
           onClick={() => {
             setShowForm(true);
@@ -368,13 +469,25 @@ export default function WhatsAppTemplatesPage() {
                   <td className="px-6 py-4 w-1/4">
                     <div className="text-sm text-gray-900">
                       <div className="truncate">Project: {template.project_id}</div>
-                      <div>Type: <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        template.customer_type === 'reloan' 
-                          ? 'bg-blue-100 text-blue-800' 
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {template.customer_type === 'reloan' ? 'Reloan Customer' : 'New Customer'}
-                      </span></div>
+                      <div className="flex gap-2 items-center">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          template.supported_methods.includes('sms') && !template.supported_methods.includes('whatsapp')
+                            ? 'bg-orange-100 text-orange-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}>
+                          {template.supported_methods.includes('sms') && !template.supported_methods.includes('whatsapp')
+                            ? 'SMS Template'
+                            : 'WhatsApp Template'
+                          }
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          template.customer_type === 'reloan' 
+                            ? 'bg-blue-100 text-blue-800' 
+                            : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {template.customer_type === 'reloan' ? 'Reloan Customer' : 'New Customer'}
+                        </span>
+                      </div>
                       <div>Methods: {template.supported_methods.join(', ')}</div>
                       <div>Default: {template.default_method}</div>
                       <div>Variables: {template.variables?.length ?? 0}</div>
@@ -460,91 +573,240 @@ export default function WhatsAppTemplatesPage() {
               </div>
 
               <div className="px-6 py-4 space-y-6">
-                {/* Basic Information */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2"
-                      placeholder="Template name (e.g., No Answer Follow-up)"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Project ID *
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.project_id}
-                      onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2"
-                      placeholder="WhatsApp project identifier"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">This identifies your WhatsApp template in the API</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Customer Type *
-                    </label>
-                    <select
-                      value={formData.customer_type}
-                      onChange={(e) => setFormData({ ...formData, customer_type: e.target.value as 'reloan' | 'new' })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:outline-none"
-                    >
-                      <option value="reloan">Reloan Customer</option>
-                      <option value="new">New Customer</option>
-                    </select>
-                    <div className="text-xs text-gray-500 mt-1 space-y-1">
-                      <p>• <strong>New Customer:</strong> For leads who haven't borrowed before (use lead.* data sources)</p>
-                      <p>• <strong>Reloan Customer:</strong> For existing borrowers (use borrower.* data sources with more loan details)</p>
-                    </div>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description
-                    </label>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2"
-                      rows={2}
-                      placeholder="Template description"
-                    />
+                {/* Template Type Selection - Show First */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Template Type *
+                  </label>
+                  <select
+                    value={formData.template_type}
+                      onChange={(e) => {
+                        const newType = e.target.value as 'whatsapp' | 'sms';
+                        setFormData({ 
+                          ...formData, 
+                          template_type: newType,
+                          // Auto-adjust supported methods and default method based on type
+                          supported_methods: [newType],
+                          default_method: newType,
+                          // Set default project_id for SMS templates
+                          project_id: newType === 'sms' ? 'SMS_TEMPLATE' : formData.project_id
+                        });
+                      }}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="whatsapp">WhatsApp Template</option>
+                    <option value="sms">SMS Template</option>
+                  </select>
+                  <div className="text-xs text-gray-500 mt-1 space-y-1">
+                    <p>• <strong>WhatsApp:</strong> Uses WhatsApp API with template variables</p>
+                    <p>• <strong>SMS:</strong> Uses description with {`{{}}`} variables for SMS content</p>
                   </div>
                 </div>
 
-                {/* Configuration */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Workspace ID *
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.workspace_id}
-                      onChange={(e) => setFormData({ ...formData, workspace_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Pre-filled with default</p>
+                {/* Basic Information - Show after template type is selected */}
+                {formData.template_type && (
+                  <div className="space-y-6">
+                    {/* Name and Customer Type */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.name}
+                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2"
+                          placeholder="Template name (e.g., No Answer Follow-up)"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Customer Type *
+                        </label>
+                        <select
+                          value={formData.customer_type}
+                          onChange={(e) => setFormData({ ...formData, customer_type: e.target.value as 'reloan' | 'new' })}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:outline-none"
+                        >
+                          <option value="reloan">Reloan Customer</option>
+                          <option value="new">New Customer</option>
+                        </select>
+                        <div className="text-xs text-gray-500 mt-1 space-y-1">
+                          <p>• <strong>New Customer:</strong> For leads who haven&apos;t borrowed before (use lead.* data sources)</p>
+                          <p>• <strong>Reloan Customer:</strong> For existing borrowers (use borrower.* data sources with more loan details)</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Description *
+                      </label>
+                      <textarea
+                        value={formData.description}
+                        onChange={(e) => {
+                          const newDescription = e.target.value;
+                          setFormData({ ...formData, description: newDescription });
+                          // Auto-parse variables for SMS templates
+                          if (formData.template_type === 'sms') {
+                            parseAndUpdateVariables(newDescription);
+                          }
+                        }}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        rows={formData.template_type === 'sms' ? 4 : 2}
+                        placeholder={
+                          formData.template_type === 'sms' 
+                            ? 'SMS message content with {{}} variables (e.g., "Hi {{name}}, your loan application for {{amount}} is approved!")'
+                            : 'Template description'
+                        }
+                      />
+                      {formData.template_type === 'sms' && (
+                        <div className="text-xs text-gray-500 mt-1 space-y-1">
+                          <p><strong>SMS Variables:</strong> Use {`{{variable_name}}`} format. Common variables:</p>
+                          <p>• {`{{name}}`}, {`{{phone}}`}, {`{{email}}`}, {`{{amount}}`}, {`{{date}}`}, {`{{agentname}}`}</p>
+                          <p>• Variables will be automatically parsed and added to the template</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* API Configuration */}
+                    <div>
+                      <h3 className="text-lg font-medium mb-4">API Configuration</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Workspace ID *
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.workspace_id}
+                            onChange={(e) => setFormData({ ...formData, workspace_id: e.target.value })}
+                            className="w-full border border-gray-300 rounded-md px-3 py-2"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Pre-filled with default</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Channel ID *
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.channel_id}
+                            onChange={(e) => setFormData({ ...formData, channel_id: e.target.value })}
+                            className="w-full border border-gray-300 rounded-md px-3 py-2"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Pre-filled with default</p>
+                        </div>
+                        {/* Project ID - Only for WhatsApp templates */}
+                        {formData.template_type === 'whatsapp' && (
+                          <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Project ID *
+                            </label>
+                            <input
+                              type="text"
+                              value={formData.project_id}
+                              onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                              className="w-full border border-gray-300 rounded-md px-3 py-2"
+                              placeholder="WhatsApp project identifier"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              This identifies your WhatsApp template in the API
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Auto-send Configuration */}
+                    <div>
+                      <h3 className="text-lg font-medium mb-4">Auto-send Configuration</h3>
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                        <div className="flex items-start">
+                          <input
+                            type="checkbox"
+                            id="auto_send"
+                            checked={formData.auto_send}
+                            onChange={(e) => setFormData({ ...formData, auto_send: e.target.checked })}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+                          />
+                          <div className="ml-3">
+                            <label htmlFor="auto_send" className="text-sm font-medium text-gray-900">
+                              Enable automatic sending
+                            </label>
+                        <p className="text-xs text-gray-600 mt-1">
+                          This template will automatically send when a lead&apos;s status changes to one of the selected statuses below.
+                        </p>
+                          </div>
+                        </div>
+                        
+                        {formData.auto_send && (
+                          <div className="border-t border-gray-200 pt-4">
+                            <div className="mb-3">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Send automatically when lead status changes to:
+                              </label>
+                              <p className="text-xs text-gray-600 mb-3">
+                                Select one or more statuses. The template will be sent automatically when a lead&apos;s status changes to any of these statuses.
+                              </p>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                              {leadStatuses.map((status) => {
+                                const isSelected = formData.trigger_on_status.includes(status);
+                                const statusDisplay = status.replace('_', ' ').replace('/', ' / ');
+                                
+                                return (
+                                  <label 
+                                    key={status} 
+                                    className={`flex items-center p-2 rounded-md border cursor-pointer transition-colors ${
+                                      isSelected 
+                                        ? 'bg-blue-50 border-blue-200 text-blue-900' 
+                                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setFormData({
+                                            ...formData,
+                                            trigger_on_status: [...formData.trigger_on_status, status]
+                                          });
+                                        } else {
+                                          setFormData({
+                                            ...formData,
+                                            trigger_on_status: formData.trigger_on_status.filter(s => s !== status)
+                                          });
+                                        }
+                                      }}
+                                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mr-2"
+                                    />
+                                    <span className="text-sm font-medium capitalize">{statusDisplay}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            
+                            {formData.trigger_on_status.length > 0 && (
+                              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                                <p className="text-sm text-blue-800">
+                                  <strong>Selected statuses:</strong> {formData.trigger_on_status.map(s => s.replace('_', ' ').replace('/', ' / ')).join(', ')}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Channel ID *
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.channel_id}
-                      onChange={(e) => setFormData({ ...formData, channel_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Pre-filled with default</p>
-                  </div>
-                </div>
+                )}
+
+
 
                 {/* Variables */}
                 <div>
@@ -552,16 +814,27 @@ export default function WhatsAppTemplatesPage() {
                     <div>
                       <h3 className="text-lg font-medium">Template Variables</h3>
                       <p className="text-sm text-gray-600 mt-1">
-                        Available data sources change based on customer type selected above
-                        {formData.customer_type === 'reloan' ? ' (Lead + Borrower data available)' : ' (Lead data only)'}
+                        {formData.template_type === 'sms' ? (
+                          <>
+                            SMS variables are automatically parsed from the description field above.
+                            Configure the data sources for each variable below.
+                          </>
+                        ) : (
+                          <>
+                            Available data sources change based on customer type selected above
+                            {formData.customer_type === 'reloan' ? ' (Lead + Borrower data available)' : ' (Lead data only)'}
+                          </>
+                        )}
                       </p>
                     </div>
-                    <button
-                      onClick={addVariable}
-                      className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                    >
-                      Add Variable
-                    </button>
+                    {formData.template_type === 'whatsapp' && (
+                      <button
+                        onClick={addVariable}
+                        className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
+                      >
+                        Add Variable
+                      </button>
+                    )}
                   </div>
                   
                   <div className="space-y-4">
@@ -576,9 +849,15 @@ export default function WhatsAppTemplatesPage() {
                               type="text"
                               value={variable.variable_key}
                               onChange={(e) => updateVariable(index, 'variable_key', e.target.value)}
-                              className="w-full border border-gray-300 rounded-md px-3 py-1 text-sm"
+                              className={`w-full border border-gray-300 rounded-md px-3 py-1 text-sm ${
+                                formData.template_type === 'sms' ? 'bg-gray-100 cursor-not-allowed' : ''
+                              }`}
                               placeholder="Date"
+                              disabled={formData.template_type === 'sms'}
                             />
+                            {formData.template_type === 'sms' && (
+                              <p className="text-xs text-gray-500 mt-1">Auto-parsed from description</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -587,7 +866,10 @@ export default function WhatsAppTemplatesPage() {
                             <select
                               value={variable.variable_type}
                               onChange={(e) => updateVariable(index, 'variable_type', e.target.value)}
-                              className="w-full border border-gray-300 rounded-md px-3 py-1 text-sm"
+                              className={`w-full border border-gray-300 rounded-md px-3 py-1 text-sm ${
+                                formData.template_type === 'sms' ? 'bg-gray-100 cursor-not-allowed' : ''
+                              }`}
+                              disabled={formData.template_type === 'sms'}
                             >
                               <option value="string">String</option>
                               <option value="number">Number</option>
@@ -656,12 +938,14 @@ export default function WhatsAppTemplatesPage() {
                                 className="w-full border border-gray-300 rounded-md px-3 py-1 text-sm"
                               />
                             </div>
-                            <button
-                              onClick={() => removeVariable(index)}
-                              className="text-red-600 hover:text-red-800 p-1"
-                            >
-                              <TrashIcon className="h-4 w-4" />
-                            </button>
+                            {formData.template_type === 'whatsapp' && (
+                              <button
+                                onClick={() => removeVariable(index)}
+                                className="text-red-600 hover:text-red-800 p-1"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -669,51 +953,6 @@ export default function WhatsAppTemplatesPage() {
                   </div>
                 </div>
 
-                {/* Auto-trigger Settings */}
-                <div>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.auto_send}
-                      onChange={(e) => setFormData({ ...formData, auto_send: e.target.checked })}
-                      className="mr-2"
-                    />
-                    Enable auto-send on status change
-                  </label>
-                  
-                  {formData.auto_send && (
-                    <div className="mt-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Trigger on these status changes:
-                      </label>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {leadStatuses.map(status => (
-                          <label key={status} className="flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={formData.trigger_on_status.includes(status)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFormData({
-                                    ...formData,
-                                    trigger_on_status: [...formData.trigger_on_status, status]
-                                  });
-                                } else {
-                                  setFormData({
-                                    ...formData,
-                                    trigger_on_status: formData.trigger_on_status.filter(s => s !== status)
-                                  });
-                                }
-                              }}
-                              className="mr-2"
-                            />
-                            <span className="text-sm">{status}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
