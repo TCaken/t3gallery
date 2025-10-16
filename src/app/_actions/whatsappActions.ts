@@ -1201,6 +1201,7 @@ export async function sendNewLeadReminder1(
     // Format phone number
     const formattedPhone = formatPhoneNumber(phoneNumber);
 
+    
     const whatsappData: WhatsAppRequest = {
       workspaces: workspaceId,
       channels: channelId,
