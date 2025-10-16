@@ -79,7 +79,7 @@ const initialFormData: TemplateFormData = {
   name: '',
   description: '',
   workspace_id: '976e3394-ae10-4b32-9a23-8ecf78da9fe7',
-  channel_id: '36f8cbb8-4397-48b5-a9d7-0036ba9c2c77',
+  channel_id: '529539f8-da50-550b-8fb2-199e744e3992',
   project_id: '', // Will be set based on template type
   customer_type: 'new',
   template_type: 'whatsapp', // Default to WhatsApp
